@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 import HelpTip from '../components/HelpTip'
+import ScheduleBuilder from '../components/ScheduleBuilder'
 import EntryCard from '../components/EntryCard'
 
 function Badge({ children, color = 'gray' }) {
@@ -245,12 +246,9 @@ function BlueprintForm({ initial, onSave, onCancel }) {
           )}
 
           {/* Auto-fetch schedule */}
-          <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
-            <label className="block text-xs text-gray-400 font-medium">Auto-fetch schedule<HelpTip text="Cron expression for automatic fetching, e.g. */5 * * * * (every 5 min), 0 * * * * (hourly), 0 9 * * 1-5 (weekdays at 9am). Must also check Active." /></label>
-            <div className="flex items-center gap-3">
-              <input value={form.fetch_cron || ''} onChange={e => set('fetch_cron', e.target.value)}
-                placeholder="*/5 * * * *  (every 5 min)"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+          <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs text-gray-400 font-medium">Auto-fetch schedule<HelpTip text="Set a recurring schedule for automatic fetching. Choose an interval (every N minutes/hours) or a fixed time with specific days of the week." /></label>
               <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer shrink-0">
                 <input type="checkbox" checked={!!form.fetch_is_active}
                   onChange={e => set('fetch_is_active', e.target.checked)}
@@ -258,7 +256,7 @@ function BlueprintForm({ initial, onSave, onCancel }) {
                 Active
               </label>
             </div>
-            <p className="text-xs text-gray-600">Leave blank to disable scheduled fetching. 5-field cron syntax.</p>
+            <ScheduleBuilder value={form.fetch_cron || ''} onChange={v => set('fetch_cron', v)} />
           </div>
         </>
       )}
