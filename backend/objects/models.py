@@ -21,6 +21,8 @@ class ObjectType(SQLModel, table=True):
     field_mappings: str = "[]"
     trigger_pybook_id: Optional[str] = None
     polling_interval_seconds: Optional[int] = None
+    fetch_cron: Optional[str] = None
+    fetch_is_active: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_now)
 
 

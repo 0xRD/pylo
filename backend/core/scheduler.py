@@ -14,6 +14,15 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+def _parse_cron(expr: str):
+    """Return CronTrigger kwargs from a 5-part cron expression, or None if invalid."""
+    parts = expr.strip().split()
+    if len(parts) != 5:
+        return None
+    minute, hour, day, month, day_of_week = parts
+    return dict(minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week)
+
+
 async def _run_cron_pybook(pybook_id: str):
     from backend.api.pybooks import _execute_run
 
@@ -21,7 +30,6 @@ async def _run_cron_pybook(pybook_id: str):
         pb = session.get(PyBook, pybook_id)
         if not pb or not pb.is_active:
             return
-
         now = datetime.now(timezone.utc)
         run = PyBookRun(
             id=str(uuid.uuid4()),
@@ -33,47 +41,78 @@ async def _run_cron_pybook(pybook_id: str):
         )
         session.add(run)
         session.commit()
-        session.refresh(run)
-        await _execute_run(pb, run, session)
+
+    await _execute_run(pybook_id, run.id)
+
+
+async def _fetch_cron_objects(type_id: str):
+    """Scheduled auto-fetch for an ObjectType."""
+    from backend.api.objects import _do_fetch
+    from backend.database import get_session_ctx
+
+    try:
+        with Session(engine) as session:
+            result = await _do_fetch(type_id, session)
+            logger.info("Cron fetch for ObjectType %s: %s", type_id, result)
+    except Exception as exc:
+        logger.error("Cron fetch failed for ObjectType %s: %s", type_id, exc)
 
 
 def sync_cron_jobs():
-    """Rebuild all cron jobs from the database. Call on startup and after PyBook updates."""
+    """Rebuild all cron jobs from the database. Call on startup and after updates."""
+    # ── PyBook cron jobs ──────────────────────────────────────────────────────
     with Session(engine) as session:
         pybooks = session.exec(
             select(PyBook).where(PyBook.trigger_type == "cron", PyBook.is_active == True)
         ).all()
 
-    # Remove all existing pybook cron jobs
     for job in scheduler.get_jobs():
-        if job.id.startswith("cron_"):
+        if job.id.startswith("cron_pb_"):
             job.remove()
 
     for pb in pybooks:
         try:
             config = json.loads(pb.trigger_config or "{}")
             cron_expr = config.get("cron", "")
-            if not cron_expr:
+            kwargs = _parse_cron(cron_expr)
+            if not kwargs:
+                logger.warning("Invalid cron for PyBook %s: %s", pb.id, cron_expr)
                 continue
-            parts = cron_expr.strip().split()
-            if len(parts) != 5:
-                logger.warning("Invalid cron expression for PyBook %s: %s", pb.id, cron_expr)
-                continue
-            minute, hour, day, month, day_of_week = parts
             scheduler.add_job(
-                _run_cron_pybook,
-                CronTrigger(
-                    minute=minute, hour=hour,
-                    day=day, month=month, day_of_week=day_of_week,
-                ),
-                args=[pb.id],
-                id=f"cron_{pb.id}",
-                replace_existing=True,
-                misfire_grace_time=60,
+                _run_cron_pybook, CronTrigger(**kwargs),
+                args=[pb.id], id=f"cron_pb_{pb.id}",
+                replace_existing=True, misfire_grace_time=60,
             )
-            logger.info("Scheduled cron job for PyBook %s: %s", pb.name, cron_expr)
+            logger.info("Scheduled cron PyBook %s: %s", pb.name, cron_expr)
         except Exception as exc:
             logger.error("Failed to schedule PyBook %s: %s", pb.id, exc)
+
+    # ── ObjectType fetch cron jobs ────────────────────────────────────────────
+    from backend.objects.models import ObjectType
+
+    with Session(engine) as session:
+        obj_types = session.exec(
+            select(ObjectType).where(
+                ObjectType.fetch_cron != None,
+                ObjectType.fetch_is_active == True,
+            )
+        ).all()
+
+    for job in scheduler.get_jobs():
+        if job.id.startswith("cron_obj_"):
+            job.remove()
+
+    for ot in obj_types:
+        kwargs = _parse_cron(ot.fetch_cron)
+        if not kwargs:
+            logger.warning("Invalid fetch_cron for ObjectType %s: %s", ot.id, ot.fetch_cron)
+            continue
+        scheduler.add_job(
+            _fetch_cron_objects, CronTrigger(**kwargs),
+            args=[ot.id], id=f"cron_obj_{ot.id}",
+            replace_existing=True, misfire_grace_time=60,
+        )
+        logger.info("Scheduled cron fetch ObjectType %s: %s", ot.name, ot.fetch_cron)
 
 
 def start_scheduler():

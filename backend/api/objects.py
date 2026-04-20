@@ -31,6 +31,8 @@ class ObjectTypeCreate(BaseModel):
     field_mappings: str = "[]"
     trigger_pybook_id: Optional[str] = None
     polling_interval_seconds: Optional[int] = None
+    fetch_cron: Optional[str] = None
+    fetch_is_active: bool = False
 
 
 class ObjectTypeUpdate(BaseModel):
@@ -43,6 +45,8 @@ class ObjectTypeUpdate(BaseModel):
     field_mappings: Optional[str] = None
     trigger_pybook_id: Optional[str] = None
     polling_interval_seconds: Optional[int] = None
+    fetch_cron: Optional[str] = None
+    fetch_is_active: Optional[bool] = None
 
 
 # ── ObjectType CRUD ───────────────────────────────────────────────────────────
@@ -90,6 +94,10 @@ async def update_object_type(
     session.add(obj)
     session.commit()
     session.refresh(obj)
+    updated = body.model_dump(exclude_none=True)
+    if "fetch_cron" in updated or "fetch_is_active" in updated:
+        from backend.core.scheduler import sync_cron_jobs
+        sync_cron_jobs()
     return obj
 
 
@@ -111,41 +119,46 @@ async def delete_object_type(type_id: str, session: Session = Depends(get_sessio
 
 # ── Manual fetch ──────────────────────────────────────────────────────────────
 
-@router.post("/types/{type_id}/fetch")
-async def fetch_object_type(type_id: str, session: Session = Depends(get_session)):
+async def _do_fetch(type_id: str, session: Session) -> dict:
     obj = session.get(ObjectType, type_id)
     if not obj:
-        raise HTTPException(status_code=404, detail="ObjectType not found")
+        raise ValueError(f"ObjectType {type_id} not found")
     if not obj.source_url:
-        raise HTTPException(status_code=400, detail="ObjectType has no source_url configured")
+        raise ValueError("ObjectType has no source_url configured")
 
-    headers = json.loads(obj.source_headers or "{}")
-    body = json.loads(obj.source_body or "{}")
+    req_headers = json.loads(obj.source_headers or "{}")
+    req_body = json.loads(obj.source_body or "{}")
     field_mappings = json.loads(obj.field_mappings or "[]")
+
+    try:
+        from backend.core.crypto import resolve_secret_templates
+        req_headers = resolve_secret_templates(req_headers, session)
+    except Exception:
+        pass
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             if obj.source_method.upper() == "POST":
-                response = await client.post(obj.source_url, headers=headers, json=body)
+                response = await client.post(obj.source_url, headers=req_headers, json=req_body)
             else:
-                response = await client.get(obj.source_url, headers=headers)
+                response = await client.get(obj.source_url, headers=req_headers)
         response.raise_for_status()
         raw_data = response.json()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Upstream fetch failed: {exc}")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise RuntimeError(f"Upstream fetch failed: {exc}")
 
-    # raw_data may be a list or a single object
     items = raw_data if isinstance(raw_data, list) else [raw_data]
+    key_field = next(
+        (m["field_name"] for m in field_mappings if m.get("is_key")),
+        "external_id",
+    )
     created_count = 0
     skipped_count = 0
 
     for item in items:
         parsed = parse_instance(item, field_mappings)
-        external_id = parsed.get("external_id") or parsed.get("id")
+        external_id = parsed.get(key_field)
 
-        # Deduplication
         if external_id:
             existing = session.exec(
                 select(ObjectInstance).where(
@@ -168,12 +181,25 @@ async def fetch_object_type(type_id: str, session: Session = Depends(get_session
             updated_at=now,
         )
         session.add(inst)
-        session.flush()  # get inst.id before indexing
+        session.flush()
         index_instance(session, inst.id, type_id, extract_text_content(parsed))
         created_count += 1
 
     session.commit()
     return {"created": created_count, "skipped": skipped_count, "total": len(items)}
+
+
+@router.post("/types/{type_id}/fetch")
+async def fetch_object_type(type_id: str, session: Session = Depends(get_session)):
+    obj = session.get(ObjectType, type_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="ObjectType not found")
+    if not obj.source_url:
+        raise HTTPException(status_code=400, detail="ObjectType has no source_url configured")
+    try:
+        return await _do_fetch(type_id, session)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 # ── ObjectInstance routes ─────────────────────────────────────────────────────
