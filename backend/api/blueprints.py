@@ -170,13 +170,19 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
     if not bp.source_url:
         raise ValueError("Blueprint has no source_url configured")
 
+    field_mappings = json.loads(bp.field_mappings or "[]")
     req_headers = json.loads(bp.source_headers or "{}")
     req_body = json.loads(bp.source_body or "{}")
-    field_mappings = json.loads(bp.field_mappings or "[]")
 
     try:
-        from backend.core.crypto import resolve_secret_templates
-        req_headers = resolve_secret_templates(req_headers, session)
+        from backend.core.crypto import decrypt, resolve_secret_templates
+        from backend.secrets.models import Secret
+        from sqlmodel import select as _select
+        secrets_map = {s.name: decrypt(s.encrypted_value) for s in session.exec(_select(Secret)).all()}
+        raw_headers_str = resolve_secret_templates(bp.source_headers or '{}', secrets_map)
+        raw_body_str = resolve_secret_templates(bp.source_body or '{}', secrets_map)
+        req_headers = json.loads(raw_headers_str)
+        req_body = json.loads(raw_body_str)
     except Exception:
         pass
 
@@ -260,10 +266,20 @@ class PreviewRequest(BaseModel):
 async def preview_endpoint(body: PreviewRequest):
     """Fire a URL and return the raw response for JSONPath exploration."""
     try:
-        req_headers = json.loads(body.source_headers or "{}")
-        req_body = json.loads(body.source_body or "{}")
+        from backend.core.crypto import decrypt, resolve_secret_templates
+        from backend.secrets.models import Secret
+        from sqlmodel import Session as _Session, select as _select
+        from backend.database import engine as _engine
+        with _Session(_engine) as _s:
+            secrets_map = {s.name: decrypt(s.encrypted_value) for s in _s.exec(_select(Secret)).all()}
+        headers_str = resolve_secret_templates(body.source_headers or '{}', secrets_map)
+        body_str = resolve_secret_templates(body.source_body or '{}', secrets_map)
+        req_headers = json.loads(headers_str)
+        req_body = json.loads(body_str)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid JSON in headers/body: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Secret resolution failed: {exc}")
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
