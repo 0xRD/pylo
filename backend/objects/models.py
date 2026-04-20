@@ -8,8 +8,8 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class ObjectType(SQLModel, table=True):
-    __tablename__ = "object_type"
+class Blueprint(SQLModel, table=True):
+    __tablename__ = "blueprint"
 
     id: str = Field(primary_key=True)
     name: str
@@ -23,14 +23,15 @@ class ObjectType(SQLModel, table=True):
     polling_interval_seconds: Optional[int] = None
     fetch_cron: Optional[str] = None
     fetch_is_active: bool = Field(default=False)
+    is_manual: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_now)
 
 
-class ObjectInstance(SQLModel, table=True):
-    __tablename__ = "object_instance"
+class Entry(SQLModel, table=True):
+    __tablename__ = "entry"
 
     id: str = Field(primary_key=True)
-    object_type_id: str = Field(index=True)
+    blueprint_id: str = Field(index=True)
     external_id: Optional[str] = None
     data: str = "{}"
     raw_data: str = "{}"

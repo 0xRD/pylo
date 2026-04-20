@@ -17,18 +17,18 @@ def call_sub_pybook(sub_pybook_id: str, payload: dict = {}) -> dict:
     return resp.json()
 
 
-def search_objects(query: str, type_id: str = None) -> list:
-    """Full-text search on object instances."""
+def search_entries(query: str, type_id: str = None) -> list:
+    """Full-text search on blueprint entries."""
     params = {"q": query}
     if type_id:
-        params["type_id"] = type_id
-    resp = requests.get(f"{_api_url}/api/objects/instances", params=params, headers=_headers)
+        params["blueprint_id"] = type_id
+    resp = requests.get(f"{_api_url}/api/blueprints/entries", params=params, headers=_headers)
     resp.raise_for_status()
     return resp.json()
 
 
-def get_object(object_id: str) -> dict:
-    """Fetch a single object instance by ID."""
-    resp = requests.get(f"{_api_url}/api/objects/instances/{object_id}", headers=_headers)
+def get_entry(object_id: str) -> dict:
+    """Fetch a single entry by ID."""
+    resp = requests.get(f"{_api_url}/api/blueprints/entries/{object_id}", headers=_headers)
     resp.raise_for_status()
     return resp.json()

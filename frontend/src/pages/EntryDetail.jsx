@@ -1,35 +1,35 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { objectsApi } from '../api/objects'
+import { blueprintsApi } from '../api/blueprints'
 
-export default function ObjectDetail() {
+export default function EntryDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [instance, setInstance] = useState(null)
+  const [entry, setEntry] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    objectsApi.getInstance(id)
-      .then(setInstance)
+    blueprintsApi.getEntry(id)
+      .then(setEntry)
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
   }, [id])
 
   const handleDelete = async () => {
-    if (!confirm('Delete this instance?')) return
-    await objectsApi.deleteInstance(id)
+    if (!confirm('Delete this entry?')) return
+    await blueprintsApi.deleteEntry(id)
     navigate(-1)
   }
 
   if (loading) return <div className="text-gray-500 text-sm">Loading…</div>
   if (error) return <div className="text-red-400 text-sm">{error}</div>
-  if (!instance) return null
+  if (!entry) return null
 
   let data = {}
   let rawData = {}
-  try { data = JSON.parse(instance.data) } catch {}
-  try { rawData = JSON.parse(instance.raw_data) } catch {}
+  try { data = JSON.parse(entry.data) } catch {}
+  try { rawData = JSON.parse(entry.raw_data) } catch {}
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -39,10 +39,10 @@ export default function ObjectDetail() {
             ← Back
           </button>
           <h1 className="text-xl font-semibold">
-            Instance <span className="font-mono text-indigo-400">{instance.id.slice(0, 8)}</span>
+            Entry <span className="font-mono text-indigo-400">{entry.id.slice(0, 8)}</span>
           </h1>
-          {instance.external_id && (
-            <p className="text-sm text-gray-500 mt-1">External ID: <span className="font-mono">{instance.external_id}</span></p>
+          {entry.external_id && (
+            <p className="text-sm text-gray-500 mt-1">Key: <span className="font-mono">{entry.external_id}</span></p>
           )}
         </div>
         <button onClick={handleDelete}
@@ -52,13 +52,12 @@ export default function ObjectDetail() {
       </div>
 
       <div className="flex gap-4 text-xs text-gray-500">
-        <span>Created: {new Date(instance.created_at).toLocaleString()}</span>
-        <span>Updated: {new Date(instance.updated_at).toLocaleString()}</span>
+        <span>Created: {new Date(entry.created_at).toLocaleString()}</span>
+        <span>Updated: {new Date(entry.updated_at).toLocaleString()}</span>
       </div>
 
-      {/* Parsed fields */}
       <section>
-        <h2 className="text-sm font-semibold text-gray-300 mb-3">Parsed Fields</h2>
+        <h2 className="text-sm font-semibold text-gray-300 mb-3">Fields</h2>
         {Object.keys(data).length === 0 ? (
           <p className="text-sm text-gray-600 italic">No mapped fields.</p>
         ) : (
@@ -73,7 +72,6 @@ export default function ObjectDetail() {
         )}
       </section>
 
-      {/* Raw JSON */}
       <section>
         <h2 className="text-sm font-semibold text-gray-300 mb-3">Raw Data</h2>
         <pre className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-xs font-mono text-gray-300 overflow-auto max-h-96">

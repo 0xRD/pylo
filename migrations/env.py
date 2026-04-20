@@ -18,7 +18,7 @@ if config.config_file_name is not None:
 
 target_metadata = SQLModel.metadata
 
-EXCLUDE_TABLES = {"fts_objects", "fts_objects_content", "fts_objects_data", "fts_objects_config", "fts_objects_idx", "fts_objects_docsize"}
+EXCLUDE_TABLES = {"fts_objects", "fts_objects_content", "fts_objects_data", "fts_objects_config", "fts_objects_idx", "fts_objects_docsize", "fts_entries", "fts_entries_content", "fts_entries_data", "fts_entries_config", "fts_entries_idx", "fts_entries_docsize"}
 
 def include_object(object, name, type_, reflected, compare_to):
     if type_ == "table" and name in EXCLUDE_TABLES:

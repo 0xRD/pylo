@@ -106,7 +106,7 @@ def test_extract_text_content():
 # ── API: ObjectType CRUD ──────────────────────────────────────────────────────
 
 def test_create_object_type(client):
-    r = client.post("/api/objects/types", json={"name": "TestAlert", "description": "test"})
+    r = client.post("/api/blueprints", json={"name": "TestAlert", "description": "test"})
     assert r.status_code == 201
     data = r.json()
     assert data["name"] == "TestAlert"
@@ -114,30 +114,30 @@ def test_create_object_type(client):
 
 
 def test_list_object_types(client):
-    r = client.get("/api/objects/types")
+    r = client.get("/api/blueprints")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
     assert any(t["name"] == "TestAlert" for t in r.json())
 
 
 def test_get_object_type(client):
-    types = client.get("/api/objects/types").json()
+    types = client.get("/api/blueprints").json()
     t = next(t for t in types if t["name"] == "TestAlert")
-    r = client.get(f"/api/objects/types/{t['id']}")
+    r = client.get(f"/api/blueprints/{t['id']}")
     assert r.status_code == 200
     assert r.json()["id"] == t["id"]
 
 
 def test_update_object_type(client):
-    types = client.get("/api/objects/types").json()
+    types = client.get("/api/blueprints").json()
     t = next(t for t in types if t["name"] == "TestAlert")
-    r = client.put(f"/api/objects/types/{t['id']}", json={"description": "updated"})
+    r = client.put(f"/api/blueprints/{t['id']}", json={"description": "updated"})
     assert r.status_code == 200
     assert r.json()["description"] == "updated"
 
 
 def test_get_nonexistent_type(client):
-    r = client.get("/api/objects/types/nonexistent-id")
+    r = client.get("/api/blueprints/nonexistent-id")
     assert r.status_code == 404
 
 
@@ -150,7 +150,7 @@ def test_deduplication(client, respx_mock=None):
     from sqlmodel import select
 
     # Create type with field mapping for external_id
-    r = client.post("/api/objects/types", json={
+    r = client.post("/api/blueprints", json={
         "name": "DedupeType",
         "field_mappings": _json.dumps([
             {"source_path": "$.id", "field_name": "external_id", "field_type": "string"}
@@ -205,7 +205,7 @@ def test_fts_search(client):
     from backend.objects.indexer import index_instance
 
     # Create a type and instance with known content
-    r = client.post("/api/objects/types", json={"name": "FTSType"})
+    r = client.post("/api/blueprints", json={"name": "FTSType"})
     type_id = r.json()["id"]
 
     now = datetime.now(timezone.utc)
@@ -224,7 +224,7 @@ def test_fts_search(client):
         index_instance(s, inst_id, type_id, "critical security incident")
         s.commit()
 
-    r = client.get(f"/api/objects/instances?type_id={type_id}&q=critical")
+    r = client.get(f"/api/blueprints/entries?type_id={type_id}&q=critical")
     assert r.status_code == 200
     ids = [i["id"] for i in r.json()]
     assert inst_id in ids
@@ -237,7 +237,7 @@ def test_delete_type_removes_instances(client):
     from backend.objects.models import ObjectInstance
     from sqlmodel import select
 
-    r = client.post("/api/objects/types", json={"name": "DeleteMe"})
+    r = client.post("/api/blueprints", json={"name": "DeleteMe"})
     type_id = r.json()["id"]
 
     now = datetime.now(timezone.utc)
@@ -249,7 +249,7 @@ def test_delete_type_removes_instances(client):
             ))
         s.commit()
 
-    r = client.delete(f"/api/objects/types/{type_id}")
+    r = client.delete(f"/api/blueprints/{type_id}")
     assert r.status_code == 204
 
     with Session(db_module.engine) as s:

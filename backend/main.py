@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import init_db
-from backend.api.objects import router as objects_router
+from backend.api.blueprints import router as blueprints_router
 from backend.api.pybooks import router as pybooks_router
 from backend.api.runs import router as runs_router
 from backend.api.secrets import router as secrets_router
@@ -43,7 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(objects_router)
+app.include_router(blueprints_router)
 app.include_router(pybooks_router)
 app.include_router(runs_router)
 app.include_router(secrets_router)

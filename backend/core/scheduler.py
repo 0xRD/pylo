@@ -45,17 +45,17 @@ async def _run_cron_pybook(pybook_id: str):
     await _execute_run(pybook_id, run.id)
 
 
-async def _fetch_cron_objects(type_id: str):
+async def _fetch_cron_blueprint(type_id: str):
     """Scheduled auto-fetch for an ObjectType."""
-    from backend.api.objects import _do_fetch
+    from backend.api.blueprints import _do_fetch
     from backend.database import get_session_ctx
 
     try:
         with Session(engine) as session:
             result = await _do_fetch(type_id, session)
-            logger.info("Cron fetch for ObjectType %s: %s", type_id, result)
+            logger.info("Cron fetch for Blueprint %s: %s", type_id, result)
     except Exception as exc:
-        logger.error("Cron fetch failed for ObjectType %s: %s", type_id, exc)
+        logger.error("Cron fetch failed for Blueprint %s: %s", type_id, exc)
 
 
 def sync_cron_jobs():
@@ -88,13 +88,13 @@ def sync_cron_jobs():
             logger.error("Failed to schedule PyBook %s: %s", pb.id, exc)
 
     # ── ObjectType fetch cron jobs ────────────────────────────────────────────
-    from backend.objects.models import ObjectType
+    from backend.objects.models import Blueprint
 
     with Session(engine) as session:
-        obj_types = session.exec(
-            select(ObjectType).where(
-                ObjectType.fetch_cron != None,
-                ObjectType.fetch_is_active == True,
+        blueprints = session.exec(
+            select(Blueprint).where(
+                Blueprint.fetch_cron != None,
+                Blueprint.fetch_is_active == True,
             )
         ).all()
 
@@ -102,17 +102,17 @@ def sync_cron_jobs():
         if job.id.startswith("cron_obj_"):
             job.remove()
 
-    for ot in obj_types:
+    for ot in blueprints:
         kwargs = _parse_cron(ot.fetch_cron)
         if not kwargs:
-            logger.warning("Invalid fetch_cron for ObjectType %s: %s", ot.id, ot.fetch_cron)
+            logger.warning("Invalid fetch_cron for Blueprint %s: %s", ot.id, ot.fetch_cron)
             continue
         scheduler.add_job(
-            _fetch_cron_objects, CronTrigger(**kwargs),
+            _fetch_cron_blueprint, CronTrigger(**kwargs),
             args=[ot.id], id=f"cron_obj_{ot.id}",
             replace_existing=True, misfire_grace_time=60,
         )
-        logger.info("Scheduled cron fetch ObjectType %s: %s", ot.name, ot.fetch_cron)
+        logger.info("Scheduled cron fetch Blueprint %s: %s", ot.name, ot.fetch_cron)
 
 
 def start_scheduler():

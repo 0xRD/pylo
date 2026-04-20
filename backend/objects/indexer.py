@@ -5,53 +5,50 @@ from sqlmodel import Session
 logger = logging.getLogger(__name__)
 
 
-def index_instance(session: Session, instance_id: str, object_type_id: str, content: str) -> None:
-    """Insert or replace an instance's text content in the FTS5 index."""
-    # Delete any existing entry first (FTS5 has no upsert)
+def index_entry(session: Session, entry_id: str, blueprint_id: str, content: str) -> None:
+    """Insert or replace an entry's text content in the FTS5 index."""
     session.exec(
-        text("DELETE FROM fts_objects WHERE instance_id = :id"),
-        params={"id": instance_id},
+        text("DELETE FROM fts_entries WHERE entry_id = :id"),
+        params={"id": entry_id},
     )
     session.exec(
         text(
-            "INSERT INTO fts_objects(instance_id, object_type_id, content) "
-            "VALUES (:id, :type_id, :content)"
+            "INSERT INTO fts_entries(entry_id, blueprint_id, content) "
+            "VALUES (:id, :blueprint_id, :content)"
         ),
-        params={"id": instance_id, "type_id": object_type_id, "content": content},
+        params={"id": entry_id, "blueprint_id": blueprint_id, "content": content},
     )
 
 
-def remove_from_index(session: Session, instance_id: str) -> None:
+def remove_from_index(session: Session, entry_id: str) -> None:
     session.exec(
-        text("DELETE FROM fts_objects WHERE instance_id = :id"),
-        params={"id": instance_id},
+        text("DELETE FROM fts_entries WHERE entry_id = :id"),
+        params={"id": entry_id},
     )
 
 
 def search_fts(
     session: Session,
     query: str,
-    object_type_id: str | None = None,
+    blueprint_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[str]:
-    """
-    Full-text search. Returns a list of instance_ids ordered by BM25 rank.
-    """
-    if object_type_id:
+    """Full-text search. Returns a list of entry_ids ordered by BM25 rank."""
+    if blueprint_id:
         sql = text(
-            "SELECT instance_id FROM fts_objects "
-            "WHERE fts_objects MATCH :query AND object_type_id = :type_id "
+            "SELECT entry_id FROM fts_entries "
+            "WHERE fts_entries MATCH :query AND blueprint_id = :blueprint_id "
             "ORDER BY rank LIMIT :limit OFFSET :offset"
         )
         rows = session.exec(
             sql,
-            params={"query": query, "type_id": object_type_id, "limit": limit, "offset": offset},
+            params={"query": query, "blueprint_id": blueprint_id, "limit": limit, "offset": offset},
         ).fetchall()
     else:
         sql = text(
-            "SELECT instance_id FROM fts_objects "
-            "WHERE fts_objects MATCH :query "
+            "SELECT entry_id FROM fts_entries "
+            "WHERE fts_entries MATCH :query "
             "ORDER BY rank LIMIT :limit OFFSET :offset"
         )
         rows = session.exec(
