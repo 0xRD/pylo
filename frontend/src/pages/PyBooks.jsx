@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import CodeEditor from "../components/CodeEditor"
 import RunStatusBadge from "../components/RunStatusBadge"
 import { pybooksApi } from "../api/pybooks"
+import ScheduleBuilder from "../components/ScheduleBuilder"
 
 const DEFAULT_SCRIPT = `# Your PyBook script
 # Available: requests, httpx, pydantic (always)
@@ -48,11 +49,12 @@ function NewPyBookForm({ onSave, onCancel }) {
         </div>
       </div>
       {form.trigger_type === "cron" && (
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Cron expression <span className="text-gray-600">(e.g. hourly = 0 * * * *)</span></label>
-          <input placeholder='{"cron": "0 * * * *"}' value={form.trigger_config}
-            onChange={e => set("trigger_config", e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+        <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
+          <label className="block text-xs text-gray-400 font-medium">Schedule</label>
+          <ScheduleBuilder
+            value={(() => { try { return JSON.parse(form.trigger_config).cron || "" } catch { return "" } })()}
+            onChange={cron => set("trigger_config", JSON.stringify({ cron }))}
+          />
         </div>
       )}
       <div>
