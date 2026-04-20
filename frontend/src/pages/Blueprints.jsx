@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
+import HelpTip from '../components/HelpTip'
 import EntryCard from '../components/EntryCard'
 
 function Badge({ children, color = 'gray' }) {
@@ -181,7 +182,7 @@ function BlueprintForm({ initial, onSave, onCancel }) {
       <label className="flex items-center gap-3 cursor-pointer select-none">
         <input type="checkbox" checked={!!form.is_manual} onChange={e => set('is_manual', e.target.checked)}
           className="rounded border-gray-600" />
-        <span className="text-sm text-gray-300">Manual blueprint</span>
+        <span className="text-sm text-gray-300">Manual blueprint<HelpTip text="Manual blueprints have no API source. Entries are created and managed directly in the UI — useful for shared variables, rule toggles, or allow/blocklists across PyBooks." /></span>
         <span className="text-xs text-gray-600">Entries are created manually — no API source needed</span>
       </label>
 
@@ -189,7 +190,7 @@ function BlueprintForm({ initial, onSave, onCancel }) {
         <>
           {/* URL + Test */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Source URL</label>
+            <label className="block text-xs text-gray-400 mb-1">Source URL<HelpTip text="URL the orchestrator will call to fetch entries. Supports GET and POST. Use the Test button to preview the response." /></label>
             <div className="flex gap-2">
               <div className="flex flex-1 gap-2">
                 <input value={form.source_url || ''} onChange={e => set('source_url', e.target.value)}
@@ -209,12 +210,12 @@ function BlueprintForm({ initial, onSave, onCancel }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Headers (JSON)</label>
+              <label className="block text-xs text-gray-400 mb-1">Headers (JSON)<HelpTip text="HTTP headers sent with each request, as a JSON object. Use this for API keys: {&quot;Authorization&quot;: &quot;Bearer {{secret:my_key}}&quot;}. Wrap secret names in {{secret:name}} to reference stored secrets." /></label>
               <textarea value={form.source_headers} onChange={e => set('source_headers', e.target.value)} rows={3}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Body (JSON, POST only)</label>
+              <label className="block text-xs text-gray-400 mb-1">Body (JSON, POST only)<HelpTip text="Request body sent when method is POST, as a JSON object. Ignored for GET requests." /></label>
               <textarea value={form.source_body} onChange={e => set('source_body', e.target.value)} rows={3}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
             </div>
@@ -245,7 +246,7 @@ function BlueprintForm({ initial, onSave, onCancel }) {
 
           {/* Auto-fetch schedule */}
           <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
-            <label className="block text-xs text-gray-400 font-medium">Auto-fetch schedule</label>
+            <label className="block text-xs text-gray-400 font-medium">Auto-fetch schedule<HelpTip text="Cron expression for automatic fetching, e.g. */5 * * * * (every 5 min), 0 * * * * (hourly), 0 9 * * 1-5 (weekdays at 9am). Must also check Active." /></label>
             <div className="flex items-center gap-3">
               <input value={form.fetch_cron || ''} onChange={e => set('fetch_cron', e.target.value)}
                 placeholder="*/5 * * * *  (every 5 min)"
@@ -266,7 +267,7 @@ function BlueprintForm({ initial, onSave, onCancel }) {
       <div>
         <div className="flex items-center justify-between mb-1">
           <div>
-            <label className="text-xs text-gray-400">Field Mappings</label>
+            <label className="text-xs text-gray-400">Field Mappings<HelpTip text="Map JSONPath expressions from the API response to named fields stored on each entry. Use the Test button to browse the live response and click paths to fill rows automatically." /></label>
             <span className="text-xs text-gray-600 ml-2">
               {previewResult && !form.is_manual
                 ? 'Click a row to focus it, then click a path in the tree above'
@@ -280,7 +281,7 @@ function BlueprintForm({ initial, onSave, onCancel }) {
 
         {mappings.length > 0 && (
           <div className="grid grid-cols-12 gap-2 mb-1 px-1">
-            <span className="col-span-1 text-xs text-gray-600 text-center">Key</span>
+            <span className="col-span-1 text-xs text-gray-600 text-center flex items-center justify-center gap-0.5">Key<HelpTip text="Mark one field as the unique key. On each fetch, entries with the same key value are skipped (deduplication). Without a key, every fetch creates new entries." /></span>
             <span className="col-span-4 text-xs text-gray-600">JSONPath</span>
             <span className="col-span-4 text-xs text-gray-600">Field name</span>
             <span className="col-span-2 text-xs text-gray-600">Type</span>
