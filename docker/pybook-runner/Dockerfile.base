@@ -1,0 +1,6 @@
+FROM python:3.12-slim
+
+# Packages always available inside PyBooks
+RUN pip install --no-cache-dir requests httpx pydantic
+
+WORKDIR /pybook

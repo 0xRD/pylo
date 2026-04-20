@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./pybooks_storage:/app/pybooks_storage
+      - ./objects_storage:/app/objects_storage
+      - ./pylo_sdk.py:/app/pylo_sdk.py:ro
+    ports:
+      - "8000:8000"
+    env_file: .env
+    restart: unless-stopped
+    networks:
+      - pylo_default
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_TOKEN: ${API_TOKEN:-change_me_in_production}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - pylo_default
+
+networks:
+  pylo_default:
+    driver: bridge
