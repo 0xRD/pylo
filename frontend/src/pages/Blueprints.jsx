@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 import HelpTip from '../components/HelpTip'
 import ScheduleBuilder from '../components/ScheduleBuilder'
+import { secretsApi } from '../api/secrets'
 import EntryCard from '../components/EntryCard'
 
 function Badge({ children, color = 'gray' }) {
@@ -117,6 +118,41 @@ function BlueprintForm({ initial, onSave, onCancel }) {
   const [previewError, setPreviewError] = useState(null)
   const [focusedRow, setFocusedRow] = useState(null)
 
+  const [secrets, setSecrets] = useState([])
+  const [authType, setAuthType] = useState('none')
+  const [authSecret, setAuthSecret] = useState('')
+  const [authKeyHeader, setAuthKeyHeader] = useState('X-API-Key')
+
+  useEffect(() => {
+    secretsApi.list().then(setSecrets).catch(() => {})
+    // Detect existing auth from initial headers and strip it from the textarea
+    try {
+      const h = JSON.parse(initial?.source_headers || '{}')
+      const auth = h['Authorization'] || ''
+      const bearerM = auth.match(/^Bearer \{\{secret:([^}]+)\}\}$/)
+      const basicM  = auth.match(/^Basic \{\{secret:([^}]+)\}\}$/)
+      if (bearerM) {
+        setAuthType('bearer'); setAuthSecret(bearerM[1])
+        const rest = Object.fromEntries(Object.entries(h).filter(([k]) => k !== 'Authorization'))
+        setForm(f => ({ ...f, source_headers: JSON.stringify(rest) }))
+      } else if (basicM) {
+        setAuthType('basic'); setAuthSecret(basicM[1])
+        const rest = Object.fromEntries(Object.entries(h).filter(([k]) => k !== 'Authorization'))
+        setForm(f => ({ ...f, source_headers: JSON.stringify(rest) }))
+      } else {
+        for (const [k, v] of Object.entries(h)) {
+          const m = v.match(/^\{\{secret:([^}]+)\}\}$/)
+          if (m) {
+            setAuthType('apikey'); setAuthSecret(m[1]); setAuthKeyHeader(k)
+            const rest = Object.fromEntries(Object.entries(h).filter(([kk]) => kk !== k))
+            setForm(f => ({ ...f, source_headers: JSON.stringify(rest) }))
+            break
+          }
+        }
+      }
+    } catch {}
+  }, [])
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const setMapping = (i, k, v) => setMappings(ms => ms.map((m, idx) => idx === i ? { ...m, [k]: v } : m))
   const setKeyField = (i) => setMappings(ms => ms.map((m, idx) => ({ ...m, is_key: idx === i })))
@@ -152,8 +188,18 @@ function BlueprintForm({ initial, onSave, onCancel }) {
     e.preventDefault()
     setSaving(true); setError(null)
     try {
+      const buildFinalHeaders = () => {
+        try {
+          const h = JSON.parse(form.source_headers || '{}')
+          if (authType === 'bearer' && authSecret) h['Authorization'] = `Bearer {{secret:${authSecret}}}`
+          else if (authType === 'basic'  && authSecret) h['Authorization'] = `Basic {{secret:${authSecret}}}`
+          else if (authType === 'apikey' && authSecret) h[authKeyHeader] = `{{secret:${authSecret}}}`
+          return JSON.stringify(h)
+        } catch { return form.source_headers }
+      }
       await onSave({
         ...form,
+        source_headers: buildFinalHeaders(),
         field_mappings: JSON.stringify(mappings),
         polling_interval_seconds: form.polling_interval_seconds ? Number(form.polling_interval_seconds) : null,
         trigger_pybook_id: form.trigger_pybook_id || null,
@@ -209,9 +255,46 @@ function BlueprintForm({ initial, onSave, onCancel }) {
             </div>
           </div>
 
+          {/* Authentication */}
+          <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
+            <label className="block text-xs text-gray-400 font-medium">Authentication</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={authType} onChange={e => { setAuthType(e.target.value); setAuthSecret('') }}
+                className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+                <option value="none">No auth</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="apikey">API Key (header)</option>
+                <option value="basic">Basic Auth</option>
+              </select>
+              {authType !== 'none' && (
+                <>
+                  {authType === 'apikey' && (
+                    <input value={authKeyHeader} onChange={e => setAuthKeyHeader(e.target.value)}
+                      placeholder="Header name"
+                      className="w-36 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500" />
+                  )}
+                  <select value={authSecret} onChange={e => setAuthSecret(e.target.value)}
+                    className="flex-1 min-w-32 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+                    <option value="">— select secret —</option>
+                    {secrets.map(s => <option key={s.id} value={s.name}>{s.name}{s.description ? ` · ${s.description}` : ''}</option>)}
+                  </select>
+                  {authSecret && (
+                    <span className="text-xs text-gray-600 font-mono">
+                      {authType === 'bearer' && `Authorization: Bearer {{secret:${authSecret}}}`}
+                      {authType === 'basic'  && `Authorization: Basic {{secret:${authSecret}}}`}
+                      {authType === 'apikey' && `${authKeyHeader}: {{secret:${authSecret}}}`}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            {authType === 'basic' && <p className="text-xs text-gray-600">Store credentials as a single secret in <code>username:password</code> format — the value will be Base64-encoded automatically.</p>}
+            {secrets.length === 0 && authType !== 'none' && <p className="text-xs text-amber-600">No secrets stored yet. Add one in the Secrets section first.</p>}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Headers (JSON)<HelpTip text="HTTP headers sent with each request, as a JSON object. Use this for API keys: {&quot;Authorization&quot;: &quot;Bearer {{secret:my_key}}&quot;}. Wrap secret names in {{secret:name}} to reference stored secrets." /></label>
+              <label className="block text-xs text-gray-400 mb-1">Additional Headers (JSON)<HelpTip text="Any extra HTTP headers beyond authentication, as a JSON object. The auth header above is added automatically." /></label>
               <textarea value={form.source_headers} onChange={e => set('source_headers', e.target.value)} rows={3}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
             </div>
