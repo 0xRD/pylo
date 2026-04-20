@@ -6,6 +6,7 @@ services:
       - ./pybooks_storage:/app/pybooks_storage
       - ./objects_storage:/app/objects_storage
       - ./pylo_sdk.py:/app/pylo_sdk.py:ro
+      - ./tests:/app/tests:ro
     ports:
       - "8000:8000"
     env_file: .env
