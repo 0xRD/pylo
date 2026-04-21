@@ -5,8 +5,8 @@
 ## Quick Start
 
 ### Requirements
-- OrbStack (or Docker + Docker Compose)
-- A host running the Docker daemon
+- OrbStack or Docker + Docker Compose
+- Host running the Docker daemon
 
 ### 1. Clone and configure
 
@@ -36,82 +36,133 @@ Frontend: `http://localhost:3000` — API: `http://localhost:8000`
 ## Core Concepts
 
 ### PyBooks
-Python scripts that run inside isolated Docker containers. Each PyBook has:
+Python scripts that run in isolated Docker containers. Each PyBook has:
 - A Python script edited in the browser (Monaco editor)
-- A trigger: **manual**, **cron schedule**, **webhook**, or **blueprint event**
-- Optional **required secrets** (injected as env vars at runtime)
+- A **trigger**: manual, cron schedule, webhook, or blueprint event
+- Optional **required secrets** (injected as environment variables at runtime)
 - **Sub-PyBook** mode — callable from other PyBooks via `pylo_sdk.call_sub_pybook()`
+- **Tags** — free-form labels; filter the sidebar by tag to find related playbooks
 
 ### Blueprints
-Define a schema and data source for structured objects. Each Blueprint has:
+Define a schema and data source for structured data. Each Blueprint has:
 - A **source URL** (REST API endpoint) with configurable method, headers, and body
-- **Authentication** — Bearer Token, API Key (any header), or Basic Auth, all referencing stored secrets
+- **Authentication** — Bearer Token, API Key (any header), or Basic Auth via stored secrets
 - **Field mappings** — JSONPath expressions mapped to named fields with type coercion
-- A **unique key field** for deduplication on repeated fetches
-- An optional **auto-fetch schedule** (human-friendly builder → cron under the hood)
-- **Manual mode** — no API source, entries are managed directly in the UI (useful for shared variables, rule toggles, allow/blocklists)
+- A **unique key field** for deduplication on repeated fetches (★ marker in the field mapping builder)
+- An optional **auto-fetch schedule** (human-friendly builder generates cron under the hood)
+- A **trigger PyBook** — automatically fire a PyBook after each successful fetch that creates new entries
+- **Manual mode** — no API source; entries are created directly in the UI (shared variables, rule toggles, allow/blocklists)
 
 ### Entries
-Individual records stored under a Blueprint. Created by fetching the source API or manually (manual blueprints). Searchable via full-text search (FTS5). Accessible from PyBooks via `pylo_sdk`.
+Individual records stored under a Blueprint. Created by fetching a source API or manually (manual blueprints). Full-text search via FTS5. Browseable globally across all blueprints via the Entries page, or scoped to a specific Blueprint's detail view.
 
 ### Secrets
-Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as environment variables.
+Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables.
 
 ### Runs
-Every PyBook execution creates a Run with full stdout/stderr logs, status, and timing. Live log streaming via WebSocket.
+Every PyBook execution creates a Run record with full stdout/stderr, exit code, duration, and trigger source. Live log streaming via WebSocket. The **execution queue** (default: 5 concurrent runs) ensures no run is lost even under heavy load.
 
 ---
 
-## PyBook SDK (`pylo_sdk`)
+## Navigation
 
-Available inside every PyBook container as `/app/pylo_sdk.py`:
+| Route | Description |
+|---|---|
+| `/blueprints` | Blueprint card grid — create and manage data sources |
+| `/blueprints/:id` | Blueprint detail — **Entries** tab (data) + **Settings** tab (config, delete) |
+| `/blueprints/entries/:id` | Single entry detail with raw and parsed fields |
+| `/entries` | Global entries view — search and filter across all blueprints |
+| `/pybooks` | PyBook editor with sidebar (search, type filter, tag filter) |
+| `/runs` | Run history with live concurrency bar |
+| `/secrets` | Encrypted secret management |
+| `/settings` | System settings (max concurrent runs) |
+
+---
+
+## PyBook SDK
+
+Available inside every PyBook at `/app/pylo_sdk.py` (auto-mounted at runtime):
 
 ```python
 from pylo_sdk import search_entries, get_entry, call_sub_pybook
 
-# Full-text search across blueprint entries
-entries = search_entries("mimikatz", blueprint_id="<id>")
+# Full-text search across blueprint entries (optionally scoped to a blueprint)
+alerts = search_entries("mimikatz", type_id="<blueprint_id>")
 
 # Fetch a single entry by ID
 entry = get_entry("<entry_id>")
+# entry = {"id": "...", "data": {...}, "raw_data": {...}, ...}
 
-# Trigger a sub-PyBook and wait for its result
-result = call_sub_pybook("<pybook_id>", payload={"alert_id": "123"})
+# Trigger a sub-PyBook synchronously and get its result
+result = call_sub_pybook("<sub_pybook_id>", payload={"alert_id": "123"})
+```
+
+Secrets are injected as environment variables:
+
+```python
+import os
+api_key = os.environ["SECRET_virustotal_key"]
 ```
 
 ---
 
 ## Blueprint Authentication
 
-In the Blueprint form, use the **Authentication** section to configure API auth without writing templates manually:
+The Authentication section in the Blueprint form builds the auth header from a stored secret — no manual template editing required:
 
-| Type | What gets sent |
+| Type | Header sent |
 |---|---|
 | Bearer Token | `Authorization: Bearer <secret_value>` |
-| API Key (header) | `<header_name>: <secret_value>` (e.g. `X-Apikey`) |
-| Basic Auth | `Authorization: Basic <base64(secret_value)>` — store as `user:password` |
+| API Key (header) | `<header_name>: <secret_value>` (e.g. `X-Apikey: abc123`) |
+| Basic Auth | `Authorization: Basic <base64(secret)>` — store credentials as `user:password` |
 
-Secrets are selected from your stored secrets by name. The `{{secret:name}}` template is built and stored transparently.
+Additional headers (e.g. `Accept`, `X-Tenant-Id`) can be added separately in the **Additional Headers** JSON field.
 
 ---
 
 ## Auto-fetch Schedules
 
-Blueprints support recurring fetches via the **Schedule Builder** — no cron syntax required:
+Both Blueprints and PyBook cron triggers use the **Schedule Builder** — no cron syntax required:
 
 - **Every…** mode: "Every 5 minutes", "Every 2 hours", "Every 1 day"
-- **At a time** mode: pick a 24h time + day-of-week chips (e.g. "At 18:00 on Sunday")
+- **At a time** mode: choose a 24h time + day-of-week chips ("At 18:00 on Mon–Fri")
 
-The cron expression is shown as a read-only preview for verification.
+The generated cron expression is shown as a read-only preview.
+
+---
+
+## Blueprint → PyBook Trigger
+
+Link a PyBook to a Blueprint to fire it automatically after each fetch:
+
+1. Open the Blueprint → **Settings** tab
+2. Under **Trigger PyBook**, select the PyBook and choose the event:
+   - **On new entry** — fires when the fetch creates at least one new entry
+   - **On new or updated entry** — fires on any change (when mutable fields land)
+
+Triggered runs go through the shared execution queue with the same concurrency limit as manual runs.
+
+---
+
+## Execution Queue
+
+PyBook runs are **persistent** — every run is written to the database as `queued` before execution starts. A server restart never drops waiting jobs; orphaned runs are recovered automatically on startup.
+
+- Default concurrency: **5 simultaneous Docker containers**
+- Configurable live via **Settings → Max concurrent runs** (1–20), no restart needed
+- Also settable via `PYLO_MAX_CONCURRENT_RUNS` env var (DB setting overrides it)
+- Queue depth and running count visible on the **Runs page** (live, refreshes every 2 s)
 
 ---
 
 ## API Authentication
 
-All API endpoints require `X-API-Token: <your_token>` header. Set `API_TOKEN` in `.env`.
+All API endpoints require `X-API-Token: <your_token>` (set `API_TOKEN` in `.env`):
 
 ```bash
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
+curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/runs/queue
+curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
 ```
 
 ---
@@ -119,29 +170,32 @@ curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────────────────────────┐
-│  Browser        │────▶│  nginx (port 3000)                   │
-│  React + Vite   │     │  ├─ /          → React SPA           │
-└─────────────────┘     │  └─ /api/*     → FastAPI (port 8000) │
-                        └──────────────────────────────────────┘
-                                          │
-                        ┌─────────────────▼────────────────────┐
-                        │  FastAPI backend                      │
-                        │  ├─ /api/blueprints  Blueprint CRUD  │
-                        │  ├─ /api/pybooks     PyBook CRUD/run │
-                        │  ├─ /api/runs        Run logs/WS     │
-                        │  ├─ /api/secrets     Secret store    │
-                        │  └─ /api/webhooks    Webhook trigger │
-                        │                                       │
-                        │  APScheduler — cron triggers          │
-                        │  SQLite + FTS5 — persistence/search  │
-                        └──────────────────┬───────────────────┘
-                                           │ docker socket
-                        ┌──────────────────▼───────────────────┐
-                        │  Docker (sibling containers)          │
-                        │  python:3.12-slim per PyBook run      │
-                        │  pylo_sdk.py injected at runtime      │
-                        └──────────────────────────────────────┘
+┌─────────────────┐     ┌──────────────────────────────────────────┐
+│  Browser        │────▶│  nginx (port 3000)                       │
+│  React + Vite   │     │  ├─ /        → React SPA                 │
+│  + Tailwind     │     │  └─ /api/*   → FastAPI (port 8000)       │
+└─────────────────┘     └─────────────────┬────────────────────────┘
+                                           │
+                        ┌──────────────────▼────────────────────────┐
+                        │  FastAPI backend                           │
+                        │  ├─ /api/blueprints  Blueprint + Entry CRUD│
+                        │  ├─ /api/pybooks     PyBook CRUD / run    │
+                        │  ├─ /api/runs        History, logs, WS    │
+                        │  ├─ /api/secrets     Encrypted store      │
+                        │  ├─ /api/settings    System config        │
+                        │  └─ /api/webhooks    Inbound triggers     │
+                        │                                            │
+                        │  APScheduler — cron + blueprint fetches   │
+                        │  asyncio queue — persistent run queue     │
+                        │  SQLite + FTS5 — persistence + search     │
+                        │  Alembic — schema migrations              │
+                        └──────────────────┬────────────────────────┘
+                                           │ Docker socket (DooD)
+                        ┌──────────────────▼────────────────────────┐
+                        │  Docker sibling containers                 │
+                        │  python:3.12-slim per PyBook run          │
+                        │  pylo_sdk.py + script mounted at runtime  │
+                        └───────────────────────────────────────────┘
 ```
 
 ---
@@ -149,35 +203,33 @@ curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
 ## Development
 
 ```bash
-# Backend only (hot-reload)
+# Backend hot-reload
 cd backend && uvicorn backend.main:app --reload
 
-# Frontend only (Vite dev server)
+# Frontend dev server
 cd frontend && npm run dev
-
-# Run tests
-docker compose run --rm backend python -m pytest tests/ -v
 ```
 
 ### Database migrations
 
-Alembic is used for schema migrations. The entrypoint runs `alembic upgrade head` automatically on startup.
+Alembic runs `alembic upgrade head` automatically on container startup.
 
 ```bash
-# Generate a new migration (run inside backend container or with venv)
+# Inside the backend container or virtualenv:
 alembic revision --autogenerate -m "describe change"
+alembic upgrade head
 ```
 
 ---
 
 ## Roadmap
 
-See the [feature backlog](https://github.com/0xRD/pylo) for planned features including:
-- Login page + admin/viewer roles (JWT auth)
-- Mutable fields + upsert on fetch + instance history
-- Manual entry creation UI for manual blueprints
-- Paginated API source fetching (cursor, page, offset)
-- Blueprint/Entry UI restructure (tabbed detail pages)
-- Cross-type entry search + field query language
-- PyBook filtering + tags
-- Scoped API Keys
+See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
+
+- **Multi-PyBook blueprint triggers** — subscribe to blueprint events from the PyBook itself; multiple PyBooks can react to the same new entry in parallel
+- **Login page + roles** — JWT auth, admin/viewer roles
+- **Mutable fields + entry history** — update fields on re-fetch; audit trail of changes
+- **Paginated API fetching** — cursor, page-number, and offset pagination for multi-page sources
+- **Scoped API Keys** — per-key permissions for SIEM/script integrations
+- **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
+- **Multi-select entries** — bulk delete, bulk PyBook trigger
