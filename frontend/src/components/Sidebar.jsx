@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 
 const links = [
   { to: '/blueprints', label: 'Blueprints', icon: '⬡' },
+  { to: '/entries', label: 'Entries', icon: '◈' },
   { to: '/pybooks', label: 'PyBooks', icon: '📖' },
   { to: '/runs', label: 'Runs', icon: '▶' },
   { to: '/dashboards', label: 'Dashboards', icon: '◫' },
@@ -12,7 +13,9 @@ export default function Sidebar() {
   return (
     <aside className="w-52 bg-gray-900 border-r border-gray-800 flex flex-col">
       <div className="px-5 py-5 border-b border-gray-800">
-        <span className="text-lg font-bold text-indigo-400 tracking-tight">Pylo</span>
+        <NavLink to="/" className="text-lg font-bold text-indigo-400 tracking-tight hover:text-indigo-300 transition-colors">
+          Pylo
+        </NavLink>
       </div>
       <nav className="flex-1 px-2 py-4 space-y-1">
         {links.map(({ to, label, icon }) => (

@@ -39,5 +39,6 @@ export const blueprintsApi = {
   },
   getEntry: (id) => req("GET", `/entries/${id}`),
   deleteEntry: (id) => req("DELETE", `/entries/${id}`),
+  createEntry: (blueprintId, fields) => req("POST", `/${blueprintId}/entries`, { fields }),
   previewEndpoint: (data) => req("POST", "/preview", data),
 }

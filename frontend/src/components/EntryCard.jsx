@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
-export default function EntryCard({ entry }) {
+export default function EntryCard({ entry, blueprintName }) {
   const navigate = useNavigate()
   let data = {}
   try { data = JSON.parse(entry.data) } catch {}
@@ -13,8 +13,13 @@ export default function EntryCard({ entry }) {
       className="bg-gray-900 border border-gray-800 rounded-lg p-4 cursor-pointer hover:border-indigo-500 transition-colors"
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-500 font-mono truncate">{entry.id.slice(0, 8)}</span>
-        <span className="text-xs text-gray-500">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs text-gray-500 font-mono shrink-0">{entry.id.slice(0, 8)}</span>
+          {blueprintName && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 truncate">{blueprintName}</span>
+          )}
+        </div>
+        <span className="text-xs text-gray-500 shrink-0 ml-2">
           {new Date(entry.created_at).toLocaleDateString()}
         </span>
       </div>

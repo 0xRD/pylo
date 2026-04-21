@@ -20,6 +20,7 @@ class Blueprint(SQLModel, table=True):
     source_body: str = "{}"
     field_mappings: str = "[]"
     trigger_pybook_id: Optional[str] = None
+    trigger_event: str = Field(default="on_create")
     polling_interval_seconds: Optional[int] = None
     fetch_cron: Optional[str] = None
     fetch_is_active: bool = Field(default=False)
@@ -37,3 +38,4 @@ class Entry(SQLModel, table=True):
     raw_data: str = "{}"
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+# trigger_event added via migration

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { blueprintsApi } from '../api/blueprints'
+import { pybooksApi } from '../api/pybooks'
 import { secretsApi } from '../api/secrets'
 import HelpTip from './HelpTip'
 import ScheduleBuilder from './ScheduleBuilder'
@@ -59,7 +60,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial || {
     name: '', description: '', source_url: '', source_method: 'GET',
     source_headers: '{}', source_body: '{}', field_mappings: '[]',
-    trigger_pybook_id: '', fetch_cron: '', fetch_is_active: false, is_manual: false,
+    trigger_pybook_id: '', trigger_event: 'on_create', fetch_cron: '', fetch_is_active: false, is_manual: false,
   })
   const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]') } catch { return [] } })
   const [saving, setSaving] = useState(false)
@@ -69,12 +70,14 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const [previewError, setPreviewError] = useState(null)
   const [focusedRow, setFocusedRow] = useState(null)
   const [secrets, setSecrets] = useState([])
+  const [pybooks, setPybooks] = useState([])
   const [authType, setAuthType] = useState('none')
   const [authSecret, setAuthSecret] = useState('')
   const [authKeyHeader, setAuthKeyHeader] = useState('X-API-Key')
 
   useEffect(() => {
     secretsApi.list().then(setSecrets).catch(() => {})
+    pybooksApi.list().then(setPybooks).catch(() => {})
     try {
       const h = JSON.parse(initial?.source_headers || '{}')
       const auth = h['Authorization'] || ''
@@ -244,6 +247,28 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
           <ScheduleBuilder value={form.fetch_cron || ''} onChange={v => set('fetch_cron', v)} />
         </div>
       </>)}
+
+
+      {/* Trigger PyBook */}
+      <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
+        <label className="block text-xs text-gray-400 font-medium">Trigger PyBook on new entries</label>
+        <div className="flex gap-2 flex-wrap">
+          <select value={form.trigger_pybook_id || ''} onChange={e => set('trigger_pybook_id', e.target.value || null)}
+            className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+            <option value="">— no trigger —</option>
+            {pybooks.map(pb => <option key={pb.id} value={pb.id}>{pb.name}</option>)}
+          </select>
+          {form.trigger_pybook_id && (
+            <select value={form.trigger_event || 'on_create'} onChange={e => set('trigger_event', e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+              <option value="on_create">On new entry</option>
+              <option value="on_create_or_update">On new or updated entry</option>
+            </select>
+          )}
+        </div>
+        {form.trigger_pybook_id && <p className="text-xs text-gray-600">The selected PyBook will be triggered automatically after each fetch that creates new entries.</p>}
+      </div>
+
 
       <div>
         <div className="flex items-center justify-between mb-1">

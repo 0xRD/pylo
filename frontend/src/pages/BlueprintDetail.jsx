@@ -4,6 +4,65 @@ import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
 
+function AddEntryModal({ blueprint, onSave, onClose }) {
+  const fieldMappings = (() => { try { return JSON.parse(blueprint.field_mappings || '[]') } catch { return [] } })()
+  const [values, setValues] = useState(() => Object.fromEntries(fieldMappings.map(m => [m.field_name, ''])))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true); setError(null)
+    try {
+      const cleaned = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== ''))
+      await onSave(cleaned)
+    } catch (err) {
+      setError(err.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-md bg-gray-950 border border-gray-800 rounded-xl p-6 shadow-2xl">
+        <h2 className="text-base font-semibold text-gray-100 mb-4">Add Entry</h2>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {error && <p className="text-red-400 text-xs bg-red-950 px-3 py-2 rounded">{error}</p>}
+          {fieldMappings.length === 0 ? (
+            <p className="text-sm text-gray-500">No field mappings defined. Entries will be stored as empty.</p>
+          ) : (
+            fieldMappings.map(m => (
+              <div key={m.field_name}>
+                <label className="block text-xs text-gray-400 mb-1">
+                  {m.field_name}
+                  {m.is_key && <span className="ml-1 text-yellow-500 text-xs">★ key</span>}
+                </label>
+                <input
+                  value={values[m.field_name] ?? ''}
+                  onChange={e => setValues(v => ({ ...v, [m.field_name]: e.target.value }))}
+                  placeholder={m.field_type}
+                  required={m.is_key}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            ))
+          )}
+          <div className="flex gap-3 pt-2">
+            <button type="submit" disabled={saving}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+              {saving ? 'Saving…' : 'Add Entry'}
+            </button>
+            <button type="button" onClick={onClose}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function BlueprintDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -15,6 +74,7 @@ export default function BlueprintDetail() {
   const [fetchResult, setFetchResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [showAddEntry, setShowAddEntry] = useState(false)
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
   const loadEntries = (q = query) =>
@@ -56,6 +116,12 @@ export default function BlueprintDetail() {
 
   const handleSearch = (e) => { e.preventDefault(); loadEntries(query) }
 
+  const handleAddEntry = async (fields) => {
+    await blueprintsApi.createEntry(id, fields)
+    setShowAddEntry(false)
+    loadEntries()
+  }
+
   const keyField = (() => {
     try {
       const km = JSON.parse(blueprint?.field_mappings || '[]').find(m => m.is_key)
@@ -76,7 +142,7 @@ export default function BlueprintDetail() {
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6 gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-wrap">
           <h1 className="text-xl font-semibold text-gray-100 truncate">{blueprint?.name}</h1>
           {blueprint?.is_manual
             ? <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-900 text-amber-300">manual</span>
@@ -90,7 +156,7 @@ export default function BlueprintDetail() {
           )}
         </div>
         {blueprint?.description && (
-          <p className="text-sm text-gray-500 truncate">{blueprint.description}</p>
+          <p className="text-sm text-gray-500 truncate hidden sm:block">{blueprint.description}</p>
         )}
       </div>
 
@@ -134,7 +200,12 @@ export default function BlueprintDetail() {
               {fetchResult?.error && (
                 <span className="text-xs text-red-400">{fetchResult.error}</span>
               )}
-              {!blueprint?.is_manual && (
+              {blueprint?.is_manual ? (
+                <button onClick={() => setShowAddEntry(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
+                  + Add entry
+                </button>
+              ) : (
                 <button onClick={handleFetch}
                   disabled={fetching || !blueprint?.source_url}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded text-sm font-medium transition-colors">
@@ -148,7 +219,7 @@ export default function BlueprintDetail() {
             <div className="text-center py-16 text-gray-600">
               <p className="text-sm">
                 {blueprint?.is_manual
-                  ? 'No entries yet. Add entries via the API or SDK.'
+                  ? 'No entries yet. Click "+ Add entry" to create one.'
                   : 'No entries yet. Use "Fetch now" to pull data from the source URL.'}
               </p>
             </div>
@@ -183,6 +254,14 @@ export default function BlueprintDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {showAddEntry && blueprint && (
+        <AddEntryModal
+          blueprint={blueprint}
+          onSave={handleAddEntry}
+          onClose={() => setShowAddEntry(false)}
+        />
       )}
     </div>
   )

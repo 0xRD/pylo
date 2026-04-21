@@ -34,6 +34,7 @@ class BlueprintCreate(BaseModel):
     fetch_cron: Optional[str] = None
     fetch_is_active: bool = False
     is_manual: bool = False
+    trigger_event: str = "on_create"
 
 
 class BlueprintUpdate(BaseModel):
@@ -49,6 +50,7 @@ class BlueprintUpdate(BaseModel):
     fetch_cron: Optional[str] = None
     fetch_is_active: Optional[bool] = None
     is_manual: Optional[bool] = None
+    trigger_event: Optional[str] = None
 
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
@@ -236,6 +238,34 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
         created_count += 1
 
     session.commit()
+
+    # Trigger linked PyBook if configured and event matches
+    if bp.trigger_pybook_id and created_count > 0:
+        trigger_event = getattr(bp, 'trigger_event', 'on_create')
+        if trigger_event in ('on_create', 'on_create_or_update'):
+            import asyncio
+            from backend.api.pybooks import _execute_run
+            from backend.pybooks.models import PyBook, PyBookRun
+            from backend.database import engine as _engine
+            try:
+                with Session(_engine) as _ts:
+                    _pb = _ts.get(PyBook, bp.trigger_pybook_id)
+                    if _pb and _pb.is_active:
+                        _now = datetime.now(timezone.utc)
+                        _run = PyBookRun(
+                            id=str(uuid.uuid4()),
+                            pybook_id=bp.trigger_pybook_id,
+                            status=pending,
+                            trigger_source=blueprint,
+                            trigger_payload=json.dumps({"blueprint_id": blueprint_id, "created": created_count}),
+                            started_at=_now,
+                        )
+                        _ts.add(_run)
+                        _ts.commit()
+                        asyncio.create_task(_execute_run(bp.trigger_pybook_id, _run.id))
+            except Exception as _exc:
+                logger.warning("Failed to trigger PyBook after fetch: %s", _exc)
+
     return {"created": created_count, "skipped": skipped_count, "total": len(items)}
 
 
@@ -260,6 +290,43 @@ class PreviewRequest(BaseModel):
     source_headers: str = "{}"
     source_body: str = "{}"
     sample_limit: int = 1
+
+
+
+class CreateEntryBody(BaseModel):
+    fields: dict
+
+
+@router.post("/{blueprint_id}/entries", status_code=201)
+async def create_manual_entry(blueprint_id: str, body: CreateEntryBody, session: Session = Depends(get_session)):
+    bp = session.get(Blueprint, blueprint_id)
+    if not bp:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+    field_mappings = json.loads(bp.field_mappings or "[]")
+    key_field = next((m["field_name"] for m in field_mappings if m.get("is_key")), None)
+    external_id = body.fields.get(key_field) if key_field else None
+    if external_id:
+        existing = session.exec(
+            select(Entry).where(Entry.blueprint_id == blueprint_id, Entry.external_id == str(external_id))
+        ).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Entry with key '{external_id}' already exists")
+    now = datetime.now(timezone.utc)
+    entry = Entry(
+        id=str(uuid.uuid4()),
+        blueprint_id=blueprint_id,
+        external_id=str(external_id) if external_id else None,
+        data=json.dumps(body.fields),
+        raw_data=json.dumps(body.fields),
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(entry)
+    session.flush()
+    index_entry(session, entry.id, blueprint_id, extract_text_content(body.fields))
+    session.commit()
+    session.refresh(entry)
+    return entry
 
 
 @router.post("/preview")

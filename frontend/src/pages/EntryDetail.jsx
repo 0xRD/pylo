@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 
 export default function EntryDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [entry, setEntry] = useState(null)
+  const [blueprint, setBlueprint] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     blueprintsApi.getEntry(id)
-      .then(setEntry)
+      .then(e => {
+        setEntry(e)
+        return blueprintsApi.getBlueprint(e.blueprint_id)
+      })
+      .then(setBlueprint)
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
   }, [id])
@@ -19,11 +24,16 @@ export default function EntryDetail() {
   const handleDelete = async () => {
     if (!confirm('Delete this entry?')) return
     await blueprintsApi.deleteEntry(id)
-    navigate(-1)
+    navigate(`/blueprints/${entry.blueprint_id}`)
   }
 
-  if (loading) return <div className="text-gray-500 text-sm">Loading…</div>
-  if (error) return <div className="text-red-400 text-sm">{error}</div>
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/entries')
+  }
+
+  if (loading) return <div className="text-gray-500 text-sm p-8">Loading…</div>
+  if (error) return <div className="text-red-400 text-sm p-8">{error}</div>
   if (!entry) return null
 
   let data = {}
@@ -32,12 +42,24 @@ export default function EntryDetail() {
   try { rawData = JSON.parse(entry.raw_data) } catch {}
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-3xl space-y-6 px-4 py-6">
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-2 text-xs text-gray-500">
+        <Link to="/entries" className="hover:text-gray-300 transition-colors">Entries</Link>
+        <span>›</span>
+        {blueprint && (
+          <>
+            <Link to={`/blueprints/${entry.blueprint_id}`} className="hover:text-gray-300 transition-colors">
+              {blueprint.name}
+            </Link>
+            <span>›</span>
+          </>
+        )}
+        <span className="text-gray-200 font-mono">{entry.id.slice(0, 8)}</span>
+      </nav>
+
       <div className="flex items-center justify-between">
         <div>
-          <button onClick={() => navigate(-1)} className="text-xs text-gray-500 hover:text-gray-300 mb-2 block">
-            ← Back
-          </button>
           <h1 className="text-xl font-semibold">
             Entry <span className="font-mono text-indigo-400">{entry.id.slice(0, 8)}</span>
           </h1>
@@ -45,10 +67,16 @@ export default function EntryDetail() {
             <p className="text-sm text-gray-500 mt-1">Key: <span className="font-mono">{entry.external_id}</span></p>
           )}
         </div>
-        <button onClick={handleDelete}
-          className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-red-900 rounded text-gray-400 hover:text-red-300 transition-colors">
-          Delete
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={goBack}
+            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-gray-400 transition-colors">
+            ← Back
+          </button>
+          <button onClick={handleDelete}
+            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-red-900 rounded text-gray-400 hover:text-red-300 transition-colors">
+            Delete
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-4 text-xs text-gray-500">
