@@ -4,6 +4,41 @@ import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
 
+function SubscribersList({ blueprintId }) {
+  const [subscribers, setSubscribers] = useState([])
+  useEffect(() => {
+    blueprintsApi.getSubscribers(blueprintId).then(setSubscribers).catch(() => {})
+  }, [blueprintId])
+
+  return (
+    <div className="border-t border-gray-800 pt-6">
+      <h3 className="text-sm font-medium text-gray-300 mb-3">Subscribed PyBooks</h3>
+      {subscribers.length === 0 ? (
+        <p className="text-xs text-gray-600 italic">
+          No PyBooks are subscribed to this blueprint yet. Open a PyBook, set its trigger type to "blueprint", and select this blueprint.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {subscribers.map(pb => {
+            const cfg = (() => { try { return JSON.parse(pb.trigger_config || '{}') } catch { return {} } })()
+            const conditions = cfg.trigger_conditions || []
+            return (
+              <div key={pb.id} className="flex items-center gap-3 px-3 py-2 bg-gray-900 border border-gray-800 rounded-lg">
+                <span className={"w-2 h-2 rounded-full shrink-0 " + (pb.is_active ? "bg-green-400" : "bg-gray-600")} />
+                <span className="text-sm text-gray-200">{pb.name}</span>
+                <span className="text-xs text-indigo-400">{cfg.trigger_event === 'on_create_or_update' ? 'on create or update' : 'on new entry'}</span>
+                {conditions.length > 0 && (
+                  <span className="text-xs text-gray-500">{conditions.length} condition{conditions.length > 1 ? 's' : ''}</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FilterHelp() {
   const [show, setShow] = useState(false)
   return (
@@ -340,6 +375,7 @@ export default function BlueprintDetail() {
             onSave={handleUpdate}
             onCancel={() => setTab('entries')}
           />
+          <SubscribersList blueprintId={id} />
           <div className="border-t border-gray-800 pt-6">
             <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>
             <div className="flex items-center justify-between p-4 bg-red-950/30 border border-red-900/50 rounded-lg">
