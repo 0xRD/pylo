@@ -92,21 +92,26 @@ async def create_blueprint(
 async def list_entries(
     blueprint_id: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
+    filter: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
+    from backend.objects.filter import apply_field_filter, python_field_filter
     if q:
         ids = search_fts(session, q, blueprint_id=blueprint_id, limit=limit, offset=offset)
         if not ids:
             return []
         entries = session.exec(select(Entry).where(Entry.id.in_(ids))).all()
         order = {eid: i for i, eid in enumerate(ids)}
-        return sorted(entries, key=lambda x: order.get(x.id, 999))
+        entries = sorted(entries, key=lambda x: order.get(x.id, 999))
+        return python_field_filter(entries, filter) if filter else entries
 
     stmt = select(Entry)
     if blueprint_id:
         stmt = stmt.where(Entry.blueprint_id == blueprint_id)
+    if filter:
+        stmt = apply_field_filter(stmt, filter, Entry.data)
     stmt = stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)
     return session.exec(stmt).all()
 

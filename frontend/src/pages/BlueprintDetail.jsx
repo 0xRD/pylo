@@ -4,6 +4,28 @@ import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
 
+function FilterHelp() {
+  const [show, setShow] = useState(false)
+  return (
+    <span className="relative">
+      <button type="button" onClick={() => setShow(s => !s)}
+        className="text-gray-600 hover:text-gray-400 text-xs px-1">?</button>
+      {show && (
+        <div className="absolute right-0 top-5 z-20 w-64 bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 shadow-xl">
+          <p className="font-semibold text-gray-200 mb-2">Field filter syntax</p>
+          <code className="block text-indigo-300 mb-1">field = "value"</code>
+          <code className="block text-indigo-300 mb-1">field contains "text"</code>
+          <code className="block text-indigo-300 mb-1">field starts_with "prefix"</code>
+          <code className="block text-indigo-300 mb-3">field &gt; 5</code>
+          <p className="text-gray-500">Chain with AND:</p>
+          <code className="block text-indigo-300 mt-1 break-all">severity = "high" AND status != "closed"</code>
+          <button onClick={() => setShow(false)} className="mt-2 text-gray-500 hover:text-gray-300">close</button>
+        </div>
+      )}
+    </span>
+  )
+}
+
 function AddEntryModal({ blueprint, onSave, onClose }) {
   const fieldMappings = (() => { try { return JSON.parse(blueprint.field_mappings || '[]') } catch { return [] } })()
   const [values, setValues] = useState(() => Object.fromEntries(fieldMappings.map(m => [m.field_name, ''])))
@@ -70,15 +92,25 @@ export default function BlueprintDetail() {
   const [blueprint, setBlueprint] = useState(null)
   const [entries, setEntries] = useState([])
   const [query, setQuery] = useState('')
+  const [fieldFilter, setFieldFilter] = useState('')
+  const [draftFilter, setDraftFilter] = useState('')
   const [fetching, setFetching] = useState(false)
   const [fetchResult, setFetchResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
-  const loadEntries = (q = query) =>
-    blueprintsApi.listEntries({ blueprintId: id, q: q || undefined }).then(setEntries).catch(() => {})
+  const loadEntries = (q = query, filter = fieldFilter) => {
+    setSelectedIds(new Set())
+    return blueprintsApi.listEntries({
+      blueprintId: id,
+      q: q || undefined,
+      filter: filter || undefined,
+    }).then(setEntries).catch(() => {})
+  }
 
   useEffect(() => {
     Promise.all([loadBlueprint(), loadEntries()]).finally(() => setLoading(false))
@@ -114,12 +146,41 @@ export default function BlueprintDetail() {
     }
   }
 
-  const handleSearch = (e) => { e.preventDefault(); loadEntries(query) }
+  const handleSearch = (e) => {
+    e.preventDefault()
+    setFieldFilter(draftFilter)
+    loadEntries(query, draftFilter)
+  }
 
   const handleAddEntry = async (fields) => {
     await blueprintsApi.createEntry(id, fields)
     setShowAddEntry(false)
     loadEntries()
+  }
+
+  const toggleSelect = (entryId) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(entryId) ? next.delete(entryId) : next.add(entryId)
+      return next
+    })
+  }
+
+  const selectAll = () => setSelectedIds(new Set(entries.map(e => e.id)))
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selectedIds.size} entr${selectedIds.size === 1 ? 'y' : 'ies'}? This cannot be undone.`)) return
+    setBulkDeleting(true)
+    try {
+      await Promise.all([...selectedIds].map(eid => blueprintsApi.deleteEntry(eid)))
+      clearSelection()
+      loadEntries()
+    } catch {
+      alert('Some entries could not be deleted.')
+    } finally {
+      setBulkDeleting(false)
+    }
   }
 
   const keyField = (() => {
@@ -169,7 +230,7 @@ export default function BlueprintDetail() {
                 ? 'border-indigo-500 text-indigo-300'
                 : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}>
-            {t}
+            {t}{t === 'entries' && entries.length > 0 && ` (${entries.length})`}
           </button>
         ))}
       </div>
@@ -177,43 +238,69 @@ export default function BlueprintDetail() {
       {/* Entries tab */}
       {tab === 'entries' && (
         <div>
-          <div className="flex items-center gap-3 mb-4">
-            <form onSubmit={handleSearch} className="flex gap-2 flex-1">
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
-              <button type="submit"
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
-                Search
-              </button>
-              {query && (
-                <button type="button" onClick={() => { setQuery(''); loadEntries('') }}
-                  className="px-3 py-2 text-gray-500 hover:text-gray-300 text-sm">×</button>
-              )}
-            </form>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {fetchResult && !fetchResult.error && (
-                <span className="text-xs text-green-400">
-                  +{fetchResult.created} created, {fetchResult.skipped} skipped
-                </span>
-              )}
-              {fetchResult?.error && (
-                <span className="text-xs text-red-400">{fetchResult.error}</span>
-              )}
-              {blueprint?.is_manual ? (
-                <button onClick={() => setShowAddEntry(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
-                  + Add entry
+          {/* Search + filter row */}
+          <form onSubmit={handleSearch} className="space-y-2 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex gap-2 flex-1">
+                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+                <button type="submit"
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
+                  Search
                 </button>
-              ) : (
-                <button onClick={handleFetch}
-                  disabled={fetching || !blueprint?.source_url}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded text-sm font-medium transition-colors">
-                  {fetching ? 'Fetching…' : 'Fetch now'}
-                </button>
-              )}
+                {(query || fieldFilter) && (
+                  <button type="button" onClick={() => { setQuery(''); setFieldFilter(''); setDraftFilter(''); loadEntries('', '') }}
+                    className="px-3 py-2 text-gray-500 hover:text-gray-300 text-sm">×</button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {fetchResult && !fetchResult.error && (
+                  <span className="text-xs text-green-400">+{fetchResult.created} created, {fetchResult.skipped} skipped</span>
+                )}
+                {fetchResult?.error && (
+                  <span className="text-xs text-red-400">{fetchResult.error}</span>
+                )}
+                {blueprint?.is_manual ? (
+                  <button type="button" onClick={() => setShowAddEntry(true)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
+                    + Add entry
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleFetch}
+                    disabled={fetching || !blueprint?.source_url}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded text-sm font-medium transition-colors">
+                    {fetching ? 'Fetching…' : 'Fetch now'}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+            <div className="flex gap-2 items-center">
+              <input
+                value={draftFilter}
+                onChange={e => setDraftFilter(e.target.value)}
+                placeholder='Field filter: severity = "high" AND status != "closed"'
+                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500"
+              />
+              <FilterHelp />
+            </div>
+          </form>
+
+          {/* Bulk action bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-indigo-950/50 border border-indigo-800 rounded-lg">
+              <span className="text-sm text-indigo-300 font-medium">{selectedIds.size} selected</span>
+              <button onClick={selectAll} className="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">
+                Select all ({entries.length})
+              </button>
+              <button onClick={clearSelection} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Clear</button>
+              <div className="ml-auto">
+                <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                  className="px-3 py-1.5 bg-red-700 hover:bg-red-600 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                  {bulkDeleting ? 'Deleting…' : `Delete ${selectedIds.size} entr${selectedIds.size === 1 ? 'y' : 'ies'}`}
+                </button>
+              </div>
+            </div>
+          )}
 
           {entries.length === 0 ? (
             <div className="text-center py-16 text-gray-600">
@@ -224,9 +311,23 @@ export default function BlueprintDetail() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {entries.map(e => <EntryCard key={e.id} entry={e} />)}
-            </div>
+            <>
+              {selectedIds.size === 0 && (
+                <div className="flex justify-end mb-2">
+                  <button onClick={selectAll} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+                    Select all
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {entries.map(e => (
+                  <EntryCard key={e.id} entry={e}
+                    selected={selectedIds.has(e.id)}
+                    onSelect={toggleSelect}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -239,7 +340,6 @@ export default function BlueprintDetail() {
             onSave={handleUpdate}
             onCancel={() => setTab('entries')}
           />
-
           <div className="border-t border-gray-800 pt-6">
             <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>
             <div className="flex items-center justify-between p-4 bg-red-950/30 border border-red-900/50 rounded-lg">
@@ -257,11 +357,7 @@ export default function BlueprintDetail() {
       )}
 
       {showAddEntry && blueprint && (
-        <AddEntryModal
-          blueprint={blueprint}
-          onSave={handleAddEntry}
-          onClose={() => setShowAddEntry(false)}
-        />
+        <AddEntryModal blueprint={blueprint} onSave={handleAddEntry} onClose={() => setShowAddEntry(false)} />
       )}
     </div>
   )

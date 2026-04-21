@@ -29,10 +29,11 @@ export const blueprintsApi = {
   deleteBlueprint: (id) => req("DELETE", `/${id}`),
   fetchBlueprint: (id) => req("POST", `/${id}/fetch`),
 
-  listEntries: ({ blueprintId, q, limit = 50, offset = 0 } = {}) => {
+  listEntries: ({ blueprintId, q, filter, limit = 50, offset = 0 } = {}) => {
     const params = new URLSearchParams()
     if (blueprintId) params.set("blueprint_id", blueprintId)
     if (q) params.set("q", q)
+    if (filter) params.set("filter", filter)
     params.set("limit", limit)
     params.set("offset", offset)
     return req("GET", `/entries?${params}`)

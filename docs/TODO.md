@@ -15,7 +15,7 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 2. Cross-blueprint field query language
+## 2. Cross-blueprint field query language ✅ DONE
 
 - Field-level query syntax: `os contains "Windows"`, `category = "Execute"`, combinable with `AND`/`OR`.
 - Server-side filtering via SQLite `json_extract` on `data` column.
@@ -25,7 +25,7 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 3. PyBook filtering + tags ✅ NEXT
+## 3. PyBook filtering + tags ✅ DONE
 
 - Search/filter by name in the PyBooks list.
 - Filter by type (sub-pybook vs top-level).
@@ -113,7 +113,7 @@ Pylo logo → home link. EntryDetail breadcrumb (Entries › Blueprint › id). 
 
 ---
 
-## 13. Multi-select for entries
+## 13. Multi-select for entries ✅ DONE
 
 - Hover-reveal checkboxes on entry cards; select-all in toolbar.
 - Bulk action bar: Delete selected (confirm), Trigger PyBook on selected.
@@ -122,7 +122,7 @@ Pylo logo → home link. EntryDetail breadcrumb (Entries › Blueprint › id). 
 
 ---
 
-## 14. Persistent PyBook execution queue
+## 14. Persistent PyBook execution queue ✅ DONE
 
 **Context:** `runner.py` has a `ThreadPoolExecutor(max_workers=PYLO_MAX_CONCURRENT_RUNS, default=5)`.
 That's the hard cap on simultaneous Docker container spawns. The asyncio layer queues unlimited
@@ -201,7 +201,7 @@ A GUI for chaining PyBooks into multi-step workflows where the output of one ste
 
 ---
 
-## 18. Bug: max_concurrent_runs change not reflected in Runs page
+## 18. Bug: max_concurrent_runs change not reflected in Runs page ✅ DONE
 
 After saving a new `max_concurrent_runs` value in the Settings page, the concurrency bar and slot count on the Runs page continue showing the old value until the server restarts.
 
