@@ -7,14 +7,7 @@ import Entries from './pages/Entries'
 import PyBooks from './pages/PyBooks'
 import Runs from './pages/Runs'
 import Secrets from './pages/Secrets'
-
-function Placeholder({ title }) {
-  return (
-    <div className="flex items-center justify-center h-64 text-gray-600 text-sm">
-      {title} — coming soon
-    </div>
-  )
-}
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -30,8 +23,8 @@ export default function App() {
           <Route path="/entries" element={<Entries />} />
           <Route path="/pybooks" element={<PyBooks />} />
           <Route path="/runs" element={<Runs />} />
-          <Route path="/dashboards" element={<Placeholder title="Dashboards" />} />
           <Route path="/secrets" element={<Secrets />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

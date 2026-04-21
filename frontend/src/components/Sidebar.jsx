@@ -5,8 +5,8 @@ const links = [
   { to: '/entries', label: 'Entries', icon: '◈' },
   { to: '/pybooks', label: 'PyBooks', icon: '📖' },
   { to: '/runs', label: 'Runs', icon: '▶' },
-  { to: '/dashboards', label: 'Dashboards', icon: '◫' },
   { to: '/secrets', label: 'Secrets', icon: '🔑' },
+  { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
 export default function Sidebar() {

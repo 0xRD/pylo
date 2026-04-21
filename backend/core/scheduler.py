@@ -24,7 +24,7 @@ def _parse_cron(expr: str):
 
 
 async def _run_cron_pybook(pybook_id: str):
-    from backend.api.pybooks import _execute_run
+    from backend.core import queue_manager
 
     with Session(engine) as session:
         pb = session.get(PyBook, pybook_id)
@@ -34,7 +34,7 @@ async def _run_cron_pybook(pybook_id: str):
         run = PyBookRun(
             id=str(uuid.uuid4()),
             pybook_id=pybook_id,
-            status="pending",
+            status="queued",
             trigger_source="cron",
             trigger_payload="{}",
             started_at=now,
@@ -42,7 +42,7 @@ async def _run_cron_pybook(pybook_id: str):
         session.add(run)
         session.commit()
 
-    await _execute_run(pybook_id, run.id)
+    queue_manager.enqueue(pybook_id, run.id)
 
 
 async def _fetch_cron_blueprint(type_id: str):

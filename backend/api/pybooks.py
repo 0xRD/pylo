@@ -175,7 +175,7 @@ async def run_pybook_endpoint(
     run = PyBookRun(
         id=str(uuid.uuid4()),
         pybook_id=pybook_id,
-        status="pending",
+        status="queued",
         trigger_source=body.trigger_source,
         trigger_payload=json.dumps(body.trigger_payload),
         started_at=now,
@@ -185,7 +185,7 @@ async def run_pybook_endpoint(
     session.refresh(run)
 
     # Pass only IDs — background task opens its own session
-    background_tasks.add_task(_execute_run, pybook_id, run.id)
+    queue_manager.enqueue(pybook_id, run.id)
     return run
 
 

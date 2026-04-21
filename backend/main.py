@@ -10,8 +10,10 @@ from backend.api.pybooks import router as pybooks_router
 from backend.api.runs import router as runs_router
 from backend.api.secrets import router as secrets_router
 from backend.api.webhooks import router as webhooks_router
+from backend.api.settings import router as settings_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
+from backend.core import queue_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,8 +25,10 @@ async def lifespan(app: FastAPI):
     init_db()
     init_host_paths()
     start_scheduler()
+    await queue_manager.start()
     yield
     stop_scheduler()
+    queue_manager.stop()
     logger.info("Pylo backend stopped.")
 
 
@@ -48,6 +52,7 @@ app.include_router(pybooks_router)
 app.include_router(runs_router)
 app.include_router(secrets_router)
 app.include_router(webhooks_router)
+app.include_router(settings_router)
 
 
 @app.get("/health")

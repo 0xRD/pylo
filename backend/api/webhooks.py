@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from backend.database import get_session
 from backend.pybooks.models import PyBook, PyBookRun
+from backend.core import queue_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"], dependencies=[Depends(verify_token)])
@@ -38,7 +39,7 @@ async def receive_webhook(
     run = PyBookRun(
         id=str(uuid.uuid4()),
         pybook_id=pybook_id,
-        status="pending",
+        status="queued",
         trigger_source="webhook",
         trigger_payload=json.dumps(payload),
         started_at=now,
@@ -48,5 +49,5 @@ async def receive_webhook(
     session.refresh(run)
 
     from backend.api.pybooks import _execute_run
-    background_tasks.add_task(_execute_run, pybook_id, run.id)
+    queue_manager.enqueue(pybook_id, run.id)
     return {"run_id": run.id, "status": "accepted"}

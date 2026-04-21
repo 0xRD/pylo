@@ -32,6 +32,12 @@ async def list_runs(
     return session.exec(stmt).all()
 
 
+
+@router.get("/queue")
+async def queue_stats():
+    from backend.core import queue_manager
+    return queue_manager.get_stats()
+
 @router.get("/{run_id}", dependencies=[Depends(verify_token)])
 async def get_run(run_id: str, session: Session = Depends(get_session)):
     run = session.get(PyBookRun, run_id)

@@ -1,4 +1,5 @@
 const STATUS_STYLES = {
+  queued:   'bg-gray-800 text-gray-400',
   pending:  'bg-yellow-900 text-yellow-300',
   running:  'bg-blue-900 text-blue-300 animate-pulse',
   success:  'bg-green-900 text-green-300',

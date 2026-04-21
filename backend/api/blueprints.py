@@ -243,8 +243,7 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
     if bp.trigger_pybook_id and created_count > 0:
         trigger_event = getattr(bp, 'trigger_event', 'on_create')
         if trigger_event in ('on_create', 'on_create_or_update'):
-            import asyncio
-            from backend.api.pybooks import _execute_run
+            from backend.core import queue_manager
             from backend.pybooks.models import PyBook, PyBookRun
             from backend.database import engine as _engine
             try:
@@ -255,14 +254,14 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
                         _run = PyBookRun(
                             id=str(uuid.uuid4()),
                             pybook_id=bp.trigger_pybook_id,
-                            status=pending,
+                            status="queued",
                             trigger_source=blueprint,
                             trigger_payload=json.dumps({"blueprint_id": blueprint_id, "created": created_count}),
                             started_at=_now,
                         )
                         _ts.add(_run)
                         _ts.commit()
-                        asyncio.create_task(_execute_run(bp.trigger_pybook_id, _run.id))
+                        queue_manager.enqueue(bp.trigger_pybook_id, _run.id)
             except Exception as _exc:
                 logger.warning("Failed to trigger PyBook after fetch: %s", _exc)
 

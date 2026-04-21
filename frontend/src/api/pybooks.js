@@ -40,4 +40,5 @@ export const runsApi = {
     return req("GET", `/runs?${p}`)
   },
   get: (id) => req("GET", `/runs/${id}`),
+  queueStats: () => req("GET", "/runs/queue"),
 }
