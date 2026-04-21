@@ -91,7 +91,7 @@ Implemented via `HelpTip` component.
 
 ## 9b. Blueprint trigger event type ✅ DONE
 
-`trigger_event` column added (`on_create` | `on_create_or_update`). `_do_fetch` fires linked PyBook via `asyncio.create_task` after creating entries. BlueprintForm shows PyBook selector + event dropdown.
+`trigger_event` stored in each PyBook's `trigger_config` (`on_create` | `on_create_or_update`). `_fire_blueprint_triggers` checks this value per subscriber before enqueuing. Event selector exposed in the PyBook editor's blueprint trigger config panel (moved from BlueprintForm as part of #15).
 
 ---
 
@@ -141,19 +141,16 @@ With 50–100 alerts per fetch each triggering a PyBook, this is a real data-los
 
 ---
 
-## 15. Multi-PyBook blueprint triggers (subscribe from PyBooks view)
+## 15. Multi-PyBook blueprint triggers ✅ DONE
 
-**Current model:** Blueprint has a single `trigger_pybook_id` — only one PyBook can subscribe per blueprint.
+Trigger subscription ownership moved from Blueprint to PyBook. Each PyBook now declares `trigger_type = "blueprint"` with `trigger_config = {"blueprint_id": "...", "trigger_event": "on_create|on_create_or_update", "trigger_conditions": [...]}`.
 
-**Better model:** PyBook owns its trigger subscription.
-- Add `blueprint` as a trigger type on PyBook (`trigger_type = "blueprint"`).
-- `trigger_config` for blueprint triggers: `{"blueprint_id": "...", "trigger_event": "on_create"}`.
-- `_do_fetch` queries all active PyBooks where `trigger_type = "blueprint"` and `trigger_config.blueprint_id` matches — fires all of them through the queue (see #14).
-- PyBooks view: add a "Blueprint trigger" option in the trigger type selector alongside Cron / Webhook.
-- Remove `trigger_pybook_id` / `trigger_event` from Blueprint model (migration to migrate existing config to PyBook trigger records).
-- Multiple PyBooks can subscribe to the same blueprint event independently.
-
-**Why:** The current model only allows one PyBook per blueprint. SOAR workflows need N PyBooks to react to the same new alert (e.g. enrich + notify + open ticket in parallel).
+- Migration `f1a2b3c4d5e6` converted existing `blueprint.trigger_pybook_id` records into PyBook `trigger_config` entries.
+- `_fire_blueprint_triggers` queries all active PyBooks subscribed to a blueprint; each has independent conditions and is capped at 50 enqueued runs per fetch.
+- `GET /api/blueprints/{id}/subscribers` returns all subscribed PyBooks.
+- PyBooks editor: "blueprint" trigger type with inline config panel (blueprint selector + event + conditions builder); "Edit trigger" bar in the editor.
+- BlueprintDetail Settings tab: **Subscribed PyBooks** read-only section.
+- `trigger_pybook_id` / `trigger_event` removed from BlueprintForm UI (DB columns kept for schema compatibility).
 
 ---
 
@@ -238,34 +235,8 @@ Sub-PyBooks called frequently incur 1-3 second cold-start latency for each Docke
 
 ## 20. PyBook trigger filtering — conditional entry triggers ✅ DONE
 
-Currently when a Blueprint is configured to trigger a PyBook on new entries, it fires for every new entry regardless of content. This can overwhelm PyBook queues when fetching large datasets where only a subset is actionable.
+Each PyBook subscribed to a Blueprint can define a list of field-value conditions that must all match before a run is enqueued. Conditions are stored inside the PyBook's `trigger_config.trigger_conditions` (moved from `blueprint.trigger_conditions` when #15 was implemented).
 
-**Feature:** Add per-blueprint trigger conditions — a list of field-value filters that must all match before the trigger fires.
-
-**Data model:**
-- Add `trigger_conditions: str = "[]"` (JSON array) on Blueprint.
-- Each condition: `{"field": "severity", "operator": "eq|contains|regex|gt|lt|ne", "value": "high"}`.
-- All conditions are ANDed (all must match to trigger). OR logic can be composed with multiple blueprints.
-- Migration: add `trigger_conditions VARCHAR NOT NULL DEFAULT '[]'` to `blueprint`.
-
-**Operators to support:**
-- `eq` — exact match (case-insensitive for strings).
-- `ne` — not equal.
-- `contains` — substring match (case-insensitive).
-- `starts_with` — prefix match.
-- `regex` — full Python `re.search()` match against the string value.
-- `gt` / `lt` — numeric greater/less than (coerce value to float).
-
-**Backend — `_check_trigger_conditions(entry_parsed_fields, conditions)`:**
-- Iterates conditions; for each, looks up `entry_parsed_fields.get(field)`.
-- If any condition fails (or field is missing), returns `False`.
-- Called in `_do_fetch` before `queue_manager.enqueue()` — only enqueue if all conditions pass.
-- Also called from `POST /{blueprint_id}/entries` (manual entry creation) for consistency.
-
-**UI — trigger conditions builder in BlueprintForm:**
-- Only shown when a `trigger_pybook_id` is selected.
-- "+ Add condition" button adds a row: [field name input] [operator dropdown] [value input] [× remove].
-- Operator dropdown: `equals`, `not equals`, `contains`, `starts with`, `matches regex`.
-- Small preview label under the section: "Trigger fires when: severity equals high AND category contains Execute".
-
-**Why:** SOAR blueprints often ingest high-volume sources (firewall logs, EDR telemetry) where only specific entries (severity=critical, status=new) need automated response. Without filtering, every ingest run floods the PyBook queue with low-value work.
+- `check_trigger_conditions(parsed_fields, conditions)` in `backend/objects/filter.py`; operators `eq`, `ne`, `contains`, `starts_with`, `regex`, `gt`, `lt`; all ANDed.
+- Called in `_fire_blueprint_triggers` per subscriber before enqueuing; also called from `POST /{blueprint_id}/entries` for manual entry creation.
+- UI: `TriggerConditionBuilder` component in the PyBook editor's blueprint trigger config panel (field input + operator dropdown + value input + remove).
