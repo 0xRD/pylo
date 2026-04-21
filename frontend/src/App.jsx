@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import Blueprints from './pages/Blueprints'
+import BlueprintDetail from './pages/BlueprintDetail'
 import EntryDetail from './pages/EntryDetail'
 import PyBooks from './pages/PyBooks'
 import Runs from './pages/Runs'
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/objects/*" element={<Navigate to="/blueprints" replace />} />
           <Route path="/blueprints" element={<Blueprints />} />
           <Route path="/blueprints/entries/:id" element={<EntryDetail />} />
+          <Route path="/blueprints/:id" element={<BlueprintDetail />} />
           <Route path="/pybooks" element={<PyBooks />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/dashboards" element={<Placeholder title="Dashboards" />} />
