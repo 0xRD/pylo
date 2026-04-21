@@ -99,3 +99,53 @@ def _matches_all(data: dict, conditions: list[tuple[str, str, str]]) -> bool:
             except ValueError:
                 return False
     return True
+
+
+# ── Trigger conditions (structured dict format) ───────────────────────────────
+
+_VALID_OPS = frozenset(('eq', 'ne', 'contains', 'starts_with', 'regex', 'gt', 'lt'))
+
+
+def check_trigger_conditions(parsed: dict, conditions: list[dict]) -> bool:
+    """Return True if parsed entry fields satisfy all trigger conditions (AND-logic).
+
+    Each condition dict: {"field": str, "operator": str, "value": str}
+    An empty conditions list always returns True (unconditional trigger).
+    """
+    for cond in conditions:
+        field = cond.get("field", "")
+        operator = cond.get("operator", "eq")
+        value = str(cond.get("value", ""))
+        if operator not in _VALID_OPS:
+            return False  # unknown operator treated as non-match
+        raw = parsed.get(field)
+        field_val = str(raw) if raw is not None else ""
+        if not _eval_condition(field_val, operator, value):
+            return False
+    return True
+
+
+def _eval_condition(field_val: str, operator: str, value: str) -> bool:
+    if operator == "eq":
+        return field_val.lower() == value.lower()
+    if operator == "ne":
+        return field_val.lower() != value.lower()
+    if operator == "contains":
+        return value.lower() in field_val.lower()
+    if operator == "starts_with":
+        return field_val.lower().startswith(value.lower())
+    if operator == "regex":
+        try:
+            return bool(re.search(value, field_val, re.IGNORECASE))
+        except re.error:
+            return False
+    # numeric operators
+    try:
+        fv, v = float(field_val), float(value)
+        if operator == "gt":
+            return fv > v
+        if operator == "lt":
+            return fv < v
+    except ValueError:
+        return False
+    return False

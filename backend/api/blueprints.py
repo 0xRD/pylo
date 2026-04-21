@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -35,6 +35,7 @@ class BlueprintCreate(BaseModel):
     fetch_is_active: bool = False
     is_manual: bool = False
     trigger_event: str = "on_create"
+    trigger_conditions: str = "[]"
 
 
 class BlueprintUpdate(BaseModel):
@@ -51,6 +52,7 @@ class BlueprintUpdate(BaseModel):
     fetch_is_active: Optional[bool] = None
     is_manual: Optional[bool] = None
     trigger_event: Optional[str] = None
+    trigger_conditions: Optional[str] = None
 
 
 class PreviewRequest(BaseModel):
@@ -203,9 +205,16 @@ async def _fetch_raw_items(bp: Blueprint, headers: dict, body: dict) -> list:
     return raw if isinstance(raw, list) else [raw]
 
 
-def _upsert_entries(bp: Blueprint, items: list, field_mappings: list, session: Session) -> tuple[int, int]:
+def _upsert_entries(
+    bp: Blueprint, items: list, field_mappings: list, session: Session
+) -> tuple[list[dict], int]:
+    """Return (created_entries, skipped_count).
+
+    Each element of created_entries: {"entry_id": str, "parsed": dict}
+    """
     key_field = next((m["field_name"] for m in field_mappings if m.get("is_key")), "external_id")
-    created, skipped = 0, 0
+    created_entries: list[dict] = []
+    skipped = 0
     for item in items:
         parsed = parse_instance(item, field_mappings)
         external_id = parsed.get(key_field)
@@ -230,34 +239,66 @@ def _upsert_entries(bp: Blueprint, items: list, field_mappings: list, session: S
         session.add(entry)
         session.flush()
         index_entry(session, entry.id, bp.id, extract_text_content(parsed))
-        created += 1
+        created_entries.append({"entry_id": entry.id, "parsed": parsed})
     session.commit()
-    return created, skipped
+    return created_entries, skipped
 
 
-def _fire_pybook_trigger(bp: Blueprint, blueprint_id: str, created_count: int) -> None:
+_MAX_TRIGGERS_PER_FETCH = 50  # safety cap to prevent runaway queuing on large initial fetches
+
+
+def _fire_pybook_trigger(bp: Blueprint, created_entries: list[dict]) -> None:
+    """Enqueue one PyBook run per created entry that passes all trigger conditions.
+
+    Conditions are read from bp.trigger_conditions (JSON array of dicts).
+    Capped at _MAX_TRIGGERS_PER_FETCH triggers per call to prevent queue flooding.
+    created_entries: list of {"entry_id": str, "parsed": dict}
+    """
+    from backend.objects.filter import check_trigger_conditions
     from backend.core import queue_manager
     from backend.pybooks.models import PyBook, PyBookRun
     from backend.database import engine as _engine
+
+    conditions: list[dict] = json.loads(bp.trigger_conditions or "[]")
+    matching = [
+        e for e in created_entries
+        if check_trigger_conditions(e["parsed"], conditions)
+    ]
+    if not matching:
+        return
+    if len(matching) > _MAX_TRIGGERS_PER_FETCH:
+        logger.warning(
+            "Blueprint %s: %d entries matched trigger conditions; capping at %d",
+            bp.id, len(matching), _MAX_TRIGGERS_PER_FETCH,
+        )
+        matching = matching[:_MAX_TRIGGERS_PER_FETCH]
+
     try:
         with Session(_engine) as _ts:
             _pb = _ts.get(PyBook, bp.trigger_pybook_id)
             if not (_pb and _pb.is_active):
                 return
-            _now = datetime.now(timezone.utc)
-            _run = PyBookRun(
-                id=str(uuid.uuid4()),
-                pybook_id=bp.trigger_pybook_id,
-                status="queued",
-                trigger_source="blueprint",
-                trigger_payload=json.dumps({"blueprint_id": blueprint_id, "created": created_count}),
-                started_at=_now,
-            )
-            _ts.add(_run)
-            _ts.commit()
-            queue_manager.enqueue(bp.trigger_pybook_id, _run.id)
+            runs: list[PyBookRun] = []
+            for entry_info in matching:
+                _run = PyBookRun(
+                    id=str(uuid.uuid4()),
+                    pybook_id=bp.trigger_pybook_id,
+                    status="queued",
+                    trigger_source="blueprint",
+                    trigger_payload=json.dumps({
+                        "blueprint_id": bp.id,
+                        "entry_id": entry_info["entry_id"],
+                        "entry_data": entry_info["parsed"],
+                    }),
+                    started_at=datetime.now(timezone.utc),
+                )
+                _ts.add(_run)
+                runs.append(_run)
+            _ts.commit()  # single commit for all runs
+            for _run in runs:
+                queue_manager.enqueue(bp.trigger_pybook_id, _run.id)
     except Exception as exc:
-        logger.warning("Failed to trigger PyBook after fetch: %s", exc)
+        logger.warning("Failed to trigger PyBook: %s", exc)
 
 
 async def _do_fetch(blueprint_id: str, session: Session) -> dict:
@@ -281,11 +322,12 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Upstream fetch failed: {exc}")
 
-    created_count, skipped_count = _upsert_entries(bp, items, field_mappings, session)
+    created_entries, skipped_count = _upsert_entries(bp, items, field_mappings, session)
+    created_count = len(created_entries)
 
     trigger_event = getattr(bp, "trigger_event", "on_create")
     if bp.trigger_pybook_id and created_count > 0 and trigger_event in ("on_create", "on_create_or_update"):
-        _fire_pybook_trigger(bp, blueprint_id, created_count)
+        _fire_pybook_trigger(bp, created_entries)
 
     return {"created": created_count, "skipped": skipped_count, "total": len(items)}
 
@@ -351,7 +393,12 @@ async def preview_endpoint(body: PreviewRequest):
 # ── Manual entry creation ─────────────────────────────────────────────────────
 
 @router.post("/{blueprint_id}/entries", status_code=201)
-async def create_manual_entry(blueprint_id: str, body: CreateEntryBody, session: Session = Depends(get_session)):
+async def create_manual_entry(
+    blueprint_id: str,
+    body: CreateEntryBody,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
@@ -377,4 +424,10 @@ async def create_manual_entry(blueprint_id: str, body: CreateEntryBody, session:
     index_entry(session, entry.id, blueprint_id, extract_text_content(body.fields))
     session.commit()
     session.refresh(entry)
+
+    if bp.trigger_pybook_id:
+        background_tasks.add_task(
+            _fire_pybook_trigger, bp, [{"entry_id": entry.id, "parsed": body.fields}]
+        )
+
     return entry

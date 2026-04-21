@@ -21,6 +21,7 @@ class Blueprint(SQLModel, table=True):
     field_mappings: str = "[]"
     trigger_pybook_id: Optional[str] = None
     trigger_event: str = Field(default="on_create")
+    trigger_conditions: str = Field(default="[]")
     polling_interval_seconds: Optional[int] = None
     fetch_cron: Optional[str] = None
     fetch_is_active: bool = Field(default=False)

@@ -236,7 +236,7 @@ Sub-PyBooks called frequently incur 1-3 second cold-start latency for each Docke
 
 ---
 
-## 20. PyBook trigger filtering — conditional entry triggers
+## 20. PyBook trigger filtering — conditional entry triggers ✅ DONE
 
 Currently when a Blueprint is configured to trigger a PyBook on new entries, it fires for every new entry regardless of content. This can overwhelm PyBook queues when fetching large datasets where only a subset is actionable.
 

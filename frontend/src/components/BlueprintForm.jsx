@@ -56,11 +56,63 @@ function JsonTree({ data, onSelect }) {
 const EMPTY_MAPPING = { source_path: '', field_name: '', field_type: 'string', is_key: false }
 const FIELD_TYPES = ['string', 'number', 'boolean', 'datetime']
 
+
+const TRIGGER_OPERATORS = [
+  { value: 'eq',          label: 'equals' },
+  { value: 'ne',          label: 'not equals' },
+  { value: 'contains',    label: 'contains' },
+  { value: 'starts_with', label: 'starts with' },
+  { value: 'regex',       label: 'matches regex' },
+  { value: 'gt',          label: '>' },
+  { value: 'lt',          label: '<' },
+]
+
+function TriggerConditionBuilder({ value, onChange }) {
+  const conditions = (() => { try { return JSON.parse(value || '[]') } catch { return [] } })()
+  const update       = (next) => onChange(JSON.stringify(next))
+  const add          = () => update([...conditions, { field: '', operator: 'eq', value: '' }])
+  const remove       = (i) => update(conditions.filter((_, idx) => idx !== i))
+  const setCondition = (i, key, val) => update(conditions.map((c, idx) => idx === i ? { ...c, [key]: val } : c))
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-400">Only trigger when entry matches:</span>
+        <button type="button" onClick={add}
+          className="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">
+          + Add condition
+        </button>
+      </div>
+      {conditions.length === 0 && (
+        <p className="text-xs text-gray-600 italic">No conditions — fires for every new entry.</p>
+      )}
+      {conditions.map((cond, i) => (
+        <div key={i} className="flex gap-2 items-center">
+          <input value={cond.field} onChange={e => setCondition(i, 'field', e.target.value)}
+            placeholder="field"
+            className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+          <select value={cond.operator} onChange={e => setCondition(i, 'operator', e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
+            {TRIGGER_OPERATORS.map(op => (
+              <option key={op.value} value={op.value}>{op.label}</option>
+            ))}
+          </select>
+          <input value={cond.value} onChange={e => setCondition(i, 'value', e.target.value)}
+            placeholder="value"
+            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+          <button type="button" onClick={() => remove(i)}
+            className="text-gray-600 hover:text-red-400 transition-colors text-sm leading-none shrink-0">×</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function BlueprintForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial || {
     name: '', description: '', source_url: '', source_method: 'GET',
     source_headers: '{}', source_body: '{}', field_mappings: '[]',
-    trigger_pybook_id: '', trigger_event: 'on_create', fetch_cron: '', fetch_is_active: false, is_manual: false,
+    trigger_pybook_id: '', trigger_event: 'on_create', trigger_conditions: '[]', fetch_cron: '', fetch_is_active: false, is_manual: false,
   })
   const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]') } catch { return [] } })
   const [saving, setSaving] = useState(false)
@@ -250,7 +302,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
 
 
       {/* Trigger PyBook */}
-      <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
+      <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
         <label className="block text-xs text-gray-400 font-medium">Trigger PyBook on new entries</label>
         <div className="flex gap-2 flex-wrap">
           <select value={form.trigger_pybook_id || ''} onChange={e => set('trigger_pybook_id', e.target.value || null)}
@@ -266,7 +318,15 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
             </select>
           )}
         </div>
-        {form.trigger_pybook_id && <p className="text-xs text-gray-600">The selected PyBook will be triggered automatically after each fetch that creates new entries.</p>}
+        {form.trigger_pybook_id && (
+          <div className="border-t border-gray-800 pt-3">
+            <TriggerConditionBuilder
+              value={form.trigger_conditions || '[]'}
+              onChange={v => set('trigger_conditions', v)}
+            />
+          </div>
+        )}
+        {!form.trigger_pybook_id && <p className="text-xs text-gray-600">Select a PyBook to configure trigger conditions.</p>}
       </div>
 
 
