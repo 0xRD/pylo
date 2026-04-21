@@ -198,3 +198,38 @@ A GUI for chaining PyBooks into multi-step workflows where the output of one ste
 - `/workflows` list page: cards showing name, node count, last run status.
 
 **Why:** Real SOAR workflows are multi-step — enrich an alert, score it, decide whether to escalate, open a ticket, notify Slack. Hand-coded `call_sub_pybook()` chains work for simple cases but don't scale to conditional branching, parallel fan-out, or visual debugging. A graph editor makes the logic readable and modifiable without touching code.
+
+---
+
+## 18. Bug: max_concurrent_runs change not reflected in Runs page
+
+After saving a new `max_concurrent_runs` value in the Settings page, the concurrency bar and slot count on the Runs page continue showing the old value until the server restarts.
+
+**Root cause:** `queue_manager.get_stats()` calls `_get_max()` which reads `settings.PYLO_MAX_CONCURRENT_RUNS` from the environment config object — not from the `system_setting` DB table. So after `PUT /api/settings` calls `update_limit(new_limit)`, the semaphore is correctly resized but `get_stats()["max_concurrent"]` still returns the original env-var value.
+
+**Fix:** Add a module-level `_current_limit: int = 0` variable in `queue_manager.py`. Set it in `start()` (load from DB or fall back to env) and in `update_limit()`. Replace `_get_max()` with `_current_limit` in `get_stats()`.
+
+**Why:** The Runs page concurrency bar is misleading — it shows outdated slot counts after a settings change, making users think the change had no effect.
+
+---
+
+## 19. Always-on sub-PyBooks — warm container pool
+
+Sub-PyBooks called frequently incur 1-3 second cold-start latency for each Docker container spin-up. An "always on" mode would keep a warm container running between calls for near-instant invocation.
+
+**Data model:**
+- Add `always_on: bool = False` flag on PyBook (and migration).
+- Add `warm_port: int = None` — the host port the warm container is currently listening on (set at runtime, not persisted).
+
+**Implementation:**
+- On server startup, `scheduler.py` (or a new `warm_pool.py` module) starts a persistent container for each `always_on=True` sub-PyBook. The container runs a lightweight HTTP server (FastAPI on port 8000) that accepts `POST /invoke` with `{"payload": {...}, "secrets": {...}}` and executes the PyBook script.
+- `call_sub_pybook(pybook_id, payload)` in `pylo_sdk.py` checks a module-level registry `_warm_containers: dict[int, str]` (pybook_id → base URL). If an entry exists, it POSTs to the warm container instead of spawning a new one.
+- Warm containers are restarted on crash (Docker `--restart=unless-stopped` or health-check loop in `warm_pool.py`).
+- Configurable `warm_idle_timeout` (default: never) — after N minutes with no invocations, the container is stopped and removed from the registry; it is re-warmed on next call.
+
+**UI:**
+- Toggle "Always on" in the PyBook editor toolbar (only visible when `is_sub_pybook=True`).
+- Status indicator next to the toggle: green dot "warm" / gray dot "cold" — polled from `GET /api/pybooks/:id/warm-status`.
+- Settings page: list of currently warm containers with uptime and last-invoked timestamp.
+
+**Why:** In real-time SOAR workflows, sub-PyBooks are called on every alert (potentially hundreds per minute). A 2s cold start per call adds up and introduces latency into incident response pipelines. Warm containers make the call overhead comparable to a local function call.
