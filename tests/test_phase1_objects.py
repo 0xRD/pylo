@@ -1,5 +1,5 @@
 """
-Phase 1 tests: JSONPath parser, instance storage, deduplication, FTS search, API routes.
+Phase 1 tests: JSONPath parser, entry storage, deduplication, FTS search, API routes.
 """
 import json
 import os
@@ -24,13 +24,13 @@ def db_engine():
     engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
 
     from backend.pybooks.models import PyBook, PyBookRun  # noqa
-    from backend.objects.models import ObjectType, ObjectInstance  # noqa
+    from backend.objects.models import Blueprint, Entry  # noqa
     SQLModel.metadata.create_all(engine)
 
     with engine.connect() as conn:
         conn.execute(text("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS fts_objects
-            USING fts5(instance_id UNINDEXED, object_type_id UNINDEXED, content,
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_entries
+            USING fts5(entry_id UNINDEXED, blueprint_id UNINDEXED, content,
                        tokenize='porter ascii')
         """))
         conn.commit()
@@ -49,9 +49,7 @@ def session(db_engine):
 def client(db_engine):
     from backend import main as app_module
     from backend import database as db_module
-    from sqlmodel import Session
 
-    # Patch the engine used by the app to point to our test DB
     db_module.engine = db_engine
 
     def override_session():
@@ -103,7 +101,7 @@ def test_extract_text_content():
     assert "critical" in text_out
 
 
-# ── API: ObjectType CRUD ──────────────────────────────────────────────────────
+# ── API: Blueprint CRUD ───────────────────────────────────────────────────────
 
 def test_create_object_type(client):
     r = client.post("/api/blueprints", json={"name": "TestAlert", "description": "test"})
@@ -143,117 +141,104 @@ def test_get_nonexistent_type(client):
 
 # ── Deduplication ─────────────────────────────────────────────────────────────
 
-def test_deduplication(client, respx_mock=None):
-    """Two fetches of the same external_id must only create one instance."""
+def test_deduplication(client):
+    """Two inserts of the same external_id must only create one entry."""
     import json as _json
-    from backend.objects.models import ObjectInstance
+    from backend.objects.models import Entry
+    from backend import database as db_module
     from sqlmodel import select
 
-    # Create type with field mapping for external_id
     r = client.post("/api/blueprints", json={
         "name": "DedupeType",
         "field_mappings": _json.dumps([
             {"source_path": "$.id", "field_name": "external_id", "field_type": "string"}
         ]),
     })
-    type_id = r.json()["id"]
+    blueprint_id = r.json()["id"]
 
-    # Manually create two instances with the same external_id via the storage layer
-    from backend.objects.indexer import index_instance
-    from backend.objects.parser import extract_text_content
-
-    with Session(client.app.dependency_overrides[
-        __import__('backend.database', fromlist=['get_session']).get_session
-    ]().__next__().__class__) as s:
-        pass  # just verifying the override is active
-
-    # Use the API to directly add instances, simulating what /fetch does
-    # We test dedup by calling the internal logic used by /fetch
-    from backend import database as db_module
     with Session(db_module.engine) as s:
         for _ in range(2):
             existing = s.exec(
-                select(ObjectInstance).where(
-                    ObjectInstance.object_type_id == type_id,
-                    ObjectInstance.external_id == "ext-001",
+                select(Entry).where(
+                    Entry.blueprint_id == blueprint_id,
+                    Entry.external_id == "ext-001",
                 )
             ).first()
             if not existing:
                 now = datetime.now(timezone.utc)
-                inst = ObjectInstance(
-                    id=str(uuid.uuid4()), object_type_id=type_id,
+                entry = Entry(
+                    id=str(uuid.uuid4()), blueprint_id=blueprint_id,
                     external_id="ext-001", data="{}", raw_data="{}",
                     created_at=now, updated_at=now,
                 )
-                s.add(inst)
+                s.add(entry)
                 s.commit()
 
         count = len(s.exec(
-            select(ObjectInstance).where(
-                ObjectInstance.object_type_id == type_id,
-                ObjectInstance.external_id == "ext-001",
+            select(Entry).where(
+                Entry.blueprint_id == blueprint_id,
+                Entry.external_id == "ext-001",
             )
         ).all())
 
-    assert count == 1, f"Expected 1 instance, got {count}"
+    assert count == 1, f"Expected 1 entry, got {count}"
 
 
 # ── FTS search ────────────────────────────────────────────────────────────────
 
 def test_fts_search(client):
     from backend import database as db_module
-    from backend.objects.indexer import index_instance
+    from backend.objects.indexer import index_entry
+    from backend.objects.models import Entry
 
-    # Create a type and instance with known content
     r = client.post("/api/blueprints", json={"name": "FTSType"})
-    type_id = r.json()["id"]
+    blueprint_id = r.json()["id"]
 
     now = datetime.now(timezone.utc)
-    inst_id = str(uuid.uuid4())
+    entry_id = str(uuid.uuid4())
 
-    from backend.objects.models import ObjectInstance
     with Session(db_module.engine) as s:
-        inst = ObjectInstance(
-            id=inst_id, object_type_id=type_id,
+        entry = Entry(
+            id=entry_id, blueprint_id=blueprint_id,
             data=json.dumps({"title": "critical-security-incident"}),
             raw_data="{}",
             created_at=now, updated_at=now,
         )
-        s.add(inst)
+        s.add(entry)
         s.flush()
-        index_instance(s, inst_id, type_id, "critical security incident")
+        index_entry(s, entry_id, blueprint_id, "critical security incident")
         s.commit()
 
-    r = client.get(f"/api/blueprints/entries?type_id={type_id}&q=critical")
+    r = client.get(f"/api/blueprints/entries?blueprint_id={blueprint_id}&q=critical")
     assert r.status_code == 200
     ids = [i["id"] for i in r.json()]
-    assert inst_id in ids
+    assert entry_id in ids
 
 
 # ── Delete cascade ────────────────────────────────────────────────────────────
 
 def test_delete_type_removes_instances(client):
     from backend import database as db_module
-    from backend.objects.models import ObjectInstance
+    from backend.objects.models import Entry
     from sqlmodel import select
 
     r = client.post("/api/blueprints", json={"name": "DeleteMe"})
-    type_id = r.json()["id"]
+    blueprint_id = r.json()["id"]
 
     now = datetime.now(timezone.utc)
     with Session(db_module.engine) as s:
         for _ in range(3):
-            s.add(ObjectInstance(
-                id=str(uuid.uuid4()), object_type_id=type_id,
+            s.add(Entry(
+                id=str(uuid.uuid4()), blueprint_id=blueprint_id,
                 data="{}", raw_data="{}", created_at=now, updated_at=now,
             ))
         s.commit()
 
-    r = client.delete(f"/api/blueprints/{type_id}")
+    r = client.delete(f"/api/blueprints/{blueprint_id}")
     assert r.status_code == 204
 
     with Session(db_module.engine) as s:
         remaining = s.exec(
-            select(ObjectInstance).where(ObjectInstance.object_type_id == type_id)
+            select(Entry).where(Entry.blueprint_id == blueprint_id)
         ).all()
     assert remaining == []

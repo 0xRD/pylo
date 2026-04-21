@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import inspect, text
 from sqlmodel import create_engine, Session, SQLModel
 
-# Point to a temp DB so tests are isolated
 os.environ.setdefault("DATABASE_URL", "sqlite:///./objects_storage/pylo.db")
 
 
@@ -18,19 +17,17 @@ def engine():
 
     _engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 
-    # Import models to register them
     from backend.pybooks.models import PyBook, PyBookRun  # noqa
-    from backend.objects.models import ObjectType, ObjectInstance  # noqa
+    from backend.objects.models import Blueprint, Entry  # noqa
 
     SQLModel.metadata.create_all(_engine)
 
-    # FTS5 virtual table
     with _engine.connect() as conn:
         conn.execute(text("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS fts_objects
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_entries
             USING fts5(
-                instance_id UNINDEXED,
-                object_type_id UNINDEXED,
+                entry_id UNINDEXED,
+                blueprint_id UNINDEXED,
                 content,
                 tokenize='porter ascii'
             )
@@ -52,22 +49,22 @@ def test_pybook_run_table_exists(engine):
     assert "pybook_run" in inspector.get_table_names()
 
 
-def test_object_type_table_exists(engine):
+def test_blueprint_table_exists(engine):
     inspector = inspect(engine)
-    assert "object_type" in inspector.get_table_names()
+    assert "blueprint" in inspector.get_table_names()
 
 
-def test_object_instance_table_exists(engine):
+def test_entry_table_exists(engine):
     inspector = inspect(engine)
-    assert "object_instance" in inspector.get_table_names()
+    assert "entry" in inspector.get_table_names()
 
 
 def test_fts_table_exists(engine):
     with engine.connect() as conn:
         result = conn.execute(text(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='fts_objects'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='fts_entries'"
         )).fetchone()
-    assert result is not None, "fts_objects virtual table not found"
+    assert result is not None, "fts_entries virtual table not found"
 
 
 def test_pybook_columns(engine):
@@ -87,19 +84,19 @@ def test_pybook_run_columns(engine):
     assert expected <= cols
 
 
-def test_object_type_columns(engine):
+def test_blueprint_columns(engine):
     inspector = inspect(engine)
-    cols = {c["name"] for c in inspector.get_columns("object_type")}
+    cols = {c["name"] for c in inspector.get_columns("blueprint")}
     expected = {"id", "name", "description", "source_url", "source_method",
                 "source_headers", "source_body", "field_mappings",
                 "trigger_pybook_id", "polling_interval_seconds", "created_at"}
     assert expected <= cols
 
 
-def test_object_instance_columns(engine):
+def test_entry_columns(engine):
     inspector = inspect(engine)
-    cols = {c["name"] for c in inspector.get_columns("object_instance")}
-    expected = {"id", "object_type_id", "external_id", "data", "raw_data",
+    cols = {c["name"] for c in inspector.get_columns("entry")}
+    expected = {"id", "blueprint_id", "external_id", "data", "raw_data",
                 "created_at", "updated_at"}
     assert expected <= cols
 
@@ -107,27 +104,28 @@ def test_object_instance_columns(engine):
 def test_crud_roundtrip(engine):
     """Insert one row into each table and read it back."""
     import uuid
-    from datetime import datetime
+    from datetime import datetime, timezone
     from backend.pybooks.models import PyBook, PyBookRun
-    from backend.objects.models import ObjectType, ObjectInstance
+    from backend.objects.models import Blueprint, Entry
 
+    now = datetime.now(timezone.utc)
     with Session(engine) as session:
         pb = PyBook(id=str(uuid.uuid4()), name="test-pb", script="print('hi')",
-                    trigger_type="manual", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
-        ot = ObjectType(id=str(uuid.uuid4()), name="TestType", created_at=datetime.utcnow())
+                    trigger_type="manual", created_at=now, updated_at=now)
+        bp = Blueprint(id=str(uuid.uuid4()), name="TestBlueprint", created_at=now)
         session.add(pb)
-        session.add(ot)
+        session.add(bp)
         session.commit()
 
         run = PyBookRun(id=str(uuid.uuid4()), pybook_id=pb.id,
-                        trigger_source="manual", started_at=datetime.utcnow())
-        oi = ObjectInstance(id=str(uuid.uuid4()), object_type_id=ot.id,
-                            created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+                        trigger_source="manual", started_at=now)
+        entry = Entry(id=str(uuid.uuid4()), blueprint_id=bp.id,
+                      created_at=now, updated_at=now)
         session.add(run)
-        session.add(oi)
+        session.add(entry)
         session.commit()
 
         assert session.get(PyBook, pb.id).name == "test-pb"
         assert session.get(PyBookRun, run.id).pybook_id == pb.id
-        assert session.get(ObjectType, ot.id).name == "TestType"
-        assert session.get(ObjectInstance, oi.id).object_type_id == ot.id
+        assert session.get(Blueprint, bp.id).name == "TestBlueprint"
+        assert session.get(Entry, entry.id).blueprint_id == bp.id

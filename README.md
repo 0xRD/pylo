@@ -50,8 +50,9 @@ Define a schema and data source for structured data. Each Blueprint has:
 - **Field mappings** — JSONPath expressions mapped to named fields with type coercion
 - A **unique key field** for deduplication on repeated fetches (★ marker in the field mapping builder)
 - An optional **auto-fetch schedule** (human-friendly builder generates cron under the hood)
-- A **trigger PyBook** — automatically fire a PyBook after each successful fetch that creates new entries
 - **Manual mode** — no API source; entries are created directly in the UI (shared variables, rule toggles, allow/blocklists)
+
+Multiple PyBooks can subscribe to a Blueprint's entry events independently (see [Blueprint → PyBook Trigger](#blueprint--pybook-trigger)).
 
 ### Entries
 Individual records stored under a Blueprint. Created by fetching a source API or manually (manual blueprints). Searchable globally across all blueprints via the Entries page, or scoped to a specific Blueprint's detail view.
@@ -145,14 +146,22 @@ The generated cron expression is shown as a read-only preview.
 
 ## Blueprint → PyBook Trigger
 
-Link a PyBook to a Blueprint to fire it automatically after each fetch:
+PyBooks subscribe to Blueprint events from the **PyBook editor**, not the Blueprint settings. This allows multiple PyBooks to react to the same Blueprint independently.
 
-1. Open the Blueprint → **Settings** tab
-2. Under **Trigger PyBook**, select the PyBook and choose the event:
-   - **On new entry** — fires when the fetch creates at least one new entry
-   - **On new or updated entry** — fires on any change (when mutable fields land)
+**To subscribe a PyBook to a Blueprint:**
 
-Triggered runs go through the shared execution queue with the same concurrency limit as manual runs.
+1. Open the PyBook editor → click **Edit trigger** in the trigger bar
+2. Set trigger type to **blueprint**
+3. Select the Blueprint and the event:
+   - **On new entry** — fires once per new entry created by a fetch
+   - **On new or updated entry** — fires on create or update
+4. Optionally add **trigger conditions** — field-level filters that must match before the run is enqueued (e.g. `severity = "critical"`)
+
+**To see which PyBooks are watching a Blueprint:**
+
+Open the Blueprint → **Settings** tab → **Subscribed PyBooks** section.
+
+Triggered runs go through the shared execution queue with the same concurrency limit as manual runs. Each subscriber has its own condition list and is capped at 50 triggered runs per fetch cycle.
 
 ---
 
@@ -281,9 +290,8 @@ See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 - **Entry deduplication + mutable fields + history** — update fields on re-fetch; audit trail of changes per entry
 - **Login page + roles** — JWT auth, admin/viewer roles, multi-user support
 - **Paginated API fetching** — cursor, page-number, and offset pagination for multi-page sources
-- **PyBook trigger field filtering** — conditional triggers: only fire when a new entry matches field conditions (regex, contains, equals)
-- **Multi-PyBook blueprint triggers** — subscribe to blueprint events from the PyBook itself; multiple PyBooks react to the same new entry in parallel
 - **Scoped API Keys** — per-key permissions for SIEM/script integrations
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
+- **Run variable inspector** — view variables in scope after each run; collapsible tree in the run detail panel
 - **Always-on sub-PyBooks** — warm containers for near-instant invocation, eliminating cold-start latency
 - **Visual workflow builder** — React Flow DAG editor for chaining PyBooks with conditional branching

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import CodeEditor from "../components/CodeEditor"
 import RunStatusBadge from "../components/RunStatusBadge"
 import { pybooksApi } from "../api/pybooks"
+import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
 
 const DEFAULT_SCRIPT = `# Your PyBook script
@@ -12,8 +13,83 @@ const DEFAULT_SCRIPT = `# Your PyBook script
 print("Hello from Pylo!")
 `
 
-const TRIGGER_TYPES = ["manual", "cron", "webhook"]
+const TRIGGER_TYPES = ["manual", "cron", "webhook", "blueprint"]
 const TERMINAL = new Set(["success", "error", "timeout"])
+
+const TRIGGER_OPERATORS = [
+  { value: 'eq', label: 'equals' },
+  { value: 'ne', label: 'not equals' },
+  { value: 'contains', label: 'contains' },
+  { value: 'starts_with', label: 'starts with' },
+  { value: 'regex', label: 'matches regex' },
+  { value: 'gt', label: '>' },
+  { value: 'lt', label: '<' },
+]
+
+function TriggerConditionBuilder({ value, onChange }) {
+  const conditions = (() => { try { return JSON.parse(value || '[]') } catch { return [] } })()
+  const update = next => onChange(JSON.stringify(next))
+  const add = () => update([...conditions, { field: '', operator: 'eq', value: '' }])
+  const remove = i => update(conditions.filter((_, idx) => idx !== i))
+  const setC = (i, k, v) => update(conditions.map((c, idx) => idx === i ? { ...c, [k]: v } : c))
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-400">Only trigger when entry matches:</span>
+        <button type="button" onClick={add} className="text-xs text-indigo-400 hover:text-indigo-200">+ Add condition</button>
+      </div>
+      {conditions.length === 0 && <p className="text-xs text-gray-600 italic">No conditions — fires for every new entry.</p>}
+      {conditions.map((cond, i) => (
+        <div key={i} className="flex gap-2 items-center">
+          <input value={cond.field} onChange={e => setC(i, 'field', e.target.value)} placeholder="field"
+            className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+          <select value={cond.operator} onChange={e => setC(i, 'operator', e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
+            {TRIGGER_OPERATORS.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+          </select>
+          <input value={cond.value} onChange={e => setC(i, 'value', e.target.value)} placeholder="value"
+            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+          <button type="button" onClick={() => remove(i)} className="text-gray-600 hover:text-red-400 text-sm shrink-0">×</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BlueprintTriggerConfig({ triggerConfig, onChange, blueprints }) {
+  const cfg = (() => { try { return JSON.parse(triggerConfig || '{}') } catch { return {} } })()
+  const set = (k, v) => onChange(JSON.stringify({ ...cfg, [k]: v }))
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 flex-wrap">
+        <div className="flex-1 min-w-40">
+          <label className="block text-xs text-gray-400 mb-1">Blueprint</label>
+          <select value={cfg.blueprint_id || ''} onChange={e => set('blueprint_id', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+            <option value="">— select blueprint —</option>
+            {blueprints.map(bp => <option key={bp.id} value={bp.id}>{bp.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Event</label>
+          <select value={cfg.trigger_event || 'on_create'} onChange={e => set('trigger_event', e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+            <option value="on_create">On new entry</option>
+            <option value="on_create_or_update">On new or updated entry</option>
+          </select>
+        </div>
+      </div>
+      {cfg.blueprint_id && (
+        <div className="border-t border-gray-800 pt-3">
+          <TriggerConditionBuilder
+            value={JSON.stringify(cfg.trigger_conditions || [])}
+            onChange={v => { try { set('trigger_conditions', JSON.parse(v)) } catch {} }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Tag chip helpers ──────────────────────────────────────────────────────────
 
@@ -73,7 +149,7 @@ function TagInput({ tags, onChange }) {
 
 // ── New PyBook form ───────────────────────────────────────────────────────────
 
-function NewPyBookForm({ onSave, onCancel }) {
+function NewPyBookForm({ onSave, onCancel, blueprints = [] }) {
   const [form, setForm] = useState({
     name: "", description: "", script: DEFAULT_SCRIPT,
     is_sub_pybook: false, dependencies: "[]",
@@ -115,6 +191,16 @@ function NewPyBookForm({ onSave, onCancel }) {
           <ScheduleBuilder
             value={(() => { try { return JSON.parse(form.trigger_config).cron || "" } catch { return "" } })()}
             onChange={cron => set("trigger_config", JSON.stringify({ cron }))}
+          />
+        </div>
+      )}
+      {form.trigger_type === "blueprint" && (
+        <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
+          <label className="block text-xs text-gray-400 font-medium">Blueprint subscription</label>
+          <BlueprintTriggerConfig
+            triggerConfig={form.trigger_config}
+            onChange={v => set("trigger_config", v)}
+            blueprints={blueprints}
           />
         </div>
       )}
@@ -271,13 +357,16 @@ function RunPanel({ pybook, onClose }) {
 
 export default function PyBooks() {
   const [pybooks, setPybooks] = useState([])
+  const [blueprints, setBlueprints] = useState([])
   const [selected, setSelected] = useState(null)
   const [script, setScript] = useState("")
   const [showNew, setShowNew] = useState(false)
   const [showRuns, setShowRuns] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [selectedTags, setSelectedTags] = useState(null)  // null = editing, array = saved
+  const [selectedTags, setSelectedTags] = useState(null)
+  const [showTriggerEdit, setShowTriggerEdit] = useState(false)
+  const [triggerDraft, setTriggerDraft] = useState(null)
 
   // Filters
   const [search, setSearch] = useState('')
@@ -285,7 +374,10 @@ export default function PyBooks() {
   const [activeTag, setActiveTag] = useState('')
 
   const load = () => pybooksApi.list().then(data => { setPybooks(data); setLoading(false) }).catch(console.error)
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    blueprintsApi.listBlueprints().then(setBlueprints).catch(() => {})
+  }, [])
 
   const scriptChanged = selected && script !== (selected.script || "")
 
@@ -300,7 +392,21 @@ export default function PyBooks() {
     setSelected(pb)
     setScript(pb.script || "")
     setShowNew(false)
+    setShowTriggerEdit(false)
+    setTriggerDraft(null)
     try { setSelectedTags(JSON.parse(pb.tags || '[]')) } catch { setSelectedTags([]) }
+  }
+
+  const handleSaveTrigger = async () => {
+    if (!selected || !triggerDraft) return
+    const updated = await pybooksApi.update(selected.id, {
+      trigger_type: triggerDraft.type,
+      trigger_config: triggerDraft.config,
+    })
+    setSelected(updated)
+    setShowTriggerEdit(false)
+    setTriggerDraft(null)
+    load()
   }
 
   const handleSave = async () => {
@@ -354,7 +460,7 @@ export default function PyBooks() {
   if (showNew) return (
     <div className="max-w-3xl">
       <h1 className="text-xl font-semibold mb-6">New PyBook</h1>
-      <NewPyBookForm onSave={handleCreate} onCancel={() => setShowNew(false)} />
+      <NewPyBookForm onSave={handleCreate} onCancel={() => setShowNew(false)} blueprints={blueprints} />
     </div>
   )
 
@@ -466,6 +572,64 @@ export default function PyBooks() {
                   onChange={tags => { setSelectedTags(tags); handleSaveTags(tags) }}
                 />
               </div>
+            </div>
+
+            {/* Trigger config bar */}
+            <div className="border-b border-gray-800 bg-gray-950 shrink-0">
+              {!showTriggerEdit ? (
+                <div className="flex items-center gap-2 px-4 py-1.5">
+                  <span className="text-xs text-gray-600">Trigger:</span>
+                  <span className="text-xs text-indigo-400 font-medium">{selected.trigger_type}</span>
+                  {selected.trigger_type === 'blueprint' && (() => {
+                    const cfg = (() => { try { return JSON.parse(selected.trigger_config || '{}') } catch { return {} } })()
+                    const bp = blueprints.find(b => b.id === cfg.blueprint_id)
+                    return bp ? <span className="text-xs text-gray-500">→ {bp.name}</span> : null
+                  })()}
+                  {selected.trigger_type === 'cron' && (() => {
+                    const cfg = (() => { try { return JSON.parse(selected.trigger_config || '{}') } catch { return {} } })()
+                    return cfg.cron ? <span className="text-xs text-gray-500 font-mono">{cfg.cron}</span> : null
+                  })()}
+                  <button
+                    onClick={() => {
+                      setTriggerDraft({ type: selected.trigger_type, config: selected.trigger_config || '{}' })
+                      setShowTriggerEdit(true)
+                    }}
+                    className="ml-auto text-xs text-gray-600 hover:text-indigo-400 transition-colors"
+                  >Edit trigger</button>
+                </div>
+              ) : (
+                <div className="px-4 py-3 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-400 font-medium shrink-0">Trigger type</span>
+                    <select
+                      value={triggerDraft?.type || 'manual'}
+                      onChange={e => setTriggerDraft(d => ({ ...d, type: e.target.value, config: '{}' }))}
+                      className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500"
+                    >
+                      {TRIGGER_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                    <div className="flex gap-2 ml-auto">
+                      <button onClick={handleSaveTrigger}
+                        className="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded transition-colors">Save</button>
+                      <button onClick={() => { setShowTriggerEdit(false); setTriggerDraft(null) }}
+                        className="text-xs px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">Cancel</button>
+                    </div>
+                  </div>
+                  {triggerDraft?.type === 'cron' && (
+                    <ScheduleBuilder
+                      value={(() => { try { return JSON.parse(triggerDraft.config).cron || "" } catch { return "" } })()}
+                      onChange={cron => setTriggerDraft(d => ({ ...d, config: JSON.stringify({ cron }) }))}
+                    />
+                  )}
+                  {triggerDraft?.type === 'blueprint' && (
+                    <BlueprintTriggerConfig
+                      triggerConfig={triggerDraft.config}
+                      onChange={v => setTriggerDraft(d => ({ ...d, config: v }))}
+                      blueprints={blueprints}
+                    />
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex-1">

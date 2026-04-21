@@ -247,11 +247,13 @@ def _upsert_entries(
 _MAX_TRIGGERS_PER_FETCH = 50  # safety cap to prevent runaway queuing on large initial fetches
 
 
-def _fire_pybook_trigger(bp: Blueprint, created_entries: list[dict]) -> None:
-    """Enqueue one PyBook run per created entry that passes all trigger conditions.
+def _fire_blueprint_triggers(bp: Blueprint, created_entries: list[dict]) -> None:
+    """Enqueue runs for all active PyBooks subscribed to this blueprint.
 
-    Conditions are read from bp.trigger_conditions (JSON array of dicts).
-    Capped at _MAX_TRIGGERS_PER_FETCH triggers per call to prevent queue flooding.
+    Subscribers are PyBooks with trigger_type='blueprint' and
+    trigger_config.blueprint_id == bp.id. Each subscriber has its own
+    trigger_conditions list stored inside its trigger_config.
+    Capped at _MAX_TRIGGERS_PER_FETCH per subscriber per call.
     created_entries: list of {"entry_id": str, "parsed": dict}
     """
     from backend.objects.filter import check_trigger_conditions
@@ -259,46 +261,60 @@ def _fire_pybook_trigger(bp: Blueprint, created_entries: list[dict]) -> None:
     from backend.pybooks.models import PyBook, PyBookRun
     from backend.database import engine as _engine
 
-    conditions: list[dict] = json.loads(bp.trigger_conditions or "[]")
-    matching = [
-        e for e in created_entries
-        if check_trigger_conditions(e["parsed"], conditions)
-    ]
-    if not matching:
+    if not created_entries:
         return
-    if len(matching) > _MAX_TRIGGERS_PER_FETCH:
-        logger.warning(
-            "Blueprint %s: %d entries matched trigger conditions; capping at %d",
-            bp.id, len(matching), _MAX_TRIGGERS_PER_FETCH,
-        )
-        matching = matching[:_MAX_TRIGGERS_PER_FETCH]
 
     try:
         with Session(_engine) as _ts:
-            _pb = _ts.get(PyBook, bp.trigger_pybook_id)
-            if not (_pb and _pb.is_active):
+            subscribers = [
+                pb for pb in _ts.exec(
+                    select(PyBook).where(
+                        PyBook.trigger_type == "blueprint",
+                        PyBook.is_active == True,
+                    )
+                ).all()
+                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == bp.id
+            ]
+            if not subscribers:
                 return
-            runs: list[PyBookRun] = []
-            for entry_info in matching:
-                _run = PyBookRun(
-                    id=str(uuid.uuid4()),
-                    pybook_id=bp.trigger_pybook_id,
-                    status="queued",
-                    trigger_source="blueprint",
-                    trigger_payload=json.dumps({
-                        "blueprint_id": bp.id,
-                        "entry_id": entry_info["entry_id"],
-                        "entry_data": entry_info["parsed"],
-                    }),
-                    started_at=datetime.now(timezone.utc),
-                )
-                _ts.add(_run)
-                runs.append(_run)
-            _ts.commit()  # single commit for all runs
-            for _run in runs:
-                queue_manager.enqueue(bp.trigger_pybook_id, _run.id)
+
+            for sub in subscribers:
+                cfg = json.loads(sub.trigger_config or "{}")
+                conditions: list = cfg.get("trigger_conditions", [])
+                matching = [
+                    e for e in created_entries
+                    if check_trigger_conditions(e["parsed"], conditions)
+                ]
+                if not matching:
+                    continue
+                if len(matching) > _MAX_TRIGGERS_PER_FETCH:
+                    logger.warning(
+                        "Blueprint %s / PyBook %s: %d matches, capping at %d",
+                        bp.id, sub.id, len(matching), _MAX_TRIGGERS_PER_FETCH,
+                    )
+                    matching = matching[:_MAX_TRIGGERS_PER_FETCH]
+
+                runs: list[PyBookRun] = []
+                for entry_info in matching:
+                    run = PyBookRun(
+                        id=str(uuid.uuid4()),
+                        pybook_id=sub.id,
+                        status="queued",
+                        trigger_source="blueprint",
+                        trigger_payload=json.dumps({
+                            "blueprint_id": bp.id,
+                            "entry_id": entry_info["entry_id"],
+                            "entry_data": entry_info["parsed"],
+                        }),
+                        started_at=datetime.now(timezone.utc),
+                    )
+                    _ts.add(run)
+                    runs.append(run)
+                _ts.commit()
+                for run in runs:
+                    queue_manager.enqueue(sub.id, run.id)
     except Exception as exc:
-        logger.warning("Failed to trigger PyBook: %s", exc)
+        logger.warning("Failed to fire blueprint triggers: %s", exc)
 
 
 async def _do_fetch(blueprint_id: str, session: Session) -> dict:
@@ -325,9 +341,8 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
     created_entries, skipped_count = _upsert_entries(bp, items, field_mappings, session)
     created_count = len(created_entries)
 
-    trigger_event = getattr(bp, "trigger_event", "on_create")
-    if bp.trigger_pybook_id and created_count > 0 and trigger_event in ("on_create", "on_create_or_update"):
-        _fire_pybook_trigger(bp, created_entries)
+    if created_count > 0:
+        _fire_blueprint_triggers(bp, created_entries)
 
     return {"created": created_count, "skipped": skipped_count, "total": len(items)}
 
@@ -425,9 +440,26 @@ async def create_manual_entry(
     session.commit()
     session.refresh(entry)
 
-    if bp.trigger_pybook_id:
-        background_tasks.add_task(
-            _fire_pybook_trigger, bp, [{"entry_id": entry.id, "parsed": body.fields}]
-        )
+    background_tasks.add_task(
+        _fire_blueprint_triggers, bp, [{"entry_id": entry.id, "parsed": body.fields}]
+    )
 
     return entry
+
+
+# ── Subscribers ───────────────────────────────────────────────────────────────
+
+@router.get("/{blueprint_id}/subscribers")
+async def get_blueprint_subscribers(
+    blueprint_id: str,
+    session: Session = Depends(get_session),
+):
+    """Return all active PyBooks subscribed to this blueprint as a trigger."""
+    from backend.pybooks.models import PyBook
+    subscribers = [
+        pb for pb in session.exec(
+            select(PyBook).where(PyBook.trigger_type == "blueprint", PyBook.is_active == True)
+        ).all()
+        if json.loads(pb.trigger_config or "{}").get("blueprint_id") == blueprint_id
+    ]
+    return subscribers

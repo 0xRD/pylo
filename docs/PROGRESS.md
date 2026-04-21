@@ -69,11 +69,23 @@
 - **Entries + BlueprintDetail**: monospace filter input row with `?` syntax help tooltip
 - **Multi-select bulk delete** (#13): `EntryCard` checkbox (hover-reveal, always visible when selected); `selectedIds: Set` state in both pages; bulk action bar with count, select-all, clear, and destructive "Delete N entries" (confirm + `Promise.all`)
 
+## Session 10 — Multi-PyBook blueprint triggers + test fixes
+- **Test suite fixed**: `test_models.py` and `test_phase1_objects.py` updated to match renamed models (`ObjectType→Blueprint`, `ObjectInstance→Entry`, `fts_objects→fts_entries`); 28/28 passing
+- **Multi-PyBook blueprint triggers (#15)**: trigger subscription ownership moved from Blueprint to PyBook
+  - Migration `f1a2b3c4d5e6`: converts existing `blueprint.trigger_pybook_id` records into PyBook `trigger_config` entries
+  - `_fire_blueprint_triggers` replaces `_fire_pybook_trigger` — queries all active PyBooks with `trigger_type="blueprint"` matching the blueprint; each subscriber has independent trigger conditions; capped at 50 per subscriber per fetch
+  - New `GET /api/blueprints/{id}/subscribers` endpoint returns all subscribed PyBooks
+  - `PyBooks.jsx`: `"blueprint"` added to trigger types; `BlueprintTriggerConfig` component (blueprint selector + event + conditions builder); "Edit trigger" inline panel in the editor; blueprints loaded on page mount
+  - `BlueprintForm.jsx`: old single-PyBook trigger dropdown removed; `pybooksApi` import removed
+  - `BlueprintDetail.jsx`: **Subscribed PyBooks** section in Settings tab (name, event type, condition count)
+  - `blueprints.js`: `getSubscribers(blueprintId)` added to API client
+
 ## Current state
 - All core features working end-to-end
-- Blueprint card grid → tabbed detail (Entries / Settings)
+- Blueprint card grid → tabbed detail (Entries / Settings + Subscribed PyBooks)
 - Global Entries page with FTS + field filter + blueprint chips + bulk delete
-- PyBooks: create/edit/run/schedule/webhook/tags
+- PyBooks: create/edit/run/schedule/webhook/blueprint-trigger/tags
+- Multiple PyBooks can subscribe to the same blueprint independently with per-subscriber conditions
 - Persistent execution queue with live Runs page stats
 - Secrets: create/list/delete with encryption
 - Settings: live concurrency limit
