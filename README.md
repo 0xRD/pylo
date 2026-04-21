@@ -54,7 +54,19 @@ Define a schema and data source for structured data. Each Blueprint has:
 - **Manual mode** — no API source; entries are created directly in the UI (shared variables, rule toggles, allow/blocklists)
 
 ### Entries
-Individual records stored under a Blueprint. Created by fetching a source API or manually (manual blueprints). Full-text search via FTS5. Browseable globally across all blueprints via the Entries page, or scoped to a specific Blueprint's detail view.
+Individual records stored under a Blueprint. Created by fetching a source API or manually (manual blueprints). Searchable globally across all blueprints via the Entries page, or scoped to a specific Blueprint's detail view.
+
+**Field query language** — filter entries by parsed field values directly in the UI:
+
+```
+severity = "high"
+category contains "Execute"
+os starts_with "Windows"
+score > 7.5
+severity = "critical" AND status != "closed"
+```
+
+Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=` — AND-chained. Applied server-side via SQLite `json_extract` for correct pagination.
 
 ### Secrets
 Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables.
@@ -71,9 +83,9 @@ Every PyBook execution creates a Run record with full stdout/stderr, exit code, 
 | `/blueprints` | Blueprint card grid — create and manage data sources |
 | `/blueprints/:id` | Blueprint detail — **Entries** tab (data) + **Settings** tab (config, delete) |
 | `/blueprints/entries/:id` | Single entry detail with raw and parsed fields |
-| `/entries` | Global entries view — search and filter across all blueprints |
+| `/entries` | Global entries view — full-text search, field filter, blueprint chips, bulk delete |
 | `/pybooks` | PyBook editor with sidebar (search, type filter, tag filter) |
-| `/runs` | Run history with live concurrency bar |
+| `/runs` | Run history with live concurrency bar and queue depth |
 | `/secrets` | Encrypted secret management |
 | `/settings` | System settings (max concurrent runs) |
 
@@ -144,13 +156,52 @@ Triggered runs go through the shared execution queue with the same concurrency l
 
 ---
 
+## Entry Field Filter
+
+Both the global **Entries** page and the per-blueprint **Entries** tab expose a field filter input. Entries are filtered server-side — pagination stays correct even with complex conditions.
+
+**Syntax:**
+```
+field_name OPERATOR "value"
+```
+
+Multiple conditions joined with `AND`:
+```
+severity = "critical" AND category contains "Execute" AND os starts_with "Windows"
+```
+
+**Operators:**
+
+| Operator | Behaviour |
+|---|---|
+| `=` | Exact match (case-insensitive) |
+| `!=` | Not equal (case-insensitive) |
+| `contains` | Substring present (case-insensitive) |
+| `starts_with` | Prefix match (case-insensitive) |
+| `>` `>=` `<` `<=` | Numeric comparison (values coerced to float) |
+
+The `?` button next to the filter input shows inline syntax examples.
+
+---
+
+## Bulk Entry Actions
+
+Hover over any entry card to reveal a checkbox. Select one or more entries to open the bulk action bar:
+
+- **Count** — shows how many entries are selected
+- **Select all** — selects all visible entries on the current page
+- **Clear** — deselects everything
+- **Delete N entries** — confirms and deletes all selected entries in parallel
+
+---
+
 ## Execution Queue
 
 PyBook runs are **persistent** — every run is written to the database as `queued` before execution starts. A server restart never drops waiting jobs; orphaned runs are recovered automatically on startup.
 
 - Default concurrency: **5 simultaneous Docker containers**
 - Configurable live via **Settings → Max concurrent runs** (1–20), no restart needed
-- Also settable via `PYLO_MAX_CONCURRENT_RUNS` env var (DB setting overrides it)
+- Also settable via `PYLO_MAX_CONCURRENT_RUNS` env var (DB setting takes precedence)
 - Queue depth and running count visible on the **Runs page** (live, refreshes every 2 s)
 
 ---
@@ -161,6 +212,7 @@ All API endpoints require `X-API-Token: <your_token>` (set `API_TOKEN` in `.env`
 
 ```bash
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
+curl -H "X-API-Token: $API_TOKEN" "http://localhost:8000/api/blueprints/entries?filter=severity%20%3D%20%22high%22"
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/runs/queue
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
 ```
@@ -226,10 +278,12 @@ alembic upgrade head
 
 See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 
-- **Multi-PyBook blueprint triggers** — subscribe to blueprint events from the PyBook itself; multiple PyBooks can react to the same new entry in parallel
-- **Login page + roles** — JWT auth, admin/viewer roles
-- **Mutable fields + entry history** — update fields on re-fetch; audit trail of changes
+- **Entry deduplication + mutable fields + history** — update fields on re-fetch; audit trail of changes per entry
+- **Login page + roles** — JWT auth, admin/viewer roles, multi-user support
 - **Paginated API fetching** — cursor, page-number, and offset pagination for multi-page sources
+- **PyBook trigger field filtering** — conditional triggers: only fire when a new entry matches field conditions (regex, contains, equals)
+- **Multi-PyBook blueprint triggers** — subscribe to blueprint events from the PyBook itself; multiple PyBooks react to the same new entry in parallel
 - **Scoped API Keys** — per-key permissions for SIEM/script integrations
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
-- **Multi-select entries** — bulk delete, bulk PyBook trigger
+- **Always-on sub-PyBooks** — warm containers for near-instant invocation, eliminating cold-start latency
+- **Visual workflow builder** — React Flow DAG editor for chaining PyBooks with conditional branching
