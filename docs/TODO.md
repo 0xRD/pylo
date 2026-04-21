@@ -154,3 +154,47 @@ With 50–100 alerts per fetch each triggering a PyBook, this is a real data-los
 - Multiple PyBooks can subscribe to the same blueprint event independently.
 
 **Why:** The current model only allows one PyBook per blueprint. SOAR workflows need N PyBooks to react to the same new alert (e.g. enrich + notify + open ticket in parallel).
+
+---
+
+## 16. Run variable inspector
+
+After a PyBook run completes, expose the variables that were in scope at the end of execution (or at the point of failure).
+
+**Implementation:**
+- In `pylo_sdk.py`, add an `export_vars(namespace: dict)` helper that serializes a variable dict to JSON and POSTs it to `PUT /api/runs/:id/vars`. Call it at the end of the script: `export_vars(locals())`.
+- The SDK auto-filters un-serializable values (module objects, functions, built-ins) before sending.
+- Add a `output_vars` JSON column to `PyBookRun` (migration).
+- On failure, the runner captures the traceback locals automatically (via `sys.exc_info()` + `inspect` in the container wrapper) so variables are captured even on crash.
+- `GET /api/runs/:id` returns `output_vars` alongside stdout/stderr.
+- UI: **Variables** tab in the run detail panel (alongside stdout / stderr). Rendered as a collapsible key→value tree, similar to the Blueprint JSONPath tree. Primitive values shown inline; dicts/lists expandable.
+
+**Why:** Debugging PyBooks currently requires reading stdout logs and inserting print statements. Seeing live variable state after a run (especially on error) dramatically shortens iteration time for complex automation scripts.
+
+---
+
+## 17. Visual PyBook orchestration — Workflow builder
+
+A GUI for chaining PyBooks into multi-step workflows where the output of one step feeds into the next, with branching on success/failure.
+
+**Data model:**
+- New `Workflow` entity: `(id, name, description, nodes: JSON, edges: JSON, trigger_type, trigger_config, is_active, created_at)`.
+- `nodes`: array of `{id, pybook_id, label, position: {x, y}}`.
+- `edges`: array of `{id, from_node_id, to_node_id, condition: "always"|"on_success"|"on_failure", payload_mapping: JSON}`.
+- `payload_mapping`: JSONPath-like rules for extracting fields from the upstream run's `output_vars` and injecting them as `trigger_payload` keys for the downstream PyBook. Example: `{"alert_id": "$.vars.alert_id", "score": "$.vars.vt_score"}`.
+
+**Execution engine:**
+- `POST /api/workflows/:id/run` creates a `WorkflowRun` and starts node execution from all root nodes (nodes with no incoming edges).
+- Nodes run through the existing PyBook execution queue.
+- On each node completion, the engine evaluates outgoing edge conditions and enqueues the next nodes, passing mapped payload.
+- A `WorkflowRun` record tracks overall status and per-node run IDs.
+
+**UI — graph editor:**
+- Route: `/workflows/:id`.
+- Uses **React Flow** (MIT licensed) for the canvas: drag-and-drop nodes, draw edges between them.
+- Node palette sidebar: search and drag PyBooks onto the canvas.
+- Edge config panel: click an edge to set condition (always / on success / on failure) and define payload mappings.
+- Run button on the toolbar; progress shown live — nodes pulse blue while running, turn green on success, red on failure.
+- `/workflows` list page: cards showing name, node count, last run status.
+
+**Why:** Real SOAR workflows are multi-step — enrich an alert, score it, decide whether to escalate, open a ticket, notify Slack. Hand-coded `call_sub_pybook()` chains work for simple cases but don't scale to conditional branching, parallel fan-out, or visual debugging. A graph editor makes the logic readable and modifiable without touching code.
