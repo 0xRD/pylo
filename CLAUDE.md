@@ -15,30 +15,31 @@ Python automation orchestration platform for SOAR and data pipelines. Users writ
 - **DB**: `~/pylo/objects_storage/pylo.db` (SQLite, migrations via Alembic, run on container start)
 - **No hot-reload in Docker**: after backend changes, run `docker compose build backend --no-cache && docker compose up -d backend`. Frontend: same with `frontend`.
 
-## Repository State (as of session 9)
+## Repository State (as of session 10)
 
-All features committed and working. Clean `main` branch, 5 commits ahead of `origin/main`.
+All features committed and working. Clean `main` branch, 9 commits ahead of `origin/main`.
 
-Current Alembic head: `e8f6a5b4c3d2` (trigger_conditions on blueprint table)
+Current Alembic head: `f1a2b3c4d5e6` (blueprint trigger ownership migrated to PyBooks)
 
 ## Next Priorities (from `docs/TODO.md`)
 
 1. **#1** Entry deduplication + mutable fields + audit trail — highest SOAR value
 2. **#4** User authentication + roles — JWT, login page, admin/viewer roles
 3. **#9** Paginated API source fetching — cursor/page/offset pagination in `_do_fetch`
-4. **#15** Multi-PyBook blueprint triggers — subscribe to blueprint events from the PyBook editor
-5. **#6** Re-parse entries on mapping change — background task after blueprint update
+4. **#6** Re-parse entries on mapping change — background task after blueprint update
+5. **#16** Run variable inspector — `output_vars` column + Variables tab in run detail panel
 6. **#19** Always-on sub-PyBooks — warm Docker containers for near-instant invocation
 
 ## Key Files to Know
 
 ```
-backend/api/blueprints.py    # fetch pipeline, trigger logic, entry CRUD
-backend/objects/filter.py    # field query language + trigger condition engine
+backend/api/blueprints.py    # fetch pipeline, _fire_blueprint_triggers, entry CRUD, /subscribers
+backend/objects/filter.py    # field query language + check_trigger_conditions
 backend/core/queue_manager.py # async execution queue
 backend/core/scheduler.py    # APScheduler for cron + blueprint fetch schedules
-frontend/src/components/BlueprintForm.jsx  # reused in create modal + settings tab
-frontend/src/pages/BlueprintDetail.jsx     # tabbed detail (entries + settings)
+frontend/src/components/BlueprintForm.jsx  # reused in create modal + settings tab (no trigger UI)
+frontend/src/pages/BlueprintDetail.jsx     # tabbed detail (entries + settings + subscribers)
+frontend/src/pages/PyBooks.jsx             # editor with blueprint trigger config panel
 frontend/src/pages/Entries.jsx             # global entries view
 pylo_sdk.py                  # mounted into every PyBook container
 ```
@@ -48,6 +49,7 @@ pylo_sdk.py                  # mounted into every PyBook container
 - **Route ordering**: `/blueprints/entries/:id` before `/blueprints/:id` in App.jsx; `/api/runs/queue` before `/api/runs/{run_id}` in runs.py
 - **Run lifecycle**: always write `status="queued"` to DB *before* calling `queue_manager.enqueue()` — this ensures orphan recovery on restart
 - **Trigger payload** (blueprint → PyBook): `{"blueprint_id": "...", "entry_id": "...", "entry_data": {...}}`
+- **Blueprint trigger subscription**: owned by PyBook (`trigger_type="blueprint"`, `trigger_config={"blueprint_id":..., "trigger_event":..., "trigger_conditions":[...]}`); Blueprint has no trigger UI — subscribe from the PyBook editor
 - **New DB column**: add to `models.py` with `Field(default=...)` + new Alembic migration with `server_default`
 - **Backend deploy**: source files are copied into the Docker image at build time (not volume-mounted), so `docker compose build` is required after any Python change
 - **BlueprintForm is the single source of truth** for blueprint editing — used both in the "New Blueprint" modal and the Settings tab; don't fork it
