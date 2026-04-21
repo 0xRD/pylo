@@ -4,29 +4,28 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 1. Object deduplication + mutability + history
+## 1. Entry deduplication + mutability + history
 
-**`external_id` key field** (partially done — ★ selector exists in UI):
-- `_do_fetch` already reads `is_key` from field mappings. The `external_id` column stores the matched value.
+**Dedup key** (partially done — ★ selector exists in UI, `_do_fetch` reads `is_key`):
 - Next: mutable fields — mark fields as mutable in mapping config; on re-fetch update mutable fields on existing entries instead of skipping.
-- Add `ObjectInstanceEvent` audit table: `(id, entry_id, changed_by, pybook_id, changed_fields, previous_values, timestamp)`.
+- Add `EntryEvent` audit table: `(id, entry_id, changed_by, pybook_id, changed_fields, previous_values, timestamp)`.
 - SDK: `update_entry(entry_id, fields)`.
 
 **Why:** Core SOAR use case — ingest XDR alerts, track lifecycle changes, let PyBooks close/update them.
 
 ---
 
-## 2. Cross-type entry search + field query language
+## 2. Cross-blueprint field query language
 
-- Global search across all blueprints (remove `blueprint_id` filter from FTS query).
-- Field-level query language: `os contains "Windows"`, `category = "Execute"`, combinable with `AND`/`OR`.
-- Server-side filtering via SQLite `json_extract` on `parsed_fields` column.
+- Field-level query syntax: `os contains "Windows"`, `category = "Execute"`, combinable with `AND`/`OR`.
+- Server-side filtering via SQLite `json_extract` on `data` column.
+- Works alongside FTS search on the global Entries page.
 
-**Why:** Users need to slice across all blueprints without switching views.
+**Why:** Users need structured filtering beyond full-text search.
 
 ---
 
-## 3. PyBook filtering + tags
+## 3. PyBook filtering + tags ✅ NEXT
 
 - Search/filter by name in the PyBooks list.
 - Filter by type (sub-pybook vs top-level).
@@ -67,19 +66,16 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 7. Manual blueprint entry creation UI
+## 7. Manual blueprint entry creation UI ✅ DONE
 
-- `is_manual` flag already exists on Blueprint model and is respected in fetch/cron logic.
-- Missing: "Add entry" button on the Entries tab that opens a form with one input per mapped field.
-- SDK: `get_blueprint_entries(blueprint_id, key_value=None)` for PyBook consumption.
-
-**Why:** Manual blueprints (shared variables, rule toggles, allow/blocklists) are not usable without entry creation UI.
+`is_manual` blueprints now have an "+ Add entry" button that opens a field-per-mapping form.
+`POST /api/blueprints/:id/entries` endpoint added with dedup check on key field.
 
 ---
 
 ## 8. Contextual help tooltips ✅ DONE
 
-Implemented via `HelpTip` component. Added to Blueprint form (source URL, headers, cron, key field, manual toggle).
+Implemented via `HelpTip` component.
 
 ---
 
@@ -93,46 +89,68 @@ Implemented via `HelpTip` component. Added to Blueprint form (source URL, header
 
 ---
 
-## 9b. Clarify PyBook trigger event type
+## 9b. Blueprint trigger event type ✅ DONE
 
-- Add `trigger_event` field on Blueprint: `on_create` | `on_update` | `on_create_or_update`.
-- UI: PyBook selector + event dropdown side by side.
-- Migration: add `trigger_event VARCHAR` column.
-
-**Why:** Users can't build reliable SOAR workflows without knowing when the trigger fires.
+`trigger_event` column added (`on_create` | `on_create_or_update`). `_do_fetch` fires linked PyBook via `asyncio.create_task` after creating entries. BlueprintForm shows PyBook selector + event dropdown.
 
 ---
 
-## 10. Blueprint/Entry UI separation — two-route tabbed layout ✅ IN PROGRESS
+## 10. Blueprint/Entry UI separation ✅ DONE
 
-- `/blueprints` → blueprint list/card grid.
-- `/blueprints/:id` → tabbed detail: **Entries** tab (search, grid, Fetch now) + **Settings** tab (BlueprintForm, delete).
-- `/blueprints/entries/:id` → entry detail (already exists).
-
-**Why:** Blueprints (config) and entries (data) are separate concerns; the old sidebar layout mixed them.
+`/blueprints` card grid, `/blueprints/:id` tabbed detail (Entries + Settings), `/entries` global entries page.
 
 ---
 
 ## 11. Human-friendly schedule builder ✅ DONE
 
-Implemented as `ScheduleBuilder` component. Used in Blueprint form and PyBook cron trigger. Two modes: interval (every N min/h/d) and scheduled (at HH:MM on selected weekdays). 24h format.
+`ScheduleBuilder` component used in Blueprint form and PyBook cron trigger.
 
 ---
 
-## 12. Console navigation improvements
+## 12. Console navigation improvements ✅ DONE
 
-- Pylo logo → `<Link to="/">` (home).
-- Back buttons fall back to section root when no history.
-- Breadcrumbs on detail pages.
-- Form cancel uses `navigate(-1)`.
-
-**Why:** No in-app navigation beyond browser back button.
+Pylo logo → home link. EntryDetail breadcrumb (Entries › Blueprint › id). Smart back button.
 
 ---
 
 ## 13. Multi-select for entries
 
 - Hover-reveal checkboxes on entry cards; select-all in toolbar.
-- Bulk action bar: Delete selected (confirm), later Trigger PyBook on selected.
+- Bulk action bar: Delete selected (confirm), Trigger PyBook on selected.
 
 **Why:** Bulk cleanup after bad fetches; bulk playbook dispatch for SOAR.
+
+---
+
+## 14. Persistent PyBook execution queue
+
+**Context:** `runner.py` has a `ThreadPoolExecutor(max_workers=PYLO_MAX_CONCURRENT_RUNS, default=5)`.
+That's the hard cap on simultaneous Docker container spawns. The asyncio layer queues unlimited
+`create_task` calls, but **none of them are persisted** — a server restart drops all queued runs.
+With 50–100 alerts per fetch each triggering a PyBook, this is a real data-loss risk.
+
+**Implementation:**
+- Add `"queued"` status to `PyBookRun` (before `"pending"`). Runs are written to DB as `queued` before any container is spawned.
+- A global `asyncio.Semaphore(PYLO_MAX_CONCURRENT_RUNS)` gates container starts — replaces the ThreadPoolExecutor approach.
+- On startup, recover all runs with `status="queued"` and re-enqueue them.
+- Expose queue depth: `GET /api/runs/queue` → `{queued: N, running: N}`.
+- UI: queue depth badge in the Runs sidebar link.
+- `PYLO_MAX_CONCURRENT_RUNS` already exists in config (default 5); document it in `.env.example`.
+
+**Why:** Blueprint fetches triggering many PyBooks in parallel will silently lose queued runs on restart. The ThreadPoolExecutor limit of 5 is correct but bypass-able via direct API calls; a semaphore enforces it globally.
+
+---
+
+## 15. Multi-PyBook blueprint triggers (subscribe from PyBooks view)
+
+**Current model:** Blueprint has a single `trigger_pybook_id` — only one PyBook can subscribe per blueprint.
+
+**Better model:** PyBook owns its trigger subscription.
+- Add `blueprint` as a trigger type on PyBook (`trigger_type = "blueprint"`).
+- `trigger_config` for blueprint triggers: `{"blueprint_id": "...", "trigger_event": "on_create"}`.
+- `_do_fetch` queries all active PyBooks where `trigger_type = "blueprint"` and `trigger_config.blueprint_id` matches — fires all of them through the queue (see #14).
+- PyBooks view: add a "Blueprint trigger" option in the trigger type selector alongside Cron / Webhook.
+- Remove `trigger_pybook_id` / `trigger_event` from Blueprint model (migration to migrate existing config to PyBook trigger records).
+- Multiple PyBooks can subscribe to the same blueprint event independently.
+
+**Why:** The current model only allows one PyBook per blueprint. SOAR workflows need N PyBooks to react to the same new alert (e.g. enrich + notify + open ticket in parallel).

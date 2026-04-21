@@ -22,6 +22,7 @@ class PyBook(SQLModel, table=True):
     is_active: bool = True
     docker_image_tag: Optional[str] = None
     required_secrets: str = "[]"         # JSON list of secret names to inject as env vars
+    tags: str = "[]"                         # JSON list of tag strings
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

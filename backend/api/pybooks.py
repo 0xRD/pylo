@@ -26,6 +26,7 @@ class PyBookCreate(BaseModel):
     trigger_type: str = "manual"
     trigger_config: str = "{}"
     required_secrets: str = "[]"
+    tags: str = "[]"
 
 
 class PyBookUpdate(BaseModel):
@@ -38,6 +39,7 @@ class PyBookUpdate(BaseModel):
     trigger_config: Optional[str] = None
     is_active: Optional[bool] = None
     required_secrets: Optional[str] = None
+    tags: Optional[str] = None
 
 
 class RunTrigger(BaseModel):
