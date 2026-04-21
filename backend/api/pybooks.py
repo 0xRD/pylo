@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from backend.core.auth import verify_token
+from backend.core import queue_manager
 from backend.database import get_session, engine
 from backend.pybooks.models import PyBook, PyBookRun
 from backend.pybooks.store import write_script, get_script_path
@@ -48,7 +49,7 @@ class RunTrigger(BaseModel):
 
 
 async def _execute_run(pybook_id: str, run_id: str):
-    """Background task: opens its own session so it's not tied to the request session."""
+    """Executes a run inside its own DB session, called by the queue worker."""
     from backend.core.runner import run_pybook
 
     with Session(engine) as session:
@@ -139,7 +140,6 @@ async def update_pybook(
     session.add(pb)
     session.commit()
     session.refresh(pb)
-    # Re-sync cron if trigger config changed
     if body.trigger_type is not None or body.trigger_config is not None or body.is_active is not None:
         from backend.core.scheduler import sync_cron_jobs
         sync_cron_jobs()
@@ -162,7 +162,6 @@ async def delete_pybook(pybook_id: str, session: Session = Depends(get_session))
 async def run_pybook_endpoint(
     pybook_id: str,
     body: RunTrigger,
-    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ):
     pb = session.get(PyBook, pybook_id)
@@ -184,7 +183,6 @@ async def run_pybook_endpoint(
     session.commit()
     session.refresh(run)
 
-    # Pass only IDs — background task opens its own session
     queue_manager.enqueue(pybook_id, run.id)
     return run
 

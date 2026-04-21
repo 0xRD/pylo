@@ -233,3 +233,39 @@ Sub-PyBooks called frequently incur 1-3 second cold-start latency for each Docke
 - Settings page: list of currently warm containers with uptime and last-invoked timestamp.
 
 **Why:** In real-time SOAR workflows, sub-PyBooks are called on every alert (potentially hundreds per minute). A 2s cold start per call adds up and introduces latency into incident response pipelines. Warm containers make the call overhead comparable to a local function call.
+
+---
+
+## 20. PyBook trigger filtering — conditional entry triggers
+
+Currently when a Blueprint is configured to trigger a PyBook on new entries, it fires for every new entry regardless of content. This can overwhelm PyBook queues when fetching large datasets where only a subset is actionable.
+
+**Feature:** Add per-blueprint trigger conditions — a list of field-value filters that must all match before the trigger fires.
+
+**Data model:**
+- Add `trigger_conditions: str = "[]"` (JSON array) on Blueprint.
+- Each condition: `{"field": "severity", "operator": "eq|contains|regex|gt|lt|ne", "value": "high"}`.
+- All conditions are ANDed (all must match to trigger). OR logic can be composed with multiple blueprints.
+- Migration: add `trigger_conditions VARCHAR NOT NULL DEFAULT '[]'` to `blueprint`.
+
+**Operators to support:**
+- `eq` — exact match (case-insensitive for strings).
+- `ne` — not equal.
+- `contains` — substring match (case-insensitive).
+- `starts_with` — prefix match.
+- `regex` — full Python `re.search()` match against the string value.
+- `gt` / `lt` — numeric greater/less than (coerce value to float).
+
+**Backend — `_check_trigger_conditions(entry_parsed_fields, conditions)`:**
+- Iterates conditions; for each, looks up `entry_parsed_fields.get(field)`.
+- If any condition fails (or field is missing), returns `False`.
+- Called in `_do_fetch` before `queue_manager.enqueue()` — only enqueue if all conditions pass.
+- Also called from `POST /{blueprint_id}/entries` (manual entry creation) for consistency.
+
+**UI — trigger conditions builder in BlueprintForm:**
+- Only shown when a `trigger_pybook_id` is selected.
+- "+ Add condition" button adds a row: [field name input] [operator dropdown] [value input] [× remove].
+- Operator dropdown: `equals`, `not equals`, `contains`, `starts with`, `matches regex`.
+- Small preview label under the section: "Trigger fires when: severity equals high AND category contains Execute".
+
+**Why:** SOAR blueprints often ingest high-volume sources (firewall logs, EDR telemetry) where only specific entries (severity=critical, status=new) need automated response. Without filtering, every ingest run floods the PyBook queue with low-value work.
