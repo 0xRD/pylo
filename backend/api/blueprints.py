@@ -84,21 +84,37 @@ async def list_entries(
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
+    from sqlalchemy import func, text as sa_text
+
     if q:
+        # Count total FTS matches first
+        if blueprint_id:
+            count_sql = sa_text(
+                "SELECT count(*) FROM fts_entries "
+                "WHERE fts_entries MATCH :query AND blueprint_id = :blueprint_id"
+            )
+            total = session.exec(count_sql, params={"query": q, "blueprint_id": blueprint_id}).fetchone()[0]
+        else:
+            count_sql = sa_text("SELECT count(*) FROM fts_entries WHERE fts_entries MATCH :query")
+            total = session.exec(count_sql, params={"query": q}).fetchone()[0]
+
         ids = search_fts(session, q, blueprint_id=blueprint_id, limit=limit, offset=offset)
         if not ids:
-            return []
-        entries = session.exec(
-            select(Entry).where(Entry.id.in_(ids))
-        ).all()
+            return {"items": [], "total": total}
+        entries = session.exec(select(Entry).where(Entry.id.in_(ids))).all()
         order = {eid: i for i, eid in enumerate(ids)}
-        return sorted(entries, key=lambda x: order.get(x.id, 999))
+        return {"items": sorted(entries, key=lambda x: order.get(x.id, 999)), "total": total}
 
     stmt = select(Entry)
     if blueprint_id:
         stmt = stmt.where(Entry.blueprint_id == blueprint_id)
-    stmt = stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)
-    return session.exec(stmt).all()
+
+    total = session.exec(select(func.count(Entry.id)).where(
+        Entry.blueprint_id == blueprint_id if blueprint_id else True
+    )).one()
+
+    items = session.exec(stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)).all()
+    return {"items": items, "total": total}
 
 
 @router.get("/entries/{entry_id}")

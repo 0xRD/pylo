@@ -63,12 +63,58 @@ function AddEntryModal({ blueprint, onSave, onClose }) {
   )
 }
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+
+function Pagination({ page, total, pageSize, onPage }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  if (totalPages <= 1) return null
+
+  const pages = []
+  const delta = 1
+  const left = Math.max(2, page - delta)
+  const right = Math.min(totalPages - 1, page + delta)
+
+  pages.push(1)
+  if (left > 2) pages.push('…')
+  for (let p = left; p <= right; p++) pages.push(p)
+  if (right < totalPages - 1) pages.push('…')
+  if (totalPages > 1) pages.push(totalPages)
+
+  return (
+    <div className="flex items-center justify-center gap-1 mt-6">
+      <button onClick={() => onPage(page - 1)} disabled={page === 1}
+        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+        ←
+      </button>
+      {pages.map((p, i) =>
+        p === '…'
+          ? <span key={`e${i}`} className="px-2 text-gray-600 text-sm select-none">…</span>
+          : <button key={p} onClick={() => onPage(p)}
+              className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                p === page
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+              }`}>
+              {p}
+            </button>
+      )}
+      <button onClick={() => onPage(page + 1)} disabled={page === totalPages}
+        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+        →
+      </button>
+    </div>
+  )
+}
+
 export default function BlueprintDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [tab, setTab] = useState('entries')
   const [blueprint, setBlueprint] = useState(null)
   const [entries, setEntries] = useState([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
   const [query, setQuery] = useState('')
   const [fetching, setFetching] = useState(false)
   const [fetchResult, setFetchResult] = useState(null)
@@ -77,8 +123,12 @@ export default function BlueprintDetail() {
   const [showAddEntry, setShowAddEntry] = useState(false)
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
-  const loadEntries = (q = query) =>
-    blueprintsApi.listEntries({ blueprintId: id, q: q || undefined }).then(setEntries).catch(() => {})
+  const loadEntries = (q = query, pg = page, ps = pageSize) =>
+    blueprintsApi.listEntries({ blueprintId: id, q: q || undefined, limit: ps, offset: (pg - 1) * ps })
+      .then(data => {
+        setEntries(Array.isArray(data) ? data : (data.items ?? []))
+        setTotal(data.total ?? 0)
+      }).catch(() => {})
 
   useEffect(() => {
     Promise.all([loadBlueprint(), loadEntries()]).finally(() => setLoading(false))
@@ -89,7 +139,8 @@ export default function BlueprintDetail() {
     try {
       const r = await blueprintsApi.fetchBlueprint(id)
       setFetchResult(r)
-      loadEntries()
+      loadEntries(query, 1, pageSize)
+      setPage(1)
     } catch (err) {
       setFetchResult({ error: err.message })
     } finally {
@@ -114,12 +165,28 @@ export default function BlueprintDetail() {
     }
   }
 
-  const handleSearch = (e) => { e.preventDefault(); loadEntries(query) }
+  const handleSearch = (e) => {
+    e.preventDefault()
+    setPage(1)
+    loadEntries(query, 1, pageSize)
+  }
+
+  const handlePageChange = (pg) => {
+    setPage(pg)
+    loadEntries(query, pg, pageSize)
+  }
+
+  const handlePageSizeChange = (ps) => {
+    setPageSize(ps)
+    setPage(1)
+    loadEntries(query, 1, ps)
+  }
 
   const handleAddEntry = async (fields) => {
     await blueprintsApi.createEntry(id, fields)
     setShowAddEntry(false)
-    loadEntries()
+    loadEntries(query, 1, pageSize)
+    setPage(1)
   }
 
   const keyField = (() => {
@@ -186,7 +253,7 @@ export default function BlueprintDetail() {
                 Search
               </button>
               {query && (
-                <button type="button" onClick={() => { setQuery(''); loadEntries('') }}
+                <button type="button" onClick={() => { setQuery(''); setPage(1); loadEntries('', 1, pageSize) }}
                   className="px-3 py-2 text-gray-500 hover:text-gray-300 text-sm">×</button>
               )}
             </form>
@@ -215,18 +282,49 @@ export default function BlueprintDetail() {
             </div>
           </div>
 
+          {/* Count + page size selector */}
+          {total > 0 && (
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-gray-500">
+                {query
+                  ? `${total} result${total === 1 ? '' : 's'}`
+                  : `${total} entr${total === 1 ? 'y' : 'ies'}`
+                }
+                {total > pageSize && ` — showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-600">Per page:</span>
+                {PAGE_SIZE_OPTIONS.map(n => (
+                  <button key={n} onClick={() => handlePageSizeChange(n)}
+                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                      n === pageSize
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
+                    }`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {entries.length === 0 ? (
             <div className="text-center py-16 text-gray-600">
               <p className="text-sm">
-                {blueprint?.is_manual
-                  ? 'No entries yet. Click "+ Add entry" to create one.'
-                  : 'No entries yet. Use "Fetch now" to pull data from the source URL.'}
+                {query
+                  ? 'No entries match your search.'
+                  : blueprint?.is_manual
+                    ? 'No entries yet. Click "+ Add entry" to create one.'
+                    : 'No entries yet. Use "Fetch now" to pull data from the source URL.'}
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {entries.map(e => <EntryCard key={e.id} entry={e} />)}
-            </div>
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {entries.map(e => <EntryCard key={e.id} entry={e} />)}
+              </div>
+              <Pagination page={page} total={total} pageSize={pageSize} onPage={handlePageChange} />
+            </>
           )}
         </div>
       )}
