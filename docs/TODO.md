@@ -15,7 +15,7 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 2. Cross-blueprint field query language
+## 2. Cross-blueprint field query language ✅ DONE
 
 - Field-level query syntax: `os contains "Windows"`, `category = "Execute"`, combinable with `AND`/`OR`.
 - Server-side filtering via SQLite `json_extract` on `data` column.
