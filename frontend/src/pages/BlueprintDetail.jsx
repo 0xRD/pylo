@@ -1,65 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
-
-function SubscribersList({ blueprintId }) {
-  const [subscribers, setSubscribers] = useState([])
-  useEffect(() => {
-    blueprintsApi.getSubscribers(blueprintId).then(setSubscribers).catch(() => {})
-  }, [blueprintId])
-
-  return (
-    <div className="border-t border-gray-800 pt-6">
-      <h3 className="text-sm font-medium text-gray-300 mb-3">Subscribed PyBooks</h3>
-      {subscribers.length === 0 ? (
-        <p className="text-xs text-gray-600 italic">
-          No PyBooks are subscribed to this blueprint yet. Open a PyBook, set its trigger type to "blueprint", and select this blueprint.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {subscribers.map(pb => {
-            const cfg = (() => { try { return JSON.parse(pb.trigger_config || '{}') } catch { return {} } })()
-            const conditions = cfg.trigger_conditions || []
-            return (
-              <div key={pb.id} className="flex items-center gap-3 px-3 py-2 bg-gray-900 border border-gray-800 rounded-lg">
-                <span className={"w-2 h-2 rounded-full shrink-0 " + (pb.is_active ? "bg-green-400" : "bg-gray-600")} />
-                <span className="text-sm text-gray-200">{pb.name}</span>
-                <span className="text-xs text-indigo-400">{cfg.trigger_event === 'on_create_or_update' ? 'on create or update' : 'on new entry'}</span>
-                {conditions.length > 0 && (
-                  <span className="text-xs text-gray-500">{conditions.length} condition{conditions.length > 1 ? 's' : ''}</span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function FilterHelp() {
-  const [show, setShow] = useState(false)
-  return (
-    <span className="relative">
-      <button type="button" onClick={() => setShow(s => !s)}
-        className="text-gray-600 hover:text-gray-400 text-xs px-1">?</button>
-      {show && (
-        <div className="absolute right-0 top-5 z-20 w-64 bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 shadow-xl">
-          <p className="font-semibold text-gray-200 mb-2">Field filter syntax</p>
-          <code className="block text-indigo-300 mb-1">field = "value"</code>
-          <code className="block text-indigo-300 mb-1">field contains "text"</code>
-          <code className="block text-indigo-300 mb-1">field starts_with "prefix"</code>
-          <code className="block text-indigo-300 mb-3">field &gt; 5</code>
-          <p className="text-gray-500">Chain with AND:</p>
-          <code className="block text-indigo-300 mt-1 break-all">severity = "high" AND status != "closed"</code>
-          <button onClick={() => setShow(false)} className="mt-2 text-gray-500 hover:text-gray-300">close</button>
-        </div>
-      )}
-    </span>
-  )
-}
+import SearchHelp from '../components/SearchHelp'
 
 function AddEntryModal({ blueprint, onSave, onClose }) {
   const fieldMappings = (() => { try { return JSON.parse(blueprint.field_mappings || '[]') } catch { return [] } })()
@@ -120,32 +65,73 @@ function AddEntryModal({ blueprint, onSave, onClose }) {
   )
 }
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+
+function Pagination({ page, total, pageSize, onPage }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  if (totalPages <= 1) return null
+
+  const pages = []
+  const delta = 1
+  const left = Math.max(2, page - delta)
+  const right = Math.min(totalPages - 1, page + delta)
+
+  pages.push(1)
+  if (left > 2) pages.push('…')
+  for (let p = left; p <= right; p++) pages.push(p)
+  if (right < totalPages - 1) pages.push('…')
+  if (totalPages > 1) pages.push(totalPages)
+
+  return (
+    <div className="flex items-center justify-center gap-1 mt-6">
+      <button onClick={() => onPage(page - 1)} disabled={page === 1}
+        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+        ←
+      </button>
+      {pages.map((p, i) =>
+        p === '…'
+          ? <span key={`e${i}`} className="px-2 text-gray-600 text-sm select-none">…</span>
+          : <button key={p} onClick={() => onPage(p)}
+              className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                p === page
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+              }`}>
+              {p}
+            </button>
+      )}
+      <button onClick={() => onPage(page + 1)} disabled={page === totalPages}
+        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+        →
+      </button>
+    </div>
+  )
+}
+
 export default function BlueprintDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [tab, setTab] = useState('entries')
   const [blueprint, setBlueprint] = useState(null)
   const [entries, setEntries] = useState([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
   const [query, setQuery] = useState('')
-  const [fieldFilter, setFieldFilter] = useState('')
-  const [draftFilter, setDraftFilter] = useState('')
   const [fetching, setFetching] = useState(false)
   const [fetchResult, setFetchResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
-  const [selectedIds, setSelectedIds] = useState(new Set())
-  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const { isAdmin } = useAuth()
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
-  const loadEntries = (q = query, filter = fieldFilter) => {
-    setSelectedIds(new Set())
-    return blueprintsApi.listEntries({
-      blueprintId: id,
-      q: q || undefined,
-      filter: filter || undefined,
-    }).then(setEntries).catch(() => {})
-  }
+  const loadEntries = (q = query, pg = page, ps = pageSize) =>
+    blueprintsApi.listEntries({ blueprintId: id, q: q || undefined, limit: ps, offset: (pg - 1) * ps })
+      .then(data => {
+        setEntries(Array.isArray(data) ? data : (data.items ?? []))
+        setTotal(data.total ?? 0)
+      }).catch(() => {})
 
   useEffect(() => {
     Promise.all([loadBlueprint(), loadEntries()]).finally(() => setLoading(false))
@@ -156,7 +142,8 @@ export default function BlueprintDetail() {
     try {
       const r = await blueprintsApi.fetchBlueprint(id)
       setFetchResult(r)
-      loadEntries()
+      loadEntries(query, 1, pageSize)
+      setPage(1)
     } catch (err) {
       setFetchResult({ error: err.message })
     } finally {
@@ -183,39 +170,26 @@ export default function BlueprintDetail() {
 
   const handleSearch = (e) => {
     e.preventDefault()
-    setFieldFilter(draftFilter)
-    loadEntries(query, draftFilter)
+    setPage(1)
+    loadEntries(query, 1, pageSize)
+  }
+
+  const handlePageChange = (pg) => {
+    setPage(pg)
+    loadEntries(query, pg, pageSize)
+  }
+
+  const handlePageSizeChange = (ps) => {
+    setPageSize(ps)
+    setPage(1)
+    loadEntries(query, 1, ps)
   }
 
   const handleAddEntry = async (fields) => {
     await blueprintsApi.createEntry(id, fields)
     setShowAddEntry(false)
-    loadEntries()
-  }
-
-  const toggleSelect = (entryId) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      next.has(entryId) ? next.delete(entryId) : next.add(entryId)
-      return next
-    })
-  }
-
-  const selectAll = () => setSelectedIds(new Set(entries.map(e => e.id)))
-  const clearSelection = () => setSelectedIds(new Set())
-
-  const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selectedIds.size} entr${selectedIds.size === 1 ? 'y' : 'ies'}? This cannot be undone.`)) return
-    setBulkDeleting(true)
-    try {
-      await Promise.all([...selectedIds].map(eid => blueprintsApi.deleteEntry(eid)))
-      clearSelection()
-      loadEntries()
-    } catch {
-      alert('Some entries could not be deleted.')
-    } finally {
-      setBulkDeleting(false)
-    }
+    loadEntries(query, 1, pageSize)
+    setPage(1)
   }
 
   const keyField = (() => {
@@ -265,7 +239,7 @@ export default function BlueprintDetail() {
                 ? 'border-indigo-500 text-indigo-300'
                 : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}>
-            {t}{t === 'entries' && entries.length > 0 && ` (${entries.length})`}
+            {t}
           </button>
         ))}
       </div>
@@ -273,66 +247,67 @@ export default function BlueprintDetail() {
       {/* Entries tab */}
       {tab === 'entries' && (
         <div>
-          {/* Search + filter row */}
-          <form onSubmit={handleSearch} className="space-y-2 mb-4">
-            <div className="flex items-center gap-3">
-              <div className="flex gap-2 flex-1">
-                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
-                <button type="submit"
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
-                  Search
-                </button>
-                {(query || fieldFilter) && (
-                  <button type="button" onClick={() => { setQuery(''); setFieldFilter(''); setDraftFilter(''); loadEntries('', '') }}
-                    className="px-3 py-2 text-gray-500 hover:text-gray-300 text-sm">×</button>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {fetchResult && !fetchResult.error && (
-                  <span className="text-xs text-green-400">+{fetchResult.created} created, {fetchResult.skipped} skipped</span>
-                )}
-                {fetchResult?.error && (
-                  <span className="text-xs text-red-400">{fetchResult.error}</span>
-                )}
-                {blueprint?.is_manual ? (
-                  <button type="button" onClick={() => setShowAddEntry(true)}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
-                    + Add entry
-                  </button>
-                ) : (
-                  <button type="button" onClick={handleFetch}
-                    disabled={fetching || !blueprint?.source_url}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded text-sm font-medium transition-colors">
-                    {fetching ? 'Fetching…' : 'Fetch now'}
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-2 items-center">
-              <input
-                value={draftFilter}
-                onChange={e => setDraftFilter(e.target.value)}
-                placeholder='Field filter: severity = "high" AND status != "closed"'
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500"
-              />
-              <FilterHelp />
-            </div>
-          </form>
-
-          {/* Bulk action bar */}
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-indigo-950/50 border border-indigo-800 rounded-lg">
-              <span className="text-sm text-indigo-300 font-medium">{selectedIds.size} selected</span>
-              <button onClick={selectAll} className="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">
-                Select all ({entries.length})
+          <div className="flex items-center gap-3 mb-4">
+            <form onSubmit={handleSearch} className="flex gap-2 flex-1">
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+              <SearchHelp />
+              <button type="submit"
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
+                Search
               </button>
-              <button onClick={clearSelection} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Clear</button>
-              <div className="ml-auto">
-                <button onClick={handleBulkDelete} disabled={bulkDeleting}
-                  className="px-3 py-1.5 bg-red-700 hover:bg-red-600 disabled:opacity-50 rounded text-xs font-medium transition-colors">
-                  {bulkDeleting ? 'Deleting…' : `Delete ${selectedIds.size} entr${selectedIds.size === 1 ? 'y' : 'ies'}`}
+              {query && (
+                <button type="button" onClick={() => { setQuery(''); setPage(1); loadEntries('', 1, pageSize) }}
+                  className="px-3 py-2 text-gray-500 hover:text-gray-300 text-sm">×</button>
+              )}
+            </form>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {fetchResult && !fetchResult.error && (
+                <span className="text-xs text-green-400">
+                  +{fetchResult.created} created, {fetchResult.skipped} skipped
+                </span>
+              )}
+              {fetchResult?.error && (
+                <span className="text-xs text-red-400">{fetchResult.error}</span>
+              )}
+              {blueprint?.is_manual ? (
+                <button onClick={() => setShowAddEntry(true)} disabled={!isAdmin}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+                  + Add entry
                 </button>
+              ) : (
+                <button onClick={handleFetch}
+                  disabled={!isAdmin || fetching || !blueprint?.source_url}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+                  {fetching ? 'Fetching…' : 'Fetch now'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Count + page size selector */}
+          {total > 0 && (
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-gray-500">
+                {query
+                  ? `${total} result${total === 1 ? '' : 's'}`
+                  : `${total} entr${total === 1 ? 'y' : 'ies'}`
+                }
+                {total > pageSize && ` — showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-600">Per page:</span>
+                {PAGE_SIZE_OPTIONS.map(n => (
+                  <button key={n} onClick={() => handlePageSizeChange(n)}
+                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                      n === pageSize
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
+                    }`}>
+                    {n}
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -340,28 +315,19 @@ export default function BlueprintDetail() {
           {entries.length === 0 ? (
             <div className="text-center py-16 text-gray-600">
               <p className="text-sm">
-                {blueprint?.is_manual
-                  ? 'No entries yet. Click "+ Add entry" to create one.'
-                  : 'No entries yet. Use "Fetch now" to pull data from the source URL.'}
+                {query
+                  ? 'No entries match your search.'
+                  : blueprint?.is_manual
+                    ? 'No entries yet. Click "+ Add entry" to create one.'
+                    : 'No entries yet. Use "Fetch now" to pull data from the source URL.'}
               </p>
             </div>
           ) : (
             <>
-              {selectedIds.size === 0 && (
-                <div className="flex justify-end mb-2">
-                  <button onClick={selectAll} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
-                    Select all
-                  </button>
-                </div>
-              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {entries.map(e => (
-                  <EntryCard key={e.id} entry={e}
-                    selected={selectedIds.has(e.id)}
-                    onSelect={toggleSelect}
-                  />
-                ))}
+                {entries.map(e => <EntryCard key={e.id} entry={e} />)}
               </div>
+              <Pagination page={page} total={total} pageSize={pageSize} onPage={handlePageChange} />
             </>
           )}
         </div>
@@ -370,12 +336,17 @@ export default function BlueprintDetail() {
       {/* Settings tab */}
       {tab === 'settings' && blueprint && (
         <div className="space-y-8">
+          {!isAdmin && (
+            <p className="text-sm text-yellow-600 bg-yellow-900/20 border border-yellow-800 rounded px-4 py-2">
+              You have read-only access. Contact an admin to modify this blueprint.
+            </p>
+          )}
           <BlueprintForm
             initial={blueprint}
             onSave={handleUpdate}
             onCancel={() => setTab('entries')}
           />
-          <SubscribersList blueprintId={id} />
+
           <div className="border-t border-gray-800 pt-6">
             <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>
             <div className="flex items-center justify-between p-4 bg-red-950/30 border border-red-900/50 rounded-lg">
@@ -383,8 +354,8 @@ export default function BlueprintDetail() {
                 <p className="text-sm text-gray-200">Delete this blueprint</p>
                 <p className="text-xs text-gray-500 mt-0.5">Permanently deletes the blueprint and all its entries. Cannot be undone.</p>
               </div>
-              <button onClick={handleDelete} disabled={deleting}
-                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 rounded text-sm font-medium transition-colors shrink-0 ml-4">
+              <button onClick={handleDelete} disabled={deleting || !isAdmin}
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors shrink-0 ml-4">
                 {deleting ? 'Deleting…' : 'Delete blueprint'}
               </button>
             </div>
@@ -393,7 +364,11 @@ export default function BlueprintDetail() {
       )}
 
       {showAddEntry && blueprint && (
-        <AddEntryModal blueprint={blueprint} onSave={handleAddEntry} onClose={() => setShowAddEntry(false)} />
+        <AddEntryModal
+          blueprint={blueprint}
+          onSave={handleAddEntry}
+          onClose={() => setShowAddEntry(false)}
+        />
       )}
     </div>
   )

@@ -16,10 +16,10 @@ _queue: Optional[asyncio.Queue] = None
 _semaphore: Optional[asyncio.Semaphore] = None
 _worker_task: Optional[asyncio.Task] = None
 _running_count: int = 0
-_current_limit: int = 0
+_current_limit: int = 0  # tracks the live semaphore capacity
 
 
-def _get_env_max() -> int:
+def _get_max() -> int:
     from backend.config import settings
     return settings.PYLO_MAX_CONCURRENT_RUNS
 
@@ -37,12 +37,12 @@ def update_limit(new_limit: int) -> None:
     global _semaphore, _current_limit
     if _semaphore is None:
         return
+    # Add permits if increasing; decreases are enforced passively —
+    # no new tasks start until running count drops below new_limit.
     diff = new_limit - _current_limit
     if diff > 0:
-        # Release extra permits immediately so waiting workers can start
         for _ in range(diff):
             _semaphore.release()
-    # Decreases are enforced passively — new tasks wait until enough finish
     _current_limit = new_limit
 
 
@@ -84,23 +84,31 @@ async def _worker() -> None:
 
 async def start() -> None:
     global _queue, _semaphore, _worker_task, _current_limit
-    _current_limit = _get_env_max()
-    _queue = asyncio.Queue()
-    _semaphore = asyncio.Semaphore(_current_limit)
-    _worker_task = asyncio.create_task(_worker())
-
-    # Recover runs stuck in queued/pending state from before last restart
     from sqlmodel import Session, select
     from backend.database import engine
     from backend.pybooks.models import PyBookRun
+    from backend.core.settings_model import SystemSetting
+
+    # Prefer the persisted DB setting over the env var default
     with Session(engine) as session:
+        row = session.get(SystemSetting, "max_concurrent_runs")
+        max_concurrent = int(row.value) if row else _get_max()
+
         orphans = session.exec(
             select(PyBookRun).where(PyBookRun.status.in_(["queued", "pending"]))
         ).all()
-        for run in orphans:
-            _queue.put_nowait((run.pybook_id, run.id))
-        if orphans:
-            logger.info("Recovered %d orphaned runs from DB", len(orphans))
+        orphan_ids = [(r.pybook_id, r.id) for r in orphans]
+
+    _current_limit = max_concurrent
+    _queue = asyncio.Queue()
+    _semaphore = asyncio.Semaphore(max_concurrent)
+    _worker_task = asyncio.create_task(_worker())
+
+    # Recover runs stuck in queued/pending state from before last restart
+    for pybook_id, run_id in orphan_ids:
+        _queue.put_nowait((pybook_id, run_id))
+    if orphan_ids:
+        logger.info("Recovered %d orphaned runs from DB", len(orphan_ids))
 
 
 def stop() -> None:

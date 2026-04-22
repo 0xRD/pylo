@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 
@@ -50,6 +51,7 @@ export default function Blueprints() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
 
   const load = () => {
     setLoading(true)
@@ -74,8 +76,8 @@ export default function Blueprints() {
           <h1 className="text-xl font-semibold text-gray-100">Blueprints</h1>
           <p className="text-sm text-gray-500 mt-0.5">Data sources and schemas for your entries</p>
         </div>
-        <button onClick={() => setCreating(true)}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
+        <button onClick={() => setCreating(true)} disabled={!isAdmin}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
           + New Blueprint
         </button>
       </div>
@@ -86,8 +88,8 @@ export default function Blueprints() {
         <div className="text-center py-24 text-gray-600">
           <p className="text-lg mb-2">No blueprints yet</p>
           <p className="text-sm mb-6">Blueprints define where data comes from and how to map it into entries.</p>
-          <button onClick={() => setCreating(true)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
+          <button onClick={() => setCreating(true)} disabled={!isAdmin}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
             Create your first blueprint
           </button>
         </div>
