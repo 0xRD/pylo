@@ -1,12 +1,14 @@
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import and_, func, cast, or_, String as SAString
 from sqlmodel import Session, select
 
 from backend.core.auth import verify_token
@@ -35,7 +37,6 @@ class BlueprintCreate(BaseModel):
     fetch_is_active: bool = False
     is_manual: bool = False
     trigger_event: str = "on_create"
-    trigger_conditions: str = "[]"
 
 
 class BlueprintUpdate(BaseModel):
@@ -52,19 +53,6 @@ class BlueprintUpdate(BaseModel):
     fetch_is_active: Optional[bool] = None
     is_manual: Optional[bool] = None
     trigger_event: Optional[str] = None
-    trigger_conditions: Optional[str] = None
-
-
-class PreviewRequest(BaseModel):
-    source_url: str
-    source_method: str = "GET"
-    source_headers: str = "{}"
-    source_body: str = "{}"
-    sample_limit: int = 1
-
-
-class CreateEntryBody(BaseModel):
-    fields: dict
 
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
@@ -90,32 +78,153 @@ async def create_blueprint(
     return bp
 
 
+# ── Query parser (FTS + field filters) ───────────────────────────────────────
+
+_RESERVED = {'and', 'or', 'not'}
+
+# fullmatch: entire segment must be a field expression
+_FIELD_EXPR = re.compile(
+    r'(?P<field>[a-zA-Z_]\w*)\s*(?P<op>=|!=|contains)\s*'
+    r'(?:"(?P<qval>[^"]*?)"|(?P<val>\S+))',
+    re.IGNORECASE,
+)
+
+
+def _parse_query(raw: str) -> tuple[list[tuple], str]:
+    """Split a raw query into field filters + remaining FTS text.
+
+    Splits on AND / OR, classifies each segment as a field expression or a
+    FTS term, and records the connective (and|or|None) preceding each filter.
+    Returns ([(field, op, value, connective), …], fts_text).
+    """
+    if not raw or not raw.strip():
+        return [], ''
+
+    # re.split with a capturing group keeps the separators at odd indices
+    parts = re.split(r'\s+(AND|OR)\s+', raw.strip(), flags=re.IGNORECASE)
+
+    filters: list[tuple] = []
+    fts_parts: list[str] = []
+
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            continue  # connective, read below via index
+
+        connective = parts[i - 1].lower() if i > 0 else None
+        part = part.strip()
+        if not part:
+            continue
+
+        m = _FIELD_EXPR.fullmatch(part)
+        if m and m.group('field').lower() not in _RESERVED:
+            field = m.group('field').lower()
+            op = m.group('op').lower()
+            value = m.group('qval') if m.group('qval') is not None else m.group('val')
+            filters.append((field, op, value, connective))
+        else:
+            if fts_parts and connective:
+                fts_parts.append(connective.upper())
+            fts_parts.append(part)
+
+    return filters, ' '.join(fts_parts).strip()
+
+
+def _field_clause(field: str, op: str, value: str):
+    """Return a SQLAlchemy WHERE clause for one field filter."""
+    from sqlalchemy import func as sqf
+    if field == 'external_id':
+        col = Entry.external_id
+    else:
+        col = cast(sqf.json_extract(Entry.data, f'$.{field}'), SAString)
+
+    if op == '=':
+        return col == value
+    if op == '!=':
+        return col != value
+    if op == 'contains':
+        return col.like(f'%{value}%')
+    return col == value
+
+
+def _build_filter_clause(filters: list[tuple]):
+    """Combine field filters into one WHERE clause with AND > OR precedence.
+
+    Splits at OR boundaries, ANDs within each group, ORs across groups.
+    E.g. A AND B OR C AND D → OR(AND(A, B), AND(C, D))
+    """
+    if not filters:
+        return None
+
+    groups: list[list] = [[]]
+    for field, op, value, connective in filters:
+        if connective == 'or':
+            groups.append([])
+        groups[-1].append(_field_clause(field, op, value))
+
+    and_groups = [and_(*g) if len(g) > 1 else g[0] for g in groups if g]
+    return or_(*and_groups) if len(and_groups) > 1 else and_groups[0]
+
+
 @router.get("/entries")
 async def list_entries(
     blueprint_id: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
-    filter: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
-    from backend.objects.filter import apply_field_filter, python_field_filter
-    if q:
-        ids = search_fts(session, q, blueprint_id=blueprint_id, limit=limit, offset=offset)
-        if not ids:
-            return []
-        entries = session.exec(select(Entry).where(Entry.id.in_(ids))).all()
-        order = {eid: i for i, eid in enumerate(ids)}
-        entries = sorted(entries, key=lambda x: order.get(x.id, 999))
-        return python_field_filter(entries, filter) if filter else entries
+    from sqlalchemy import text as sa_text
 
+    field_filters, fts_text = _parse_query(q or '')
+    filter_clause = _build_filter_clause(field_filters)
+
+    # ── Base statement ────────────────────────────────────────────────────────
     stmt = select(Entry)
     if blueprint_id:
         stmt = stmt.where(Entry.blueprint_id == blueprint_id)
-    if filter:
-        stmt = apply_field_filter(stmt, filter, Entry.data)
-    stmt = stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)
-    return session.exec(stmt).all()
+    if filter_clause is not None:
+        stmt = stmt.where(filter_clause)
+
+    # ── FTS ───────────────────────────────────────────────────────────────────
+    fts_ids: list[str] | None = None
+    if fts_text:
+        if filter_clause is not None:
+            # Mixed mode: fetch all FTS matches then intersect via IN
+            fts_ids = search_fts(session, fts_text, blueprint_id=blueprint_id, limit=10_000)
+            if not fts_ids:
+                return {"items": [], "total": 0}
+            stmt = stmt.where(Entry.id.in_(fts_ids))
+        else:
+            # Pure FTS: fast SQL count, BM25 ordering
+            if blueprint_id:
+                count_sql = sa_text(
+                    "SELECT count(*) FROM fts_entries "
+                    "WHERE fts_entries MATCH :q AND blueprint_id = :bp"
+                )
+                total = session.exec(count_sql, params={"q": fts_text, "bp": blueprint_id}).fetchone()[0]
+            else:
+                count_sql = sa_text("SELECT count(*) FROM fts_entries WHERE fts_entries MATCH :q")
+                total = session.exec(count_sql, params={"q": fts_text}).fetchone()[0]
+
+            ids = search_fts(session, fts_text, blueprint_id=blueprint_id, limit=limit, offset=offset)
+            if not ids:
+                return {"items": [], "total": total}
+            entries = session.exec(select(Entry).where(Entry.id.in_(ids))).all()
+            order = {eid: i for i, eid in enumerate(ids)}
+            return {"items": sorted(entries, key=lambda x: order.get(x.id, 999)), "total": total}
+
+    # ── Count + paginate ──────────────────────────────────────────────────────
+    count_stmt = select(func.count(Entry.id))
+    if blueprint_id:
+        count_stmt = count_stmt.where(Entry.blueprint_id == blueprint_id)
+    if filter_clause is not None:
+        count_stmt = count_stmt.where(filter_clause)
+    if fts_ids is not None:
+        count_stmt = count_stmt.where(Entry.id.in_(fts_ids))
+
+    total = session.exec(count_stmt).one()
+    items = session.exec(stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)).all()
+    return {"items": items, "total": total}
 
 
 @router.get("/entries/{entry_id}")
@@ -170,7 +279,9 @@ async def delete_blueprint(blueprint_id: str, session: Session = Depends(get_ses
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
-    entries = session.exec(select(Entry).where(Entry.blueprint_id == blueprint_id)).all()
+    entries = session.exec(
+        select(Entry).where(Entry.blueprint_id == blueprint_id)
+    ).all()
     for entry in entries:
         remove_from_index(session, entry.id)
         session.delete(entry)
@@ -178,144 +289,7 @@ async def delete_blueprint(blueprint_id: str, session: Session = Depends(get_ses
     session.commit()
 
 
-# ── Auto-fetch helpers ────────────────────────────────────────────────────────
-
-def _load_secrets_map(session: Session) -> dict:
-    from backend.core.crypto import decrypt
-    from backend.secrets.models import Secret
-    from sqlmodel import select as _select
-    return {s.name: decrypt(s.encrypted_value) for s in session.exec(_select(Secret)).all()}
-
-
-def _resolve_request_params(bp: Blueprint, secrets_map: dict) -> tuple[dict, dict]:
-    from backend.core.crypto import resolve_secret_templates
-    headers = json.loads(resolve_secret_templates(bp.source_headers or "{}", secrets_map))
-    body = json.loads(resolve_secret_templates(bp.source_body or "{}", secrets_map))
-    return headers, body
-
-
-async def _fetch_raw_items(bp: Blueprint, headers: dict, body: dict) -> list:
-    async with httpx.AsyncClient(timeout=30) as client:
-        if bp.source_method.upper() == "POST":
-            response = await client.post(bp.source_url, headers=headers, json=body)
-        else:
-            response = await client.get(bp.source_url, headers=headers)
-    response.raise_for_status()
-    raw = response.json()
-    return raw if isinstance(raw, list) else [raw]
-
-
-def _upsert_entries(
-    bp: Blueprint, items: list, field_mappings: list, session: Session
-) -> tuple[list[dict], int]:
-    """Return (created_entries, skipped_count).
-
-    Each element of created_entries: {"entry_id": str, "parsed": dict}
-    """
-    key_field = next((m["field_name"] for m in field_mappings if m.get("is_key")), "external_id")
-    created_entries: list[dict] = []
-    skipped = 0
-    for item in items:
-        parsed = parse_instance(item, field_mappings)
-        external_id = parsed.get(key_field)
-        if external_id and session.exec(
-            select(Entry).where(
-                Entry.blueprint_id == bp.id,
-                Entry.external_id == str(external_id),
-            )
-        ).first():
-            skipped += 1
-            continue
-        now = datetime.now(timezone.utc)
-        entry = Entry(
-            id=str(uuid.uuid4()),
-            blueprint_id=bp.id,
-            external_id=str(external_id) if external_id else None,
-            data=json.dumps(parsed),
-            raw_data=json.dumps(item),
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(entry)
-        session.flush()
-        index_entry(session, entry.id, bp.id, extract_text_content(parsed))
-        created_entries.append({"entry_id": entry.id, "parsed": parsed})
-    session.commit()
-    return created_entries, skipped
-
-
-_MAX_TRIGGERS_PER_FETCH = 50  # safety cap to prevent runaway queuing on large initial fetches
-
-
-def _fire_blueprint_triggers(bp: Blueprint, created_entries: list[dict]) -> None:
-    """Enqueue runs for all active PyBooks subscribed to this blueprint.
-
-    Subscribers are PyBooks with trigger_type='blueprint' and
-    trigger_config.blueprint_id == bp.id. Each subscriber has its own
-    trigger_conditions list stored inside its trigger_config.
-    Capped at _MAX_TRIGGERS_PER_FETCH per subscriber per call.
-    created_entries: list of {"entry_id": str, "parsed": dict}
-    """
-    from backend.objects.filter import check_trigger_conditions
-    from backend.core import queue_manager
-    from backend.pybooks.models import PyBook, PyBookRun
-    from backend.database import engine as _engine
-
-    if not created_entries:
-        return
-
-    try:
-        with Session(_engine) as _ts:
-            subscribers = [
-                pb for pb in _ts.exec(
-                    select(PyBook).where(
-                        PyBook.trigger_type == "blueprint",
-                        PyBook.is_active == True,
-                    )
-                ).all()
-                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == bp.id
-            ]
-            if not subscribers:
-                return
-
-            for sub in subscribers:
-                cfg = json.loads(sub.trigger_config or "{}")
-                conditions: list = cfg.get("trigger_conditions", [])
-                matching = [
-                    e for e in created_entries
-                    if check_trigger_conditions(e["parsed"], conditions)
-                ]
-                if not matching:
-                    continue
-                if len(matching) > _MAX_TRIGGERS_PER_FETCH:
-                    logger.warning(
-                        "Blueprint %s / PyBook %s: %d matches, capping at %d",
-                        bp.id, sub.id, len(matching), _MAX_TRIGGERS_PER_FETCH,
-                    )
-                    matching = matching[:_MAX_TRIGGERS_PER_FETCH]
-
-                runs: list[PyBookRun] = []
-                for entry_info in matching:
-                    run = PyBookRun(
-                        id=str(uuid.uuid4()),
-                        pybook_id=sub.id,
-                        status="queued",
-                        trigger_source="blueprint",
-                        trigger_payload=json.dumps({
-                            "blueprint_id": bp.id,
-                            "entry_id": entry_info["entry_id"],
-                            "entry_data": entry_info["parsed"],
-                        }),
-                        started_at=datetime.now(timezone.utc),
-                    )
-                    _ts.add(run)
-                    runs.append(run)
-                _ts.commit()
-                for run in runs:
-                    queue_manager.enqueue(sub.id, run.id)
-    except Exception as exc:
-        logger.warning("Failed to fire blueprint triggers: %s", exc)
-
+# ── Auto-fetch helper (also used by cron scheduler) ──────────────────────────
 
 async def _do_fetch(blueprint_id: str, session: Session) -> dict:
     bp = session.get(Blueprint, blueprint_id)
@@ -325,24 +299,97 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
         raise ValueError("Blueprint has no source_url configured")
 
     field_mappings = json.loads(bp.field_mappings or "[]")
+    req_headers = json.loads(bp.source_headers or "{}")
+    req_body = json.loads(bp.source_body or "{}")
 
     try:
-        secrets_map = _load_secrets_map(session)
-        req_headers, req_body = _resolve_request_params(bp, secrets_map)
+        from backend.core.crypto import decrypt, resolve_secret_templates
+        from backend.secrets.models import Secret
+        from sqlmodel import select as _select
+        secrets_map = {s.name: decrypt(s.encrypted_value) for s in session.exec(_select(Secret)).all()}
+        raw_headers_str = resolve_secret_templates(bp.source_headers or '{}', secrets_map)
+        raw_body_str = resolve_secret_templates(bp.source_body or '{}', secrets_map)
+        req_headers = json.loads(raw_headers_str)
+        req_body = json.loads(raw_body_str)
     except Exception:
-        req_headers = json.loads(bp.source_headers or "{}")
-        req_body = json.loads(bp.source_body or "{}")
+        pass
 
     try:
-        items = await _fetch_raw_items(bp, req_headers, req_body)
+        async with httpx.AsyncClient(timeout=30) as client:
+            if bp.source_method.upper() == "POST":
+                response = await client.post(bp.source_url, headers=req_headers, json=req_body)
+            else:
+                response = await client.get(bp.source_url, headers=req_headers)
+        response.raise_for_status()
+        raw_data = response.json()
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Upstream fetch failed: {exc}")
 
-    created_entries, skipped_count = _upsert_entries(bp, items, field_mappings, session)
-    created_count = len(created_entries)
+    items = raw_data if isinstance(raw_data, list) else [raw_data]
+    key_field = next(
+        (m["field_name"] for m in field_mappings if m.get("is_key")),
+        "external_id",
+    )
+    created_count = 0
+    skipped_count = 0
 
-    if created_count > 0:
-        _fire_blueprint_triggers(bp, created_entries)
+    for item in items:
+        parsed = parse_instance(item, field_mappings)
+        external_id = parsed.get(key_field)
+
+        if external_id:
+            existing = session.exec(
+                select(Entry).where(
+                    Entry.blueprint_id == blueprint_id,
+                    Entry.external_id == str(external_id),
+                )
+            ).first()
+            if existing:
+                skipped_count += 1
+                continue
+
+        now = datetime.now(timezone.utc)
+        entry = Entry(
+            id=str(uuid.uuid4()),
+            blueprint_id=blueprint_id,
+            external_id=str(external_id) if external_id else None,
+            data=json.dumps(parsed),
+            raw_data=json.dumps(item),
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(entry)
+        session.flush()
+        index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
+        created_count += 1
+
+    session.commit()
+
+    # Trigger linked PyBook if configured and event matches
+    if bp.trigger_pybook_id and created_count > 0:
+        trigger_event = getattr(bp, 'trigger_event', 'on_create')
+        if trigger_event in ('on_create', 'on_create_or_update'):
+            from backend.core import queue_manager
+            from backend.pybooks.models import PyBook, PyBookRun
+            from backend.database import engine as _engine
+            try:
+                with Session(_engine) as _ts:
+                    _pb = _ts.get(PyBook, bp.trigger_pybook_id)
+                    if _pb and _pb.is_active:
+                        _now = datetime.now(timezone.utc)
+                        _run = PyBookRun(
+                            id=str(uuid.uuid4()),
+                            pybook_id=bp.trigger_pybook_id,
+                            status="queued",
+                            trigger_source=blueprint,
+                            trigger_payload=json.dumps({"blueprint_id": blueprint_id, "created": created_count}),
+                            started_at=_now,
+                        )
+                        _ts.add(_run)
+                        _ts.commit()
+                        queue_manager.enqueue(bp.trigger_pybook_id, _run.id)
+            except Exception as _exc:
+                logger.warning("Failed to trigger PyBook after fetch: %s", _exc)
 
     return {"created": created_count, "skipped": skipped_count, "total": len(items)}
 
@@ -362,22 +409,65 @@ async def fetch_blueprint(blueprint_id: str, session: Session = Depends(get_sess
 
 # ── Endpoint preview (no persistence) ────────────────────────────────────────
 
-def _resolve_preview_params(body: PreviewRequest) -> tuple[dict, dict]:
-    from backend.core.crypto import decrypt, resolve_secret_templates
-    from backend.secrets.models import Secret
-    from sqlmodel import Session as _Session, select as _select
-    from backend.database import engine as _engine
-    with _Session(_engine) as _s:
-        secrets_map = {s.name: decrypt(s.encrypted_value) for s in _s.exec(_select(Secret)).all()}
-    headers = json.loads(resolve_secret_templates(body.source_headers or "{}", secrets_map))
-    req_body = json.loads(resolve_secret_templates(body.source_body or "{}", secrets_map))
-    return headers, req_body
+class PreviewRequest(BaseModel):
+    source_url: str
+    source_method: str = "GET"
+    source_headers: str = "{}"
+    source_body: str = "{}"
+    sample_limit: int = 1
+
+
+
+class CreateEntryBody(BaseModel):
+    fields: dict
+
+
+@router.post("/{blueprint_id}/entries", status_code=201)
+async def create_manual_entry(blueprint_id: str, body: CreateEntryBody, session: Session = Depends(get_session)):
+    bp = session.get(Blueprint, blueprint_id)
+    if not bp:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+    field_mappings = json.loads(bp.field_mappings or "[]")
+    key_field = next((m["field_name"] for m in field_mappings if m.get("is_key")), None)
+    external_id = body.fields.get(key_field) if key_field else None
+    if external_id:
+        existing = session.exec(
+            select(Entry).where(Entry.blueprint_id == blueprint_id, Entry.external_id == str(external_id))
+        ).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Entry with key '{external_id}' already exists")
+    now = datetime.now(timezone.utc)
+    entry = Entry(
+        id=str(uuid.uuid4()),
+        blueprint_id=blueprint_id,
+        external_id=str(external_id) if external_id else None,
+        data=json.dumps(body.fields),
+        raw_data=json.dumps(body.fields),
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(entry)
+    session.flush()
+    index_entry(session, entry.id, blueprint_id, extract_text_content(body.fields))
+    session.commit()
+    session.refresh(entry)
+    return entry
 
 
 @router.post("/preview")
 async def preview_endpoint(body: PreviewRequest):
+    """Fire a URL and return the raw response for JSONPath exploration."""
     try:
-        req_headers, req_body = _resolve_preview_params(body)
+        from backend.core.crypto import decrypt, resolve_secret_templates
+        from backend.secrets.models import Secret
+        from sqlmodel import Session as _Session, select as _select
+        from backend.database import engine as _engine
+        with _Session(_engine) as _s:
+            secrets_map = {s.name: decrypt(s.encrypted_value) for s in _s.exec(_select(Secret)).all()}
+        headers_str = resolve_secret_templates(body.source_headers or '{}', secrets_map)
+        body_str = resolve_secret_templates(body.source_body or '{}', secrets_map)
+        req_headers = json.loads(headers_str)
+        req_body = json.loads(body_str)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid JSON in headers/body: {exc}")
     except Exception as exc:
@@ -397,69 +487,12 @@ async def preview_endpoint(body: PreviewRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
     is_list = isinstance(raw, list)
+    total = len(raw) if is_list else 1
+    sample = raw[:body.sample_limit] if is_list else raw
+
     return {
         "is_list": is_list,
-        "total": len(raw) if is_list else 1,
-        "sample": raw[:body.sample_limit] if is_list else raw,
+        "total": total,
+        "sample": sample,
         "status_code": response.status_code,
     }
-
-
-# ── Manual entry creation ─────────────────────────────────────────────────────
-
-@router.post("/{blueprint_id}/entries", status_code=201)
-async def create_manual_entry(
-    blueprint_id: str,
-    body: CreateEntryBody,
-    background_tasks: BackgroundTasks,
-    session: Session = Depends(get_session),
-):
-    bp = session.get(Blueprint, blueprint_id)
-    if not bp:
-        raise HTTPException(status_code=404, detail="Blueprint not found")
-    field_mappings = json.loads(bp.field_mappings or "[]")
-    key_field = next((m["field_name"] for m in field_mappings if m.get("is_key")), None)
-    external_id = body.fields.get(key_field) if key_field else None
-    if external_id and session.exec(
-        select(Entry).where(Entry.blueprint_id == blueprint_id, Entry.external_id == str(external_id))
-    ).first():
-        raise HTTPException(status_code=409, detail=f"Entry with key '{external_id}' already exists")
-    now = datetime.now(timezone.utc)
-    entry = Entry(
-        id=str(uuid.uuid4()),
-        blueprint_id=blueprint_id,
-        external_id=str(external_id) if external_id else None,
-        data=json.dumps(body.fields),
-        raw_data=json.dumps(body.fields),
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(entry)
-    session.flush()
-    index_entry(session, entry.id, blueprint_id, extract_text_content(body.fields))
-    session.commit()
-    session.refresh(entry)
-
-    background_tasks.add_task(
-        _fire_blueprint_triggers, bp, [{"entry_id": entry.id, "parsed": body.fields}]
-    )
-
-    return entry
-
-
-# ── Subscribers ───────────────────────────────────────────────────────────────
-
-@router.get("/{blueprint_id}/subscribers")
-async def get_blueprint_subscribers(
-    blueprint_id: str,
-    session: Session = Depends(get_session),
-):
-    """Return all active PyBooks subscribed to this blueprint as a trigger."""
-    from backend.pybooks.models import PyBook
-    subscribers = [
-        pb for pb in session.exec(
-            select(PyBook).where(PyBook.trigger_type == "blueprint", PyBook.is_active == True)
-        ).all()
-        if json.loads(pb.trigger_config or "{}").get("blueprint_id") == blueprint_id
-    ]
-    return subscribers

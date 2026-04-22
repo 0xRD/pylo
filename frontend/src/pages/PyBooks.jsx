@@ -4,6 +4,7 @@ import RunStatusBadge from "../components/RunStatusBadge"
 import { pybooksApi } from "../api/pybooks"
 import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
+import { useAuth } from "../context/AuthContext"
 
 const DEFAULT_SCRIPT = `# Your PyBook script
 # Available: requests, httpx, pydantic (always)
@@ -252,7 +253,7 @@ function NewPyBookForm({ onSave, onCancel, blueprints = [] }) {
 
 // ── Run panel ─────────────────────────────────────────────────────────────────
 
-function RunPanel({ pybook, onClose }) {
+function RunPanel({ pybook, onClose, isAdmin }) {
   const [runs, setRuns] = useState([])
   const [selectedRun, setSelectedRun] = useState(null)
   const [running, setRunning] = useState(false)
@@ -300,8 +301,8 @@ function RunPanel({ pybook, onClose }) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
         <span className="text-sm font-medium">Runs</span>
         <div className="flex items-center gap-2">
-          <button onClick={handleRun} disabled={running}
-            className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded transition-colors">
+          <button onClick={handleRun} disabled={running || !isAdmin}
+            className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
             {running ? "Starting..." : "Run"}
           </button>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">&times;</button>
@@ -373,6 +374,7 @@ export default function PyBooks() {
   const [typeFilter, setTypeFilter] = useState('all') // 'all' | 'top' | 'sub'
   const [activeTag, setActiveTag] = useState('')
 
+  const { isAdmin } = useAuth()
   const load = () => pybooksApi.list().then(data => { setPybooks(data); setLoading(false) }).catch(console.error)
   useEffect(() => {
     load()
@@ -470,8 +472,8 @@ export default function PyBooks() {
       <div className="w-60 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 shrink-0">
           <span className="text-sm font-semibold text-gray-300">PyBooks</span>
-          <button onClick={() => { setShowNew(true); setSelected(null) }}
-            className="text-xs bg-indigo-600 hover:bg-indigo-500 px-2 py-1 rounded">+ New</button>
+          <button onClick={() => { if(isAdmin){setShowNew(true); setSelected(null)} }} disabled={!isAdmin}
+            className="text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed px-2 py-1 rounded">+ New</button>
         </div>
 
         {/* Search */}
@@ -547,17 +549,17 @@ export default function PyBooks() {
               <span className="text-sm font-medium">{selected.name}</span>
               <span className={"w-2 h-2 rounded-full shrink-0 " + (selected.is_active ? "bg-green-400" : "bg-gray-600")} />
               <span className="text-xs text-gray-500 flex-1 truncate">{selected.trigger_type}</span>
-              <button onClick={handleToggleActive}
-                className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">
+              <button onClick={handleToggleActive} disabled={!isAdmin}
+                className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
                 {selected.is_active ? "Disable" : "Enable"}
               </button>
               <button onClick={() => setShowRuns(s => !s)}
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">Runs</button>
-              <button onClick={handleDelete}
-                className="text-xs px-2 py-1 bg-gray-800 hover:bg-red-900 text-gray-400 hover:text-red-300 rounded transition-colors">Delete</button>
+              <button onClick={handleDelete} disabled={!isAdmin}
+                className="text-xs px-2 py-1 bg-gray-800 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:text-red-300 rounded transition-colors">Delete</button>
               {scriptChanged && (
-                <button onClick={handleSave} disabled={saving}
-                  className="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded transition-colors">
+                <button onClick={handleSave} disabled={saving || !isAdmin}
+                  className="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
                   {saving ? "Saving..." : "Save"}
                 </button>
               )}
@@ -594,8 +596,8 @@ export default function PyBooks() {
                       setTriggerDraft({ type: selected.trigger_type, config: selected.trigger_config || '{}' })
                       setShowTriggerEdit(true)
                     }}
-                    className="ml-auto text-xs text-gray-600 hover:text-indigo-400 transition-colors"
-                  >Edit trigger</button>
+                    className="ml-auto text-xs text-gray-600 hover:text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  disabled={!isAdmin}>Edit trigger</button>
                 </div>
               ) : (
                 <div className="px-4 py-3 space-y-3">
@@ -609,8 +611,8 @@ export default function PyBooks() {
                       {TRIGGER_TYPES.map(t => <option key={t}>{t}</option>)}
                     </select>
                     <div className="flex gap-2 ml-auto">
-                      <button onClick={handleSaveTrigger}
-                        className="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded transition-colors">Save</button>
+                      <button onClick={handleSaveTrigger} disabled={!isAdmin}
+                        className="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">Save</button>
                       <button onClick={() => { setShowTriggerEdit(false); setTriggerDraft(null) }}
                         className="text-xs px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">Cancel</button>
                     </div>
@@ -639,7 +641,7 @@ export default function PyBooks() {
 
           {showRuns && (
             <div className="w-80 shrink-0 flex flex-col overflow-hidden">
-              <RunPanel pybook={selected} onClose={() => setShowRuns(false)} />
+              <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin} />
             </div>
           )}
         </div>
