@@ -14,6 +14,7 @@ import Settings from './pages/Settings'
 import Users from './pages/Users'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
+import InviteAccept from './pages/InviteAccept'
 
 function SetupGuard({ children }) {
   const [setupRequired, setSetupRequired] = useState(undefined)
@@ -49,6 +50,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/setup" element={<Setup />} />
+            <Route path="/invite/:token" element={<InviteAccept />} />
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<Navigate to="/blueprints" replace />} />
               <Route path="/objects" element={<Navigate to="/blueprints" replace />} />
