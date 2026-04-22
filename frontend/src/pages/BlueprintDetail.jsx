@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
+import SearchHelp from '../components/SearchHelp'
 
 function AddEntryModal({ blueprint, onSave, onClose }) {
   const fieldMappings = (() => { try { return JSON.parse(blueprint.field_mappings || '[]') } catch { return [] } })()
@@ -248,6 +249,7 @@ export default function BlueprintDetail() {
             <form onSubmit={handleSearch} className="flex gap-2 flex-1">
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"
                 className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+              <SearchHelp />
               <button type="submit"
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
                 Search

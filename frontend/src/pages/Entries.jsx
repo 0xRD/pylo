@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 import EntryCard from '../components/EntryCard'
+import SearchHelp from '../components/SearchHelp'
 
 const PAGE_SIZE_OPTIONS = [25, 48, 100, 200]
 const DEFAULT_PAGE_SIZE = 48
@@ -131,6 +132,7 @@ export default function Entries() {
           placeholder="Search entries…"
           className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
         />
+        <SearchHelp />
         <button type="submit"
           className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
           Search

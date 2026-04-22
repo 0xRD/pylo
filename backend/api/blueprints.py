@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -7,6 +8,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import and_, func, cast, or_, String as SAString
 from sqlmodel import Session, select
 
 from backend.core.auth import verify_token
@@ -76,6 +78,93 @@ async def create_blueprint(
     return bp
 
 
+# ── Query parser (FTS + field filters) ───────────────────────────────────────
+
+_RESERVED = {'and', 'or', 'not'}
+
+# fullmatch: entire segment must be a field expression
+_FIELD_EXPR = re.compile(
+    r'(?P<field>[a-zA-Z_]\w*)\s*(?P<op>=|!=|contains)\s*'
+    r'(?:"(?P<qval>[^"]*?)"|(?P<val>\S+))',
+    re.IGNORECASE,
+)
+
+
+def _parse_query(raw: str) -> tuple[list[tuple], str]:
+    """Split a raw query into field filters + remaining FTS text.
+
+    Splits on AND / OR, classifies each segment as a field expression or a
+    FTS term, and records the connective (and|or|None) preceding each filter.
+    Returns ([(field, op, value, connective), …], fts_text).
+    """
+    if not raw or not raw.strip():
+        return [], ''
+
+    # re.split with a capturing group keeps the separators at odd indices
+    parts = re.split(r'\s+(AND|OR)\s+', raw.strip(), flags=re.IGNORECASE)
+
+    filters: list[tuple] = []
+    fts_parts: list[str] = []
+
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            continue  # connective, read below via index
+
+        connective = parts[i - 1].lower() if i > 0 else None
+        part = part.strip()
+        if not part:
+            continue
+
+        m = _FIELD_EXPR.fullmatch(part)
+        if m and m.group('field').lower() not in _RESERVED:
+            field = m.group('field').lower()
+            op = m.group('op').lower()
+            value = m.group('qval') if m.group('qval') is not None else m.group('val')
+            filters.append((field, op, value, connective))
+        else:
+            if fts_parts and connective:
+                fts_parts.append(connective.upper())
+            fts_parts.append(part)
+
+    return filters, ' '.join(fts_parts).strip()
+
+
+def _field_clause(field: str, op: str, value: str):
+    """Return a SQLAlchemy WHERE clause for one field filter."""
+    from sqlalchemy import func as sqf
+    if field == 'external_id':
+        col = Entry.external_id
+    else:
+        col = cast(sqf.json_extract(Entry.data, f'$.{field}'), SAString)
+
+    if op == '=':
+        return col == value
+    if op == '!=':
+        return col != value
+    if op == 'contains':
+        return col.like(f'%{value}%')
+    return col == value
+
+
+def _build_filter_clause(filters: list[tuple]):
+    """Combine field filters into one WHERE clause with AND > OR precedence.
+
+    Splits at OR boundaries, ANDs within each group, ORs across groups.
+    E.g. A AND B OR C AND D → OR(AND(A, B), AND(C, D))
+    """
+    if not filters:
+        return None
+
+    groups: list[list] = [[]]
+    for field, op, value, connective in filters:
+        if connective == 'or':
+            groups.append([])
+        groups[-1].append(_field_clause(field, op, value))
+
+    and_groups = [and_(*g) if len(g) > 1 else g[0] for g in groups if g]
+    return or_(*and_groups) if len(and_groups) > 1 else and_groups[0]
+
+
 @router.get("/entries")
 async def list_entries(
     blueprint_id: Optional[str] = Query(None),
@@ -84,35 +173,56 @@ async def list_entries(
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
-    from sqlalchemy import func, text as sa_text
+    from sqlalchemy import text as sa_text
 
-    if q:
-        # Count total FTS matches first
-        if blueprint_id:
-            count_sql = sa_text(
-                "SELECT count(*) FROM fts_entries "
-                "WHERE fts_entries MATCH :query AND blueprint_id = :blueprint_id"
-            )
-            total = session.exec(count_sql, params={"query": q, "blueprint_id": blueprint_id}).fetchone()[0]
-        else:
-            count_sql = sa_text("SELECT count(*) FROM fts_entries WHERE fts_entries MATCH :query")
-            total = session.exec(count_sql, params={"query": q}).fetchone()[0]
+    field_filters, fts_text = _parse_query(q or '')
+    filter_clause = _build_filter_clause(field_filters)
 
-        ids = search_fts(session, q, blueprint_id=blueprint_id, limit=limit, offset=offset)
-        if not ids:
-            return {"items": [], "total": total}
-        entries = session.exec(select(Entry).where(Entry.id.in_(ids))).all()
-        order = {eid: i for i, eid in enumerate(ids)}
-        return {"items": sorted(entries, key=lambda x: order.get(x.id, 999)), "total": total}
-
+    # ── Base statement ────────────────────────────────────────────────────────
     stmt = select(Entry)
     if blueprint_id:
         stmt = stmt.where(Entry.blueprint_id == blueprint_id)
+    if filter_clause is not None:
+        stmt = stmt.where(filter_clause)
 
-    total = session.exec(select(func.count(Entry.id)).where(
-        Entry.blueprint_id == blueprint_id if blueprint_id else True
-    )).one()
+    # ── FTS ───────────────────────────────────────────────────────────────────
+    fts_ids: list[str] | None = None
+    if fts_text:
+        if filter_clause is not None:
+            # Mixed mode: fetch all FTS matches then intersect via IN
+            fts_ids = search_fts(session, fts_text, blueprint_id=blueprint_id, limit=10_000)
+            if not fts_ids:
+                return {"items": [], "total": 0}
+            stmt = stmt.where(Entry.id.in_(fts_ids))
+        else:
+            # Pure FTS: fast SQL count, BM25 ordering
+            if blueprint_id:
+                count_sql = sa_text(
+                    "SELECT count(*) FROM fts_entries "
+                    "WHERE fts_entries MATCH :q AND blueprint_id = :bp"
+                )
+                total = session.exec(count_sql, params={"q": fts_text, "bp": blueprint_id}).fetchone()[0]
+            else:
+                count_sql = sa_text("SELECT count(*) FROM fts_entries WHERE fts_entries MATCH :q")
+                total = session.exec(count_sql, params={"q": fts_text}).fetchone()[0]
 
+            ids = search_fts(session, fts_text, blueprint_id=blueprint_id, limit=limit, offset=offset)
+            if not ids:
+                return {"items": [], "total": total}
+            entries = session.exec(select(Entry).where(Entry.id.in_(ids))).all()
+            order = {eid: i for i, eid in enumerate(ids)}
+            return {"items": sorted(entries, key=lambda x: order.get(x.id, 999)), "total": total}
+
+    # ── Count + paginate ──────────────────────────────────────────────────────
+    count_stmt = select(func.count(Entry.id))
+    if blueprint_id:
+        count_stmt = count_stmt.where(Entry.blueprint_id == blueprint_id)
+    if filter_clause is not None:
+        count_stmt = count_stmt.where(filter_clause)
+    if fts_ids is not None:
+        count_stmt = count_stmt.where(Entry.id.in_(fts_ids))
+
+    total = session.exec(count_stmt).one()
     items = session.exec(stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)).all()
     return {"items": items, "total": total}
 
