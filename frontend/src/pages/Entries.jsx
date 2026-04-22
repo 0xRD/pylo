@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 import EntryCard from '../components/EntryCard'
 
-const PAGE_SIZE = 48
+const PAGE_SIZE_OPTIONS = [25, 48, 100, 200]
+const DEFAULT_PAGE_SIZE = 48
 
 export default function Entries() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -14,6 +15,7 @@ export default function Entries() {
   const [draftQuery, setDraftQuery] = useState(searchParams.get('q') || '')
   const [blueprintFilter, setBlueprintFilter] = useState(searchParams.get('blueprint') || '')
   const [offset, setOffset] = useState(0)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -22,26 +24,25 @@ export default function Entries() {
 
   const blueprintMap = Object.fromEntries(blueprints.map(b => [b.id, b.name]))
 
-  const load = useCallback((q, bpId, off) => {
+  const load = useCallback((q, bpId, off, ps) => {
     setLoading(true)
     blueprintsApi.listEntries({
       blueprintId: bpId || undefined,
       q: q || undefined,
-      limit: PAGE_SIZE,
+      limit: ps,
       offset: off,
     })
       .then(data => {
-        setEntries(Array.isArray(data) ? data : data.items ?? data)
-        if (data.total !== undefined) setTotal(data.total)
-        else setTotal(null)
+        setEntries(Array.isArray(data) ? data : (data.items ?? data))
+        setTotal(data.total ?? null)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
-    load(query, blueprintFilter, offset)
-  }, [query, blueprintFilter, offset, load])
+    load(query, blueprintFilter, offset, pageSize)
+  }, [query, blueprintFilter, offset, pageSize, load])
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -68,6 +69,9 @@ export default function Entries() {
     setDraftQuery(''); setQuery(''); setBlueprintFilter(''); setOffset(0); setSearchParams({})
   }
 
+  const totalPages = total !== null ? Math.ceil(total / pageSize) : null
+  const currentPage = Math.floor(offset / pageSize) + 1
+
   const hasFilter = query || blueprintFilter
 
   return (
@@ -81,11 +85,26 @@ export default function Entries() {
               : 'All entries across blueprints'}
           </p>
         </div>
-        {hasFilter && (
-          <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-            × Clear filters
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-600">Per page:</span>
+            {PAGE_SIZE_OPTIONS.map(n => (
+              <button key={n} onClick={() => { setPageSize(n); setOffset(0) }}
+                className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                  n === pageSize
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
+                }`}>
+                {n}
+              </button>
+            ))}
+          </div>
+          {hasFilter && (
+            <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+              × Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Blueprint filter chips */}
@@ -138,25 +157,18 @@ export default function Entries() {
           </div>
 
           {/* Pagination */}
-          {entries.length === PAGE_SIZE && (
-            <div className="flex justify-center gap-3 mt-8">
-              {offset > 0 && (
-                <button onClick={() => setOffset(o => Math.max(0, o - PAGE_SIZE))}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
-                  ← Previous
-                </button>
-              )}
-              <button onClick={() => setOffset(o => o + PAGE_SIZE)}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
-                Next →
+          {totalPages !== null && totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-8">
+              <button onClick={() => setOffset(o => Math.max(0, o - pageSize))} disabled={offset === 0}
+                className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+                ←
               </button>
-            </div>
-          )}
-          {offset > 0 && entries.length < PAGE_SIZE && (
-            <div className="flex justify-center mt-8">
-              <button onClick={() => setOffset(o => Math.max(0, o - PAGE_SIZE))}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
-                ← Previous
+              <span className="text-sm text-gray-400">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button onClick={() => setOffset(o => o + pageSize)} disabled={currentPage >= totalPages}
+                className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+                →
               </button>
             </div>
           )}
