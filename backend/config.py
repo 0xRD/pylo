@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     GIT_USERNAME: str = ""
     GIT_TOKEN: str = ""
 
+    JWT_EXPIRE_HOURS: int = 24
+
     MCP_ENABLED: bool = False
     MCP_AUTH_TOKEN: str = "change_me"
 

@@ -5,12 +5,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import init_db
+from backend.api.auth import router as auth_router
 from backend.api.blueprints import router as blueprints_router
 from backend.api.pybooks import router as pybooks_router
 from backend.api.runs import router as runs_router
 from backend.api.secrets import router as secrets_router
-from backend.api.webhooks import router as webhooks_router
 from backend.api.settings import router as settings_router
+from backend.api.users import router as users_router
+from backend.api.webhooks import router as webhooks_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
 from backend.core import queue_manager
@@ -47,12 +49,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(blueprints_router)
 app.include_router(pybooks_router)
 app.include_router(runs_router)
 app.include_router(secrets_router)
-app.include_router(webhooks_router)
 app.include_router(settings_router)
+app.include_router(users_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/health")
