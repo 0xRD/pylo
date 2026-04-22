@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
@@ -12,6 +14,7 @@ from backend.core.auth import (
 )
 from backend.database import get_session
 from backend.users.models import User
+from backend.users.invitation import Invitation
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -29,8 +32,24 @@ class SetupBody(BaseModel):
     password: str
 
 
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class AcceptInviteBody(BaseModel):
+    username: str
+    password: str
+
+
 def _user_count(session: Session) -> int:
     return session.exec(select(func.count()).select_from(User)).one()
+
+
+def _set_session_cookie(response: Response, user: User, session: Session) -> None:
+    expire_hours = _get_jwt_expire_hours(session)
+    token = create_access_token(user.username, user.role, expire_hours)
+    response.set_cookie(COOKIE_NAME, token, max_age=expire_hours * 3600, **COOKIE_KWARGS)
 
 
 @router.get("/setup")
@@ -49,10 +68,7 @@ async def setup_first_admin(body: SetupBody, response: Response, session: Sessio
     session.add(user)
     session.commit()
     session.refresh(user)
-
-    expire_hours = _get_jwt_expire_hours(session)
-    token = create_access_token(user.username, user.role, expire_hours)
-    response.set_cookie(COOKIE_NAME, token, max_age=expire_hours * 3600, **COOKIE_KWARGS)
+    _set_session_cookie(response, user, session)
     return {"username": user.username, "role": user.role}
 
 
@@ -64,9 +80,7 @@ async def login(body: LoginBody, response: Response, session: Session = Depends(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
 
-    expire_hours = _get_jwt_expire_hours(session)
-    token = create_access_token(user.username, user.role, expire_hours)
-    response.set_cookie(COOKIE_NAME, token, max_age=expire_hours * 3600, **COOKIE_KWARGS)
+    _set_session_cookie(response, user, session)
     return {"username": user.username, "role": user.role}
 
 
@@ -79,3 +93,62 @@ async def logout(response: Response):
 @router.get("/me")
 async def me(current_user: AuthUser = Depends(verify_token)):
     return {"username": current_user.username, "role": current_user.role}
+
+
+@router.post("/change-password")
+async def change_password(
+    body: ChangePasswordBody,
+    current_user: AuthUser = Depends(verify_token),
+    session: Session = Depends(get_session),
+):
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+
+    user = session.exec(select(User).where(User.username == current_user.username)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(body.current_password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    user.hashed_password = hash_password(body.new_password)
+    session.add(user)
+    session.commit()
+    return {"ok": True}
+
+
+@router.get("/invite/{token}")
+async def validate_invite(token: str, session: Session = Depends(get_session)):
+    inv = session.exec(select(Invitation).where(Invitation.token == token)).first()
+    if not inv or not inv.is_valid:
+        raise HTTPException(status_code=404, detail="Invitation not found or expired")
+    return {"role": inv.role, "expires_at": inv.expires_at.isoformat()}
+
+
+@router.post("/invite/{token}", status_code=201)
+async def accept_invite(
+    token: str,
+    body: AcceptInviteBody,
+    response: Response,
+    session: Session = Depends(get_session),
+):
+    inv = session.exec(select(Invitation).where(Invitation.token == token)).first()
+    if not inv or not inv.is_valid:
+        raise HTTPException(status_code=404, detail="Invitation not found or expired")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+
+    existing = session.exec(select(User).where(User.username == body.username)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+    user = User(username=body.username, hashed_password=hash_password(body.password), role=inv.role)
+    session.add(user)
+
+    inv.used_at = datetime.now(timezone.utc)
+    inv.used_by = body.username
+    session.add(inv)
+    session.commit()
+    session.refresh(user)
+
+    _set_session_cookie(response, user, session)
+    return {"username": user.username, "role": user.role}
