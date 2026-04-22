@@ -8,7 +8,8 @@ from backend.config import settings
 from backend.pybooks.models import PyBook, PyBookRun          # noqa: F401
 from backend.objects.models import Blueprint, Entry            # noqa: F401
 from backend.secrets.models import Secret                      # noqa: F401
-from backend.core.settings_model import SystemSetting              # noqa: F401
+from backend.core.settings_model import SystemSetting         # noqa: F401
+from backend.users.models import User                          # noqa: F401
 
 logger = logging.getLogger(__name__)
 
