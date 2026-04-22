@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { secretsApi } from '../api/secrets'
 
 export default function Secrets() {
@@ -8,6 +9,7 @@ export default function Secrets() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
+  const { isAdmin } = useAuth()
   const load = () => secretsApi.list().then(setSecrets).catch(console.error)
   useEffect(() => { load() }, [])
 
@@ -41,8 +43,8 @@ export default function Secrets() {
             Encrypted at rest. Values are write-only — they cannot be read back through the API.
           </p>
         </div>
-        <button onClick={() => setShowForm(s => !s)}
-          className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded transition-colors">
+        <button onClick={() => isAdmin && setShowForm(s => !s)} disabled={!isAdmin}
+          className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
           {showForm ? 'Cancel' : '+ New Secret'}
         </button>
       </div>
@@ -91,8 +93,8 @@ export default function Secrets() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-600 font-mono">••••••••</span>
-              <button onClick={() => handleDelete(s.id, s.name)}
-                className="text-xs text-gray-500 hover:text-red-400 transition-colors">Delete</button>
+              <button onClick={() => handleDelete(s.id, s.name)} disabled={!isAdmin}
+                className="text-xs text-gray-500 hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Delete</button>
             </div>
           </div>
         ))}

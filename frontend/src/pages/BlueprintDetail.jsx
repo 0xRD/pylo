@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
@@ -122,6 +123,7 @@ export default function BlueprintDetail() {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
+  const { isAdmin } = useAuth()
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
   const loadEntries = (q = query, pg = page, ps = pageSize) =>
@@ -270,14 +272,14 @@ export default function BlueprintDetail() {
                 <span className="text-xs text-red-400">{fetchResult.error}</span>
               )}
               {blueprint?.is_manual ? (
-                <button onClick={() => setShowAddEntry(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors">
+                <button onClick={() => setShowAddEntry(true)} disabled={!isAdmin}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
                   + Add entry
                 </button>
               ) : (
                 <button onClick={handleFetch}
-                  disabled={fetching || !blueprint?.source_url}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded text-sm font-medium transition-colors">
+                  disabled={!isAdmin || fetching || !blueprint?.source_url}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
                   {fetching ? 'Fetching…' : 'Fetch now'}
                 </button>
               )}
@@ -334,6 +336,11 @@ export default function BlueprintDetail() {
       {/* Settings tab */}
       {tab === 'settings' && blueprint && (
         <div className="space-y-8">
+          {!isAdmin && (
+            <p className="text-sm text-yellow-600 bg-yellow-900/20 border border-yellow-800 rounded px-4 py-2">
+              You have read-only access. Contact an admin to modify this blueprint.
+            </p>
+          )}
           <BlueprintForm
             initial={blueprint}
             onSave={handleUpdate}
@@ -347,8 +354,8 @@ export default function BlueprintDetail() {
                 <p className="text-sm text-gray-200">Delete this blueprint</p>
                 <p className="text-xs text-gray-500 mt-0.5">Permanently deletes the blueprint and all its entries. Cannot be undone.</p>
               </div>
-              <button onClick={handleDelete} disabled={deleting}
-                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 rounded text-sm font-medium transition-colors shrink-0 ml-4">
+              <button onClick={handleDelete} disabled={deleting || !isAdmin}
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors shrink-0 ml-4">
                 {deleting ? 'Deleting…' : 'Delete blueprint'}
               </button>
             </div>

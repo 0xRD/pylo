@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
 
 export default function EntryDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const [entry, setEntry] = useState(null)
   const [blueprint, setBlueprint] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -72,8 +74,8 @@ export default function EntryDetail() {
             className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-gray-400 transition-colors">
             ← Back
           </button>
-          <button onClick={handleDelete}
-            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-red-900 rounded text-gray-400 hover:text-red-300 transition-colors">
+          <button onClick={handleDelete} disabled={!isAdmin}
+            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed rounded text-gray-400 hover:text-red-300 transition-colors">
             Delete
           </button>
         </div>

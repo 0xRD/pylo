@@ -35,13 +35,16 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 4. User authentication + roles (login page)
+## 4. User authentication + roles (login page) ✅ DONE
 
-- Login page (`/login`) with JWT issued on `POST /api/auth/login`.
+- Setup wizard (`/setup`) for first account creation.
+- Login page (`/login`) with httpOnly cookie JWT (24 h, configurable via `.env` + Settings page).
 - `User(id, username, hashed_password, role: admin|viewer)` model.
-- Admin: full access. Viewer: read-only (no create/edit/delete/trigger).
-- `verify_token` accepts both master `API_TOKEN` and JWT.
-- Admin panel for user management.
+- Admin: full access. Viewer: read-only — write buttons disabled in UI + 403 enforced by backend middleware.
+- `verify_token` accepts both master `API_TOKEN` header and JWT cookie.
+- Invitation system: admins generate single-use 24 h links (`/invite/:token`); links are re-accessible.
+- Change-password modal available to all users; admins can reset any user's password.
+- `/users` admin panel for user management.
 
 **Why:** Multi-user support for team environments.
 

@@ -3,8 +3,8 @@ from typing import Optional
 
 from fastapi import Cookie, Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlmodel import Session, select
 
 from backend.config import settings
@@ -12,17 +12,15 @@ from backend.database import get_session
 
 _api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 ALGORITHM = "HS256"
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def create_access_token(username: str, role: str, expire_hours: int) -> str:
