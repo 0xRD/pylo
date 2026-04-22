@@ -19,8 +19,9 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-API_TOKEN=your_secure_token_here
 SECRET_KEY=your_32_char_secret_key_here
+API_TOKEN=your_secure_token_here   # kept for SDK / script access
+JWT_EXPIRE_HOURS=24                # optional, default 24
 ```
 
 ### 2. Start
@@ -30,6 +31,12 @@ docker compose up -d
 ```
 
 Frontend: `http://localhost:3000` — API: `http://localhost:8000`
+
+### 3. Create your admin account
+
+On first launch, open `http://localhost:3000` in your browser. You will be redirected to a **setup wizard** (`/setup`) where you create the first admin account (username + password, minimum 8 characters).
+
+This wizard is only shown once — it disappears as soon as the first user exists. Additional users can be created from the **Users** page inside the console.
 
 ---
 
@@ -88,7 +95,8 @@ Every PyBook execution creates a Run record with full stdout/stderr, exit code, 
 | `/pybooks` | PyBook editor with sidebar (search, type filter, tag filter) |
 | `/runs` | Run history with live concurrency bar and queue depth |
 | `/secrets` | Encrypted secret management |
-| `/settings` | System settings (max concurrent runs) |
+| `/settings` | System settings (max concurrent runs, session duration) |
+| `/users` | User management — admin only |
 
 ---
 
@@ -215,9 +223,19 @@ PyBook runs are **persistent** — every run is written to the database as `queu
 
 ---
 
-## API Authentication
+## Authentication
 
-All API endpoints require `X-API-Token: <your_token>` (set `API_TOKEN` in `.env`):
+### Browser / console
+
+The console uses **httpOnly cookie-based JWT**. Login at `/login` (or go through the setup wizard on first launch). Sessions last 24 h by default — configurable in **Settings → Session duration** or via `JWT_EXPIRE_HOURS` in `.env`.
+
+Roles:
+- **Admin** — full access (create, edit, delete, trigger)
+- **Viewer** — read-only; write actions are visible but disabled
+
+### Scripts / SDK / external integrations
+
+Use the master `API_TOKEN` from `.env` via the `X-API-Token` header — it always grants admin-level access:
 
 ```bash
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
@@ -239,6 +257,8 @@ curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
                                            │
                         ┌──────────────────▼────────────────────────┐
                         │  FastAPI backend                           │
+                        │  ├─ /api/auth        Login, logout, setup │
+                        │  ├─ /api/users       User management      │
                         │  ├─ /api/blueprints  Blueprint + Entry CRUD│
                         │  ├─ /api/pybooks     PyBook CRUD / run    │
                         │  ├─ /api/runs        History, logs, WS    │
@@ -287,8 +307,7 @@ alembic upgrade head
 
 See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 
-- **Entry deduplication + mutable fields + history** — update fields on re-fetch; audit trail of changes per entry
-- **Login page + roles** — JWT auth, admin/viewer roles, multi-user support
+- **Mutable fields + entry history** — update fields on re-fetch; audit trail of changes per entry
 - **Paginated API fetching** — cursor, page-number, and offset pagination for multi-page sources
 - **Scoped API Keys** — per-key permissions for SIEM/script integrations
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
