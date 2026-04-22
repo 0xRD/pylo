@@ -1,8 +1,7 @@
 const BASE = "/api"
-const TOKEN = import.meta.env.VITE_API_TOKEN || "change_me_in_production"
 
 function headers(withBody = false) {
-  const h = { "X-API-Token": TOKEN }
+  const h = {}
   if (withBody) h["Content-Type"] = "application/json"
   return h
 }
@@ -10,6 +9,7 @@ function headers(withBody = false) {
 async function req(method, path, body) {
   const res = await fetch(BASE + path, {
     method,
+    credentials: "include",
     headers: headers(!!body),
     body: body ? JSON.stringify(body) : undefined,
   })
