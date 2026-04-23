@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from backend.core.auth import AuthUser, require_admin, verify_token
+from backend.core.auth import AuthUser, VALID_ROLES, require_admin, verify_token
 from backend.database import get_session
 from backend.users.invitation import Invitation, generate_token
 
@@ -45,7 +45,7 @@ async def create_invitation(
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(require_admin),
 ):
-    if body.role not in ("admin", "viewer"):
+    if body.role not in VALID_ROLES:
         raise HTTPException(status_code=422, detail="Role must be 'admin' or 'viewer'")
 
     inv = Invitation(

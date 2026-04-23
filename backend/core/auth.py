@@ -13,6 +13,8 @@ from backend.database import get_session
 _api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False)
 
 ALGORITHM = "HS256"
+VALID_ROLES = frozenset({"admin", "viewer"})
+MIN_PASSWORD_LEN = 8
 
 
 def hash_password(password: str) -> str:

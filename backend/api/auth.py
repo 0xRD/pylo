@@ -6,6 +6,7 @@ from sqlmodel import Session, select, func
 
 from backend.core.auth import (
     AuthUser,
+    MIN_PASSWORD_LEN,
     create_access_token,
     hash_password,
     verify_password,
@@ -61,7 +62,7 @@ async def setup_status(session: Session = Depends(get_session)):
 async def setup_first_admin(body: SetupBody, response: Response, session: Session = Depends(get_session)):
     if _user_count(session) > 0:
         raise HTTPException(status_code=403, detail="Setup already completed")
-    if len(body.password) < 8:
+    if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
 
     user = User(username=body.username, hashed_password=hash_password(body.password), role="admin")
@@ -134,7 +135,7 @@ async def accept_invite(
     inv = session.exec(select(Invitation).where(Invitation.token == token)).first()
     if not inv or not inv.is_valid:
         raise HTTPException(status_code=404, detail="Invitation not found or expired")
-    if len(body.password) < 8:
+    if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
 
     existing = session.exec(select(User).where(User.username == body.username)).first()
