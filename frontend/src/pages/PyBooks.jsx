@@ -472,7 +472,7 @@ export default function PyBooks() {
       <div className="w-60 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 shrink-0">
           <span className="text-sm font-semibold text-gray-300">PyBooks</span>
-          <button onClick={() => { if(isAdmin){setShowNew(true); setSelected(null)} }} disabled={!isAdmin}
+          <button onClick={() => { setShowNew(true); setSelected(null) }} disabled={!isAdmin}
             className="text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed px-2 py-1 rounded">+ New</button>
         </div>
 

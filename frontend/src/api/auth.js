@@ -1,5 +1,5 @@
-async function req(method, path, body) {
-  const res = await fetch("/api/auth" + path, {
+async function apiFetch(method, path, body) {
+  const res = await fetch(path, {
     method,
     credentials: "include",
     headers: body ? { "Content-Type": "application/json" } : {},
@@ -13,6 +13,8 @@ async function req(method, path, body) {
   return res.json()
 }
 
+const req = (method, path, body) => apiFetch(method, "/api/auth" + path, body)
+
 export const authApi = {
   setupStatus: () => req("GET", "/setup"),
   setup: (username, password) => req("POST", "/setup", { username, password }),
@@ -22,19 +24,14 @@ export const authApi = {
 }
 
 export const usersApi = {
-  list: () => fetch("/api/users", { credentials: "include" }).then(r => r.ok ? r.json() : Promise.reject(r)),
-  create: (data) => fetch("/api/users", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json() }),
-  update: (id, data) => fetch(`/api/users/${id}`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json() }),
-  delete: (id) => fetch(`/api/users/${id}`, { method: "DELETE", credentials: "include" })
-    .then(r => { if (!r.ok) throw new Error(r.statusText) }),
+  list: () => apiFetch("GET", "/api/users"),
+  create: (data) => apiFetch("POST", "/api/users", data),
+  update: (id, data) => apiFetch("PATCH", `/api/users/${id}`, data),
+  delete: (id) => apiFetch("DELETE", `/api/users/${id}`),
+}
+
+export const invitationsApi = {
+  list: () => apiFetch("GET", "/api/invitations"),
+  create: (role) => apiFetch("POST", "/api/invitations", { role }),
+  revoke: (id) => apiFetch("DELETE", `/api/invitations/${id}`),
 }

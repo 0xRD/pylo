@@ -1,17 +1,6 @@
-import { useEffect, useState } from 'react'
-import { usersApi } from '../api/auth'
+import { useEffect, useMemo, useState } from 'react'
+import { invitationsApi, usersApi } from '../api/auth'
 import { useAuth } from '../context/AuthContext'
-
-const invitationsApi = {
-  list: () => fetch('/api/invitations', { credentials: 'include' }).then(r => r.json()),
-  create: (role) => fetch('/api/invitations', {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role }),
-  }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json() }),
-  revoke: (id) => fetch(`/api/invitations/${id}`, { method: 'DELETE', credentials: 'include' })
-    .then(r => { if (!r.ok) throw new Error(r.statusText) }),
-}
 
 function RoleBadge({ role }) {
   return (
@@ -247,8 +236,14 @@ export default function Users() {
     )
   }
 
-  const pendingInvites = invitations.filter(i => !i.used_at && new Date(i.expires_at) > Date.now())
-  const usedInvites = invitations.filter(i => i.used_at || new Date(i.expires_at) <= Date.now())
+  const pendingInvites = useMemo(
+    () => invitations.filter(i => !i.used_at && new Date(i.expires_at) > Date.now()),
+    [invitations]
+  )
+  const usedInvites = useMemo(
+    () => invitations.filter(i => i.used_at || new Date(i.expires_at) <= Date.now()),
+    [invitations]
+  )
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">

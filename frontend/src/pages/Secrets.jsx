@@ -43,7 +43,7 @@ export default function Secrets() {
             Encrypted at rest. Values are write-only — they cannot be read back through the API.
           </p>
         </div>
-        <button onClick={() => isAdmin && setShowForm(s => !s)} disabled={!isAdmin}
+        <button onClick={() => setShowForm(s => !s)} disabled={!isAdmin}
           className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
           {showForm ? 'Cancel' : '+ New Secret'}
         </button>

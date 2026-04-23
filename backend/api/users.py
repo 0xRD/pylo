@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from backend.core.auth import AuthUser, hash_password, require_admin, verify_token
+from backend.core.auth import AuthUser, MIN_PASSWORD_LEN, VALID_ROLES, hash_password, require_admin, verify_token
 from backend.database import get_session
 from backend.users.models import User
 
@@ -37,9 +37,9 @@ async def create_user(
     session: Session = Depends(get_session),
     _: AuthUser = Depends(require_admin),
 ):
-    if body.role not in ("admin", "viewer"):
+    if body.role not in VALID_ROLES:
         raise HTTPException(status_code=422, detail="Role must be 'admin' or 'viewer'")
-    if len(body.password) < 8:
+    if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
     existing = session.exec(select(User).where(User.username == body.username)).first()
     if existing:
@@ -69,11 +69,11 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if body.role is not None:
-        if body.role not in ("admin", "viewer"):
+        if body.role not in VALID_ROLES:
             raise HTTPException(status_code=422, detail="Role must be 'admin' or 'viewer'")
         user.role = body.role
     if body.password is not None:
-        if len(body.password) < 8:
+        if len(body.password) < MIN_PASSWORD_LEN:
             raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
         user.hashed_password = hash_password(body.password)
     if body.is_active is not None:
