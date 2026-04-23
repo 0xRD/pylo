@@ -15,7 +15,7 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 2. Cross-blueprint field query language ✅ DONE
+## 2. Cross-blueprint field query language
 
 - Field-level query syntax: `os contains "Windows"`, `category = "Execute"`, combinable with `AND`/`OR`.
 - Server-side filtering via SQLite `json_extract` on `data` column.
@@ -25,7 +25,7 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 3. PyBook filtering + tags ✅ DONE
+## 3. PyBook filtering + tags ✅ NEXT
 
 - Search/filter by name in the PyBooks list.
 - Filter by type (sub-pybook vs top-level).
@@ -50,7 +50,43 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 5. Scoped API Keys
+## 5. Activity log
+
+Global audit trail of everything that happens in Pylo, visible to all authenticated users.
+
+**Data model — `ActivityEvent` table:**
+```
+id, event_type, actor, resource_type, resource_id, resource_name, detail (JSON), created_at
+```
+- `event_type`: enum — `auth.login`, `auth.logout`, `auth.login_failed`, `user.created`, `user.updated`, `user.deleted`, `blueprint.created`, `blueprint.updated`, `blueprint.deleted`, `blueprint.fetch`, `entry.created`, `entry.deleted`, `entry.bulk_deleted`, `pybook.run`, `pybook.created`, `pybook.updated`, `pybook.deleted`, `secret.created`, `secret.deleted`, `invite.created`, `invite.used`, `invite.revoked`, `settings.updated`
+- `actor`: username (or `"api_token"` for SDK calls, `"scheduler"` for cron)
+- `resource_id` / `resource_name`: e.g. blueprint UUID + name, pybook id + name
+- `detail`: freeform JSON for extra context (run exit code, changed fields, fetch entry count, etc.)
+
+**Retention:**
+- Default: **7 days**. Configurable in Settings (alongside max concurrent runs / session duration).
+- A background cleanup task runs daily and deletes events older than the configured window.
+- `GET /api/settings` and `PUT /api/settings` extended with `activity_retention_days`.
+
+**API:**
+- `GET /api/activity` — paginated, newest first. Query params: `event_type`, `resource_id`, `actor`, `from`, `to`, `limit` (default 50), `offset`.
+- Events are written server-side by the backend — no client-initiated writes.
+
+**UI — `/activity` global page:**
+- Full-width event feed, paginated (load more).
+- Filter bar: event type chips (multi-select), free-text search on actor / resource name, date range picker.
+- Each row: relative timestamp, coloured event badge, actor, resource link (clickable → Blueprint/PyBook detail).
+- Visible to all authenticated users (admin and viewer).
+
+**Per-resource "last N events" panel:**
+- Blueprint detail → Settings tab: "Recent fetch history" — last 20 `blueprint.fetch` events for that blueprint (entry count, duration, trigger source).
+- PyBook detail → existing runs panel already covers run history; no duplication needed.
+
+**Why:** Observability for team use — know who changed what, debug unexpected runs, audit access.
+
+---
+
+## 6. Scoped API Keys
 
 - Per-key permissions: `blueprints:read`, `pybooks:trigger`, `runs:read`.
 - Keys stored hashed; raw value shown only at creation.
@@ -94,7 +130,7 @@ Implemented via `HelpTip` component.
 
 ## 9b. Blueprint trigger event type ✅ DONE
 
-`trigger_event` stored in each PyBook's `trigger_config` (`on_create` | `on_create_or_update`). `_fire_blueprint_triggers` checks this value per subscriber before enqueuing. Event selector exposed in the PyBook editor's blueprint trigger config panel (moved from BlueprintForm as part of #15).
+`trigger_event` column added (`on_create` | `on_create_or_update`). `_do_fetch` fires linked PyBook via `asyncio.create_task` after creating entries. BlueprintForm shows PyBook selector + event dropdown.
 
 ---
 
@@ -116,7 +152,7 @@ Pylo logo → home link. EntryDetail breadcrumb (Entries › Blueprint › id). 
 
 ---
 
-## 13. Multi-select for entries ✅ DONE
+## 13. Multi-select for entries
 
 - Hover-reveal checkboxes on entry cards; select-all in toolbar.
 - Bulk action bar: Delete selected (confirm), Trigger PyBook on selected.
@@ -125,7 +161,7 @@ Pylo logo → home link. EntryDetail breadcrumb (Entries › Blueprint › id). 
 
 ---
 
-## 14. Persistent PyBook execution queue ✅ DONE
+## 14. Persistent PyBook execution queue
 
 **Context:** `runner.py` has a `ThreadPoolExecutor(max_workers=PYLO_MAX_CONCURRENT_RUNS, default=5)`.
 That's the hard cap on simultaneous Docker container spawns. The asyncio layer queues unlimited
@@ -144,16 +180,19 @@ With 50–100 alerts per fetch each triggering a PyBook, this is a real data-los
 
 ---
 
-## 15. Multi-PyBook blueprint triggers ✅ DONE
+## 15. Multi-PyBook blueprint triggers (subscribe from PyBooks view)
 
-Trigger subscription ownership moved from Blueprint to PyBook. Each PyBook now declares `trigger_type = "blueprint"` with `trigger_config = {"blueprint_id": "...", "trigger_event": "on_create|on_create_or_update", "trigger_conditions": [...]}`.
+**Current model:** Blueprint has a single `trigger_pybook_id` — only one PyBook can subscribe per blueprint.
 
-- Migration `f1a2b3c4d5e6` converted existing `blueprint.trigger_pybook_id` records into PyBook `trigger_config` entries.
-- `_fire_blueprint_triggers` queries all active PyBooks subscribed to a blueprint; each has independent conditions and is capped at 50 enqueued runs per fetch.
-- `GET /api/blueprints/{id}/subscribers` returns all subscribed PyBooks.
-- PyBooks editor: "blueprint" trigger type with inline config panel (blueprint selector + event + conditions builder); "Edit trigger" bar in the editor.
-- BlueprintDetail Settings tab: **Subscribed PyBooks** read-only section.
-- `trigger_pybook_id` / `trigger_event` removed from BlueprintForm UI (DB columns kept for schema compatibility).
+**Better model:** PyBook owns its trigger subscription.
+- Add `blueprint` as a trigger type on PyBook (`trigger_type = "blueprint"`).
+- `trigger_config` for blueprint triggers: `{"blueprint_id": "...", "trigger_event": "on_create"}`.
+- `_do_fetch` queries all active PyBooks where `trigger_type = "blueprint"` and `trigger_config.blueprint_id` matches — fires all of them through the queue (see #14).
+- PyBooks view: add a "Blueprint trigger" option in the trigger type selector alongside Cron / Webhook.
+- Remove `trigger_pybook_id` / `trigger_event` from Blueprint model (migration to migrate existing config to PyBook trigger records).
+- Multiple PyBooks can subscribe to the same blueprint event independently.
+
+**Why:** The current model only allows one PyBook per blueprint. SOAR workflows need N PyBooks to react to the same new alert (e.g. enrich + notify + open ticket in parallel).
 
 ---
 
@@ -198,48 +237,3 @@ A GUI for chaining PyBooks into multi-step workflows where the output of one ste
 - `/workflows` list page: cards showing name, node count, last run status.
 
 **Why:** Real SOAR workflows are multi-step — enrich an alert, score it, decide whether to escalate, open a ticket, notify Slack. Hand-coded `call_sub_pybook()` chains work for simple cases but don't scale to conditional branching, parallel fan-out, or visual debugging. A graph editor makes the logic readable and modifiable without touching code.
-
----
-
-## 18. Bug: max_concurrent_runs change not reflected in Runs page ✅ DONE
-
-After saving a new `max_concurrent_runs` value in the Settings page, the concurrency bar and slot count on the Runs page continue showing the old value until the server restarts.
-
-**Root cause:** `queue_manager.get_stats()` calls `_get_max()` which reads `settings.PYLO_MAX_CONCURRENT_RUNS` from the environment config object — not from the `system_setting` DB table. So after `PUT /api/settings` calls `update_limit(new_limit)`, the semaphore is correctly resized but `get_stats()["max_concurrent"]` still returns the original env-var value.
-
-**Fix:** Add a module-level `_current_limit: int = 0` variable in `queue_manager.py`. Set it in `start()` (load from DB or fall back to env) and in `update_limit()`. Replace `_get_max()` with `_current_limit` in `get_stats()`.
-
-**Why:** The Runs page concurrency bar is misleading — it shows outdated slot counts after a settings change, making users think the change had no effect.
-
----
-
-## 19. Always-on sub-PyBooks — warm container pool
-
-Sub-PyBooks called frequently incur 1-3 second cold-start latency for each Docker container spin-up. An "always on" mode would keep a warm container running between calls for near-instant invocation.
-
-**Data model:**
-- Add `always_on: bool = False` flag on PyBook (and migration).
-- Add `warm_port: int = None` — the host port the warm container is currently listening on (set at runtime, not persisted).
-
-**Implementation:**
-- On server startup, `scheduler.py` (or a new `warm_pool.py` module) starts a persistent container for each `always_on=True` sub-PyBook. The container runs a lightweight HTTP server (FastAPI on port 8000) that accepts `POST /invoke` with `{"payload": {...}, "secrets": {...}}` and executes the PyBook script.
-- `call_sub_pybook(pybook_id, payload)` in `pylo_sdk.py` checks a module-level registry `_warm_containers: dict[int, str]` (pybook_id → base URL). If an entry exists, it POSTs to the warm container instead of spawning a new one.
-- Warm containers are restarted on crash (Docker `--restart=unless-stopped` or health-check loop in `warm_pool.py`).
-- Configurable `warm_idle_timeout` (default: never) — after N minutes with no invocations, the container is stopped and removed from the registry; it is re-warmed on next call.
-
-**UI:**
-- Toggle "Always on" in the PyBook editor toolbar (only visible when `is_sub_pybook=True`).
-- Status indicator next to the toggle: green dot "warm" / gray dot "cold" — polled from `GET /api/pybooks/:id/warm-status`.
-- Settings page: list of currently warm containers with uptime and last-invoked timestamp.
-
-**Why:** In real-time SOAR workflows, sub-PyBooks are called on every alert (potentially hundreds per minute). A 2s cold start per call adds up and introduces latency into incident response pipelines. Warm containers make the call overhead comparable to a local function call.
-
----
-
-## 20. PyBook trigger filtering — conditional entry triggers ✅ DONE
-
-Each PyBook subscribed to a Blueprint can define a list of field-value conditions that must all match before a run is enqueued. Conditions are stored inside the PyBook's `trigger_config.trigger_conditions` (moved from `blueprint.trigger_conditions` when #15 was implemented).
-
-- `check_trigger_conditions(parsed_fields, conditions)` in `backend/objects/filter.py`; operators `eq`, `ne`, `contains`, `starts_with`, `regex`, `gt`, `lt`; all ANDed.
-- Called in `_fire_blueprint_triggers` per subscriber before enqueuing; also called from `POST /{blueprint_id}/entries` for manual entry creation.
-- UI: `TriggerConditionBuilder` component in the PyBook editor's blueprint trigger config panel (field input + operator dropdown + value input + remove).
