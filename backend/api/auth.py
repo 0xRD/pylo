@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
+from backend.activity.logger import log_activity
 from backend.core.auth import (
     AuthUser,
     MIN_PASSWORD_LEN,
@@ -12,6 +13,7 @@ from backend.core.auth import (
     verify_password,
     verify_token,
     _get_jwt_expire_hours,
+    _decode_jwt,
 )
 from backend.database import get_session
 from backend.users.models import User
@@ -67,6 +69,10 @@ async def setup_first_admin(body: SetupBody, response: Response, session: Sessio
 
     user = User(username=body.username, hashed_password=hash_password(body.password), role="admin")
     session.add(user)
+    log_activity(session, "user.created", actor=body.username,
+                 resource_type="user", resource_name=body.username,
+                 detail={"role": "admin", "via": "setup"})
+    log_activity(session, "auth.login", actor=body.username)
     session.commit()
     session.refresh(user)
     _set_session_cookie(response, user, session)
@@ -77,16 +83,28 @@ async def setup_first_admin(body: SetupBody, response: Response, session: Sessio
 async def login(body: LoginBody, response: Response, session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.username == body.username)).first()
     if not user or not verify_password(body.password, user.hashed_password):
+        log_activity(session, "auth.login_failed", actor=body.username)
+        session.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
 
+    log_activity(session, "auth.login", actor=body.username)
+    session.commit()
     _set_session_cookie(response, user, session)
     return {"username": user.username, "role": user.role}
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response, session: Session = Depends(get_session)):
+    actor = "unknown"
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        payload = _decode_jwt(token)
+        if payload:
+            actor = payload.get("sub", "unknown")
+    log_activity(session, "auth.logout", actor=actor)
+    session.commit()
     response.delete_cookie(COOKIE_NAME)
     return {"ok": True}
 
@@ -113,6 +131,9 @@ async def change_password(
 
     user.hashed_password = hash_password(body.new_password)
     session.add(user)
+    log_activity(session, "user.updated", actor=current_user.username,
+                 resource_type="user", resource_name=current_user.username,
+                 detail={"changed": "password"})
     session.commit()
     return {"ok": True}
 
@@ -148,6 +169,13 @@ async def accept_invite(
     inv.used_at = datetime.now(timezone.utc)
     inv.used_by = body.username
     session.add(inv)
+
+    log_activity(session, "user.created", actor=inv.created_by,
+                 resource_type="user", resource_name=body.username,
+                 detail={"role": inv.role, "via": "invite"})
+    log_activity(session, "invite.used", actor=body.username,
+                 detail={"invited_by": inv.created_by, "role": inv.role})
+    log_activity(session, "auth.login", actor=body.username)
     session.commit()
     session.refresh(user)
 

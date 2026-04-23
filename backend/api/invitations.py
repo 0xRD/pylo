@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from backend.activity.logger import log_activity
 from backend.core.auth import AuthUser, VALID_ROLES, require_admin, verify_token
 from backend.database import get_session
 from backend.users.invitation import Invitation, generate_token
@@ -55,6 +56,8 @@ async def create_invitation(
         expires_at=datetime.now(timezone.utc) + timedelta(hours=INVITE_EXPIRE_HOURS),
     )
     session.add(inv)
+    log_activity(session, "invite.created", actor=current_user.username,
+                 detail={"role": body.role})
     session.commit()
     session.refresh(inv)
     return _serialize(inv)
@@ -64,10 +67,12 @@ async def create_invitation(
 async def revoke_invitation(
     invitation_id: int,
     session: Session = Depends(get_session),
-    _: AuthUser = Depends(require_admin),
+    current_user: AuthUser = Depends(require_admin),
 ):
     inv = session.get(Invitation, invitation_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Invitation not found")
     session.delete(inv)
+    log_activity(session, "invite.revoked", actor=current_user.username,
+                 detail={"role": inv.role, "intended_for": inv.used_by})
     session.commit()

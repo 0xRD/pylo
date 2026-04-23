@@ -115,8 +115,32 @@ def sync_cron_jobs():
         logger.info("Scheduled cron fetch Blueprint %s: %s", ot.name, ot.fetch_cron)
 
 
+async def _cleanup_activity_log():
+    from backend.api.settings import get_setting
+    from backend.activity.models import ActivityEvent
+    from datetime import timedelta
+
+    with Session(engine) as session:
+        retention_raw = get_setting(session, "activity_retention_days")
+        days = int(retention_raw or 7)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        events = session.exec(
+            select(ActivityEvent).where(ActivityEvent.created_at < cutoff)
+        ).all()
+        for ev in events:
+            session.delete(ev)
+        session.commit()
+        if events:
+            logger.info("Activity log cleanup: deleted %d events older than %d days", len(events), days)
+
+
 def start_scheduler():
     sync_cron_jobs()
+    scheduler.add_job(
+        _cleanup_activity_log, "cron",
+        hour=3, minute=0, id="cleanup_activity_log",
+        replace_existing=True, misfire_grace_time=3600,
+    )
     scheduler.start()
     logger.info("APScheduler started")
 

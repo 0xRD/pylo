@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, cast, or_, String as SAString
 from sqlmodel import Session, select
 
-from backend.core.auth import verify_token
+from backend.activity.logger import log_activity
+from backend.core.auth import AuthUser, verify_token
 from backend.database import get_session
 from backend.objects.indexer import index_entry, remove_from_index, search_fts
 from backend.objects.models import Entry, Blueprint
@@ -66,6 +67,7 @@ async def list_blueprints(session: Session = Depends(get_session)):
 async def create_blueprint(
     body: BlueprintCreate,
     session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
 ):
     bp = Blueprint(
         id=str(uuid.uuid4()),
@@ -73,6 +75,8 @@ async def create_blueprint(
         created_at=datetime.now(timezone.utc),
     )
     session.add(bp)
+    log_activity(session, "blueprint.created", actor=current_user.username,
+                 resource_type="blueprint", resource_id=bp.id, resource_name=bp.name)
     session.commit()
     session.refresh(bp)
     return bp
@@ -236,12 +240,19 @@ async def get_entry(entry_id: str, session: Session = Depends(get_session)):
 
 
 @router.delete("/entries/{entry_id}", status_code=204)
-async def delete_entry(entry_id: str, session: Session = Depends(get_session)):
+async def delete_entry(
+    entry_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     entry = session.get(Entry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     remove_from_index(session, entry_id)
     session.delete(entry)
+    log_activity(session, "entry.deleted", actor=current_user.username,
+                 resource_type="entry", resource_id=entry_id,
+                 detail={"blueprint_id": entry.blueprint_id})
     session.commit()
 
 
@@ -258,16 +269,20 @@ async def update_blueprint(
     blueprint_id: str,
     body: BlueprintUpdate,
     session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
 ):
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
-    for field, value in body.model_dump(exclude_none=True).items():
+    updated = body.model_dump(exclude_none=True)
+    for field, value in updated.items():
         setattr(bp, field, value)
     session.add(bp)
+    log_activity(session, "blueprint.updated", actor=current_user.username,
+                 resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
+                 detail={"changed_fields": list(updated.keys())})
     session.commit()
     session.refresh(bp)
-    updated = body.model_dump(exclude_none=True)
     if "fetch_cron" in updated or "fetch_is_active" in updated:
         from backend.core.scheduler import sync_cron_jobs
         sync_cron_jobs()
@@ -275,10 +290,15 @@ async def update_blueprint(
 
 
 @router.delete("/{blueprint_id}", status_code=204)
-async def delete_blueprint(blueprint_id: str, session: Session = Depends(get_session)):
+async def delete_blueprint(
+    blueprint_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
+    bp_name = bp.name
     entries = session.exec(
         select(Entry).where(Entry.blueprint_id == blueprint_id)
     ).all()
@@ -286,12 +306,15 @@ async def delete_blueprint(blueprint_id: str, session: Session = Depends(get_ses
         remove_from_index(session, entry.id)
         session.delete(entry)
     session.delete(bp)
+    log_activity(session, "blueprint.deleted", actor=current_user.username,
+                 resource_type="blueprint", resource_id=blueprint_id, resource_name=bp_name,
+                 detail={"entries_deleted": len(entries)})
     session.commit()
 
 
 # ── Auto-fetch helper (also used by cron scheduler) ──────────────────────────
 
-async def _do_fetch(blueprint_id: str, session: Session) -> dict:
+async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler") -> dict:
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise ValueError(f"Blueprint {blueprint_id} not found")
@@ -363,6 +386,9 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
         index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
         created_count += 1
 
+    log_activity(session, "blueprint.fetch", actor=actor,
+                 resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
+                 detail={"created": created_count, "skipped": skipped_count, "total": len(items)})
     session.commit()
 
     # Trigger linked PyBook if configured and event matches
@@ -395,14 +421,18 @@ async def _do_fetch(blueprint_id: str, session: Session) -> dict:
 
 
 @router.post("/{blueprint_id}/fetch")
-async def fetch_blueprint(blueprint_id: str, session: Session = Depends(get_session)):
+async def fetch_blueprint(
+    blueprint_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
     if not bp.source_url:
         raise HTTPException(status_code=400, detail="Blueprint has no source_url configured")
     try:
-        return await _do_fetch(blueprint_id, session)
+        return await _do_fetch(blueprint_id, session, actor=current_user.username)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -423,7 +453,12 @@ class CreateEntryBody(BaseModel):
 
 
 @router.post("/{blueprint_id}/entries", status_code=201)
-async def create_manual_entry(blueprint_id: str, body: CreateEntryBody, session: Session = Depends(get_session)):
+async def create_manual_entry(
+    blueprint_id: str,
+    body: CreateEntryBody,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
@@ -449,6 +484,9 @@ async def create_manual_entry(blueprint_id: str, body: CreateEntryBody, session:
     session.add(entry)
     session.flush()
     index_entry(session, entry.id, blueprint_id, extract_text_content(body.fields))
+    log_activity(session, "entry.created", actor=current_user.username,
+                 resource_type="entry", resource_id=entry.id,
+                 detail={"blueprint_id": blueprint_id, "via": "manual"})
     session.commit()
     session.refresh(entry)
     return entry
