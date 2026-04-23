@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.database import init_db
+from backend.api.activity import router as activity_router
 from backend.api.auth import router as auth_router
 from backend.api.invitations import router as invitations_router
 from backend.api.blueprints import router as blueprints_router
@@ -97,6 +98,7 @@ async def enforce_viewer_readonly(request: Request, call_next):
     return await call_next(request)
 
 
+app.include_router(activity_router)
 app.include_router(auth_router)
 app.include_router(invitations_router)
 app.include_router(blueprints_router)

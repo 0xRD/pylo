@@ -8,6 +8,7 @@ const links = [
   { to: '/pybooks', label: 'PyBooks', icon: '📖' },
   { to: '/runs', label: 'Runs', icon: '▶' },
   { to: '/secrets', label: 'Secrets', icon: '🔑' },
+  { to: '/activity', label: 'Activity', icon: '◎' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 

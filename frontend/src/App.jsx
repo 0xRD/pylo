@@ -14,6 +14,7 @@ import Settings from './pages/Settings'
 import Users from './pages/Users'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
+import Activity from './pages/Activity'
 import InviteAccept from './pages/InviteAccept'
 
 function SetupGuard({ children }) {
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="/runs" element={<Runs />} />
               <Route path="/secrets" element={<Secrets />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/activity" element={<Activity />} />
               <Route path="/users" element={<Users />} />
             </Route>
           </Routes>

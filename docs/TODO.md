@@ -50,7 +50,7 @@ Items are ordered by priority. Do not implement until explicitly requested.
 
 ---
 
-## 5. Activity log
+## 5. Activity log ✅ DONE
 
 Global audit trail of everything that happens in Pylo, visible to all authenticated users.
 

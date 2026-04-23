@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from backend.core.auth import verify_token
+from backend.activity.logger import log_activity
+from backend.core.auth import AuthUser, verify_token
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -41,7 +42,11 @@ async def list_secrets(session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=SecretResponse, status_code=201)
-async def create_secret(body: SecretCreate, session: Session = Depends(get_session)):
+async def create_secret(
+    body: SecretCreate,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     existing = session.exec(select(Secret).where(Secret.name == body.name)).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Secret '{body.name}' already exists")
@@ -55,6 +60,8 @@ async def create_secret(body: SecretCreate, session: Session = Depends(get_sessi
         updated_at=now,
     )
     session.add(secret)
+    log_activity(session, "secret.created", actor=current_user.username,
+                 resource_type="secret", resource_id=secret.id, resource_name=body.name)
     session.commit()
     session.refresh(secret)
     return secret
@@ -81,9 +88,16 @@ async def update_secret(
 
 
 @router.delete("/{secret_id}", status_code=204)
-async def delete_secret(secret_id: str, session: Session = Depends(get_session)):
+async def delete_secret(
+    secret_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     secret = session.get(Secret, secret_id)
     if not secret:
         raise HTTPException(status_code=404, detail="Secret not found")
+    secret_name = secret.name
     session.delete(secret)
+    log_activity(session, "secret.deleted", actor=current_user.username,
+                 resource_type="secret", resource_id=secret_id, resource_name=secret_name)
     session.commit()

@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from backend.core.auth import verify_token
+from backend.activity.logger import log_activity
+from backend.core.auth import AuthUser, verify_token
 from backend.core import queue_manager
 from backend.database import get_session, engine
 from backend.pybooks.models import PyBook, PyBookRun
@@ -98,6 +99,10 @@ async def _execute_run(pybook_id: str, run_id: str):
         run.ended_at = ended
         run.duration_ms = int((ended - started).total_seconds() * 1000)
         session.add(run)
+        log_activity(session, "pybook.run", actor=run.trigger_source,
+                     resource_type="pybook", resource_id=run.pybook_id, resource_name=pb.name,
+                     detail={"run_id": run.id, "exit_code": run.exit_code,
+                             "status": run.status, "duration_ms": run.duration_ms})
         session.commit()
 
 
@@ -107,11 +112,17 @@ async def list_pybooks(session: Session = Depends(get_session)):
 
 
 @router.post("", status_code=201)
-async def create_pybook(body: PyBookCreate, session: Session = Depends(get_session)):
+async def create_pybook(
+    body: PyBookCreate,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     now = datetime.now(timezone.utc)
     pb = PyBook(id=str(uuid.uuid4()), **body.model_dump(), created_at=now, updated_at=now)
     write_script(pb.id, pb.script)
     session.add(pb)
+    log_activity(session, "pybook.created", actor=current_user.username,
+                 resource_type="pybook", resource_id=pb.id, resource_name=pb.name)
     session.commit()
     session.refresh(pb)
     return pb
@@ -127,17 +138,24 @@ async def get_pybook(pybook_id: str, session: Session = Depends(get_session)):
 
 @router.put("/{pybook_id}")
 async def update_pybook(
-    pybook_id: str, body: PyBookUpdate, session: Session = Depends(get_session)
+    pybook_id: str,
+    body: PyBookUpdate,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
 ):
     pb = session.get(PyBook, pybook_id)
     if not pb:
         raise HTTPException(status_code=404, detail="PyBook not found")
-    for field, value in body.model_dump(exclude_none=True).items():
+    updated = body.model_dump(exclude_none=True)
+    for field, value in updated.items():
         setattr(pb, field, value)
     pb.updated_at = datetime.now(timezone.utc)
     if body.script is not None:
         write_script(pb.id, body.script)
     session.add(pb)
+    log_activity(session, "pybook.updated", actor=current_user.username,
+                 resource_type="pybook", resource_id=pybook_id, resource_name=pb.name,
+                 detail={"changed_fields": list(updated.keys())})
     session.commit()
     session.refresh(pb)
     if body.trigger_type is not None or body.trigger_config is not None or body.is_active is not None:
@@ -147,14 +165,21 @@ async def update_pybook(
 
 
 @router.delete("/{pybook_id}", status_code=204)
-async def delete_pybook(pybook_id: str, session: Session = Depends(get_session)):
+async def delete_pybook(
+    pybook_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
     pb = session.get(PyBook, pybook_id)
     if not pb:
         raise HTTPException(status_code=404, detail="PyBook not found")
+    pb_name = pb.name
     runs = session.exec(select(PyBookRun).where(PyBookRun.pybook_id == pybook_id)).all()
     for run in runs:
         session.delete(run)
     session.delete(pb)
+    log_activity(session, "pybook.deleted", actor=current_user.username,
+                 resource_type="pybook", resource_id=pybook_id, resource_name=pb_name)
     session.commit()
 
 
@@ -163,6 +188,7 @@ async def run_pybook_endpoint(
     pybook_id: str,
     body: RunTrigger,
     session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
 ):
     pb = session.get(PyBook, pybook_id)
     if not pb:
@@ -170,12 +196,13 @@ async def run_pybook_endpoint(
     if not pb.is_active:
         raise HTTPException(status_code=400, detail="PyBook is inactive")
 
+    trigger_source = current_user.username if body.trigger_source == "manual" else body.trigger_source
     now = datetime.now(timezone.utc)
     run = PyBookRun(
         id=str(uuid.uuid4()),
         pybook_id=pybook_id,
         status="queued",
-        trigger_source=body.trigger_source,
+        trigger_source=trigger_source,
         trigger_payload=json.dumps(body.trigger_payload),
         started_at=now,
     )
