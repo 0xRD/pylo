@@ -256,3 +256,64 @@ A GUI for chaining PyBooks into multi-step workflows where the output of one ste
 - `/workflows` list page: cards showing name, node count, last run status.
 
 **Why:** Real SOAR workflows are multi-step — enrich an alert, score it, decide whether to escalate, open a ticket, notify Slack. Hand-coded `call_sub_pybook()` chains work for simple cases but don't scale to conditional branching, parallel fan-out, or visual debugging. A graph editor makes the logic readable and modifiable without touching code.
+
+---
+
+## 18. Configuration backup & restore
+
+Full snapshot of Pylo configuration (blueprints, pybooks, secrets, settings) exportable to a Git repository or a ZIP file, and re-importable for disaster recovery.
+
+**What is backed up (users excluded):**
+- `blueprints/` — one JSON file per blueprint (name, source config, field mappings, schedule, trigger config)
+- `pybooks/` — one JSON file per PyBook (script inline, trigger config, dependencies, tags)
+- `secrets/` — optional, opt-in (see below)
+- `settings.json` — system settings (max concurrent runs, JWT expiry, activity retention)
+- `manifest.json` — schema version, Pylo version, timestamp, list of included objects
+
+**File naming:** `{kebab-case-name}_{short-id}.json` to avoid collisions on rename.
+
+**Secrets handling:**
+- Excluded by default; opt-in via checkbox.
+- When included: values are re-encrypted with a **user-supplied backup passphrase** (independent of the app's `ENCRYPTION_KEY`). The passphrase is required again at import to decrypt.
+- Warning displayed at export: *"Secret values will be encrypted but this file remains sensitive — do not share it publicly."*
+- When excluded: only name and description are saved (so secrets can be recreated manually after restore).
+
+**Git integration (Settings page — "Backup" section):**
+- Fields: repository URL, branch, personal access token (GitHub / GitLab), optional subdirectory path.
+- **Auto-push**: after each create / update / delete of a blueprint, pybook, secret, or setting — debounced 5 s to batch rapid changes.
+- **"Push now"** manual button alongside a status indicator: `Last saved X ago` / `✗ Failed — see logs`.
+- Commits signed as the Pylo instance (configurable author name/email in Settings).
+- Git errors (bad token, repo not found, push conflict) surfaced as a dismissible banner in the UI.
+
+**Manual export (no Git required):**
+- "Download backup" button in Settings → downloads a ZIP with the same folder structure.
+- Checkbox to include secrets (shows warning, prompts for passphrase).
+
+**Import:**
+- Two sources: pull from the configured Git repo (latest commit on the configured branch) or upload a ZIP.
+- Blocking confirmation dialog before import starts:
+  - Warning: *"All existing blueprints, pybooks, secrets and settings will be permanently replaced. This action cannot be undone."*
+  - User must type **RESTORE** to confirm.
+- Import sequence:
+  1. Validate manifest (schema version compatibility check).
+  2. If secrets are present: prompt for backup passphrase and verify before proceeding.
+  3. Delete all existing blueprints (cascade to entries), pybooks (cascade to runs), secrets, settings.
+  4. Re-create all objects from backup files.
+  5. For each PyBook that has pip dependencies: trigger an async Docker image rebuild (`ensure_image`). Progress shown in a live log panel.
+  6. Emit a `settings.updated` activity event with `detail.action = "restore"`.
+- Import result summary: N blueprints, N pybooks, N secrets restored; N image builds triggered.
+
+**API:**
+- `GET /api/backup/export` — streams a ZIP (query param `include_secrets=true/false`, `passphrase` if secrets included). Admin only.
+- `POST /api/backup/import` — multipart upload of a ZIP. Admin only.
+- `POST /api/backup/git/push` — manual push trigger. Admin only.
+- `PUT /api/backup/git/config` — save Git connection settings. Admin only.
+- `GET /api/backup/git/status` — last push timestamp, last error. Admin only.
+
+**UI — Settings page, new "Backup" tab:**
+- Git config form (URL, branch, token, author).
+- Auto-push toggle + "Push now" button + status line.
+- Export section: "Download backup" button + secrets checkbox.
+- Import section: file upload or "Pull from Git" button + RESTORE confirmation dialog + live rebuild log.
+
+**Why:** A single VM failure or misconfiguration wipe can destroy weeks of blueprint and PyBook work. Connecting to an existing Git repo gives point-in-time recovery, diff history, and a familiar workflow for exporting configuration to other Pylo instances.
