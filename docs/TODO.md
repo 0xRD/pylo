@@ -56,9 +56,18 @@ Global audit trail of everything that happens in Pylo, visible to all authentica
 
 **Data model — `ActivityEvent` table:**
 ```
-id, event_type, actor, resource_type, resource_id, resource_name, detail (JSON), created_at
+id, event_type, category, actor, resource_type, resource_id, resource_name, detail (JSON), created_at
 ```
-- `event_type`: enum — `auth.login`, `auth.logout`, `auth.login_failed`, `user.created`, `user.updated`, `user.deleted`, `blueprint.created`, `blueprint.updated`, `blueprint.deleted`, `blueprint.fetch`, `entry.created`, `entry.deleted`, `entry.bulk_deleted`, `pybook.run`, `pybook.created`, `pybook.updated`, `pybook.deleted`, `secret.created`, `secret.deleted`, `invite.created`, `invite.used`, `invite.revoked`, `settings.updated`
+- `event_type` — stable string ID for the event, used as the primary filter key. Same type always produces the same ID regardless of which resource triggered it. Grouped into categories:
+  - `auth` — `auth.login`, `auth.logout`, `auth.login_failed`
+  - `user` — `user.created`, `user.updated`, `user.deleted`
+  - `blueprint` — `blueprint.created`, `blueprint.updated`, `blueprint.deleted`, `blueprint.fetch`
+  - `entry` — `entry.created`, `entry.deleted`, `entry.bulk_deleted`
+  - `pybook` — `pybook.run`, `pybook.created`, `pybook.updated`, `pybook.deleted`
+  - `secret` — `secret.created`, `secret.deleted`
+  - `invite` — `invite.created`, `invite.used`, `invite.revoked`
+  - `settings` — `settings.updated`
+- `category`: top-level group (`auth`, `blueprint`, `pybook`, etc.) — derived from `event_type`, stored for fast filtering
 - `actor`: username (or `"api_token"` for SDK calls, `"scheduler"` for cron)
 - `resource_id` / `resource_name`: e.g. blueprint UUID + name, pybook id + name
 - `detail`: freeform JSON for extra context (run exit code, changed fields, fetch entry count, etc.)
@@ -69,20 +78,30 @@ id, event_type, actor, resource_type, resource_id, resource_name, detail (JSON),
 - `GET /api/settings` and `PUT /api/settings` extended with `activity_retention_days`.
 
 **API:**
-- `GET /api/activity` — paginated, newest first. Query params: `event_type`, `resource_id`, `actor`, `from`, `to`, `limit` (default 50), `offset`.
+- `GET /api/activity` — paginated, newest first. Query params: `event_type`, `category`, `resource_id`, `actor`, `from`, `to`, `limit` (default 50), `offset`.
 - Events are written server-side by the backend — no client-initiated writes.
 
 **UI — `/activity` global page:**
 - Full-width event feed, paginated (load more).
-- Filter bar: event type chips (multi-select), free-text search on actor / resource name, date range picker.
-- Each row: relative timestamp, coloured event badge, actor, resource link (clickable → Blueprint/PyBook detail).
+- **Filter bar:**
+  - Category chips (multi-select): Auth / Blueprint / PyBook / Entry / User / Secret — one click to scope by domain
+  - Event type dropdown (scoped to selected categories): e.g. "Fetch", "Run", "Login failed"
+  - Actor input: filter by username
+  - Date range presets: Last hour / Last 24 h / Last 7 days / Custom range
+  - Resource ID field: paste any resource ID to show all events for that specific object
+- **Preconfigured filter presets** (one-click shortcuts in a top bar):
+  - "Failed runs" → `event_type=pybook.run` + `detail.exit_code != 0`
+  - "Auth events" → `category=auth`
+  - "Config changes" → `category=blueprint OR category=settings OR category=secret`
+  - "Today" → `from=today 00:00`
+- Each row: relative timestamp, coloured category badge, `event_type` label, actor, resource link (clickable → Blueprint/PyBook detail), expandable detail JSON.
 - Visible to all authenticated users (admin and viewer).
 
 **Per-resource "last N events" panel:**
 - Blueprint detail → Settings tab: "Recent fetch history" — last 20 `blueprint.fetch` events for that blueprint (entry count, duration, trigger source).
 - PyBook detail → existing runs panel already covers run history; no duplication needed.
 
-**Why:** Observability for team use — know who changed what, debug unexpected runs, audit access.
+**Why:** Observability for team use — know who changed what, debug unexpected runs, audit access. Stable `event_type` IDs allow external tools (dashboards, alerts) to reliably filter events by type.
 
 ---
 
