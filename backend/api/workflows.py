@@ -34,6 +34,7 @@ class WorkflowUpdate(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
     trigger_type: Optional[str] = None
+    trigger_config: Optional[str] = None
     nodes: Optional[str] = None
     edges: Optional[str] = None
 

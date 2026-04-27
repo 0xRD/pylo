@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import ScheduleBuilder from '../components/ScheduleBuilder'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const NODE_W = 204
@@ -488,7 +489,7 @@ function Divider() {
   return <div style={{ height: 1, background: '#1f2937', margin: '12px 0' }} />
 }
 
-function PropertiesPanel({ selectedItem, workflow, onUpdateEdge, onUpdateNode, onUpdateWorkflow, onDeleteNode, onDeleteEdge }) {
+function PropertiesPanel({ selectedItem, workflow, blueprints, onUpdateEdge, onUpdateNode, onUpdateWorkflow, onDeleteNode, onDeleteEdge }) {
   const panelStyle = {
     width: 268, flexShrink: 0, background: '#0d0d14', borderLeft: '1px solid #1f2937',
     overflowY: 'auto', padding: '16px 14px',
@@ -518,25 +519,63 @@ function PropertiesPanel({ selectedItem, workflow, onUpdateEdge, onUpdateNode, o
         />
         <Divider />
         <PanelLabel>Trigger</PanelLabel>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {['manual', 'cron', 'webhook'].map(t => (
-            <label key={t} style={{
-              display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-              padding: '6px 8px', borderRadius: 6,
-              border: `1px solid ${workflow.trigger_type === t ? '#6366f1' : '#1f2937'}`,
-              background: workflow.trigger_type === t ? 'rgba(99,102,241,0.06)' : 'transparent',
-              transition: 'all 0.12s',
-            }}>
-              <input type="radio" checked={workflow.trigger_type === t} onChange={() => onUpdateWorkflow({ trigger_type: t })} style={{ accentColor: '#6366f1' }} />
-              <div>
-                <div style={{ color: workflow.trigger_type === t ? '#818cf8' : '#9ca3af', fontSize: 12, fontWeight: 500, textTransform: 'capitalize' }}>{t}</div>
-                <div style={{ color: '#374151', fontSize: 10 }}>
-                  {t === 'cron' ? '0 8 * * *' : t === 'webhook' ? 'POST /hooks/…' : 'On demand'}
-                </div>
+        {(() => {
+          const tc = (() => { try { return JSON.parse(workflow.trigger_config || '{}') } catch { return {} } })()
+          const setTc = (k, v) => onUpdateWorkflow({ trigger_config: JSON.stringify({ ...tc, [k]: v }) })
+          const TRIGGER_LABELS = { manual: 'On demand', cron: 'Cron schedule', webhook: 'Webhook', blueprint: 'Blueprint event' }
+          return (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {['manual', 'cron', 'webhook', 'blueprint'].map(t => (
+                  <label key={t} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                    padding: '6px 8px', borderRadius: 6,
+                    border: `1px solid ${workflow.trigger_type === t ? '#6366f1' : '#1f2937'}`,
+                    background: workflow.trigger_type === t ? 'rgba(99,102,241,0.06)' : 'transparent',
+                    transition: 'all 0.12s',
+                  }}>
+                    <input type="radio" checked={workflow.trigger_type === t}
+                      onChange={() => onUpdateWorkflow({ trigger_type: t, trigger_config: '{}' })}
+                      style={{ accentColor: '#6366f1' }} />
+                    <div style={{ color: workflow.trigger_type === t ? '#818cf8' : '#9ca3af', fontSize: 12, fontWeight: 500 }}>
+                      {TRIGGER_LABELS[t]}
+                    </div>
+                  </label>
+                ))}
               </div>
-            </label>
-          ))}
-        </div>
+
+              {workflow.trigger_type === 'cron' && (
+                <div style={{ marginTop: 10 }}>
+                  <ScheduleBuilder
+                    value={tc.cron || '0 8 * * *'}
+                    onChange={cron => setTc('cron', cron)}
+                  />
+                </div>
+              )}
+
+              {workflow.trigger_type === 'blueprint' && (
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <div style={{ color: '#6b7280', fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 4 }}>Blueprint</div>
+                    <select value={tc.blueprint_id || ''} onChange={e => setTc('blueprint_id', e.target.value)}
+                      style={{ width: '100%', background: '#0f1117', border: '1px solid #1f2937', borderRadius: 6, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}>
+                      <option value="">— select blueprint —</option>
+                      {(blueprints || []).map(bp => <option key={bp.id} value={bp.id}>{bp.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ color: '#6b7280', fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 4 }}>Event</div>
+                    <select value={tc.trigger_event || 'on_create'} onChange={e => setTc('trigger_event', e.target.value)}
+                      style={{ width: '100%', background: '#0f1117', border: '1px solid #1f2937', borderRadius: 6, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}>
+                      <option value="on_create">On new entry</option>
+                      <option value="on_create_or_update">On new or updated entry</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        })()}
         <Divider />
         <PanelLabel>Status</PanelLabel>
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
@@ -688,6 +727,7 @@ export default function WorkflowEditor() {
 
   const [workflow, setWorkflow] = useState(null)
   const [pybooks, setPybooks] = useState([])
+  const [blueprints, setBlueprints] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
   const [activeTab, setActiveTab] = useState('canvas')
@@ -703,13 +743,15 @@ export default function WorkflowEditor() {
     Promise.all([
       fetch(`/api/workflows/${id}`, { credentials: 'include' }).then(r => r.json()),
       fetch('/api/pybooks', { credentials: 'include' }).then(r => r.json()),
-    ]).then(([wf, pbs]) => {
+      fetch('/api/blueprints', { credentials: 'include' }).then(r => r.json()),
+    ]).then(([wf, pbs, bpData]) => {
       setWorkflow({
         ...wf,
         nodes: JSON.parse(wf.nodes || '[]'),
         edges: JSON.parse(wf.edges || '[]'),
       })
       setPybooks(Array.isArray(pbs) ? pbs : [])
+      setBlueprints(Array.isArray(bpData) ? bpData : [])
       setLoading(false)
     }).catch(err => {
       console.error('Failed to load workflow', err)
@@ -975,6 +1017,7 @@ export default function WorkflowEditor() {
           <PropertiesPanel
             selectedItem={syncedSelected}
             workflow={workflow}
+            blueprints={blueprints}
             onUpdateEdge={updateEdge}
             onUpdateNode={updateNode}
             onUpdateWorkflow={updateWorkflow}

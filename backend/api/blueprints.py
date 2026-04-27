@@ -19,6 +19,8 @@ from backend.objects.models import Entry, Blueprint
 from backend.objects.parser import extract_text_content, parse_instance
 
 logger = logging.getLogger(__name__)
+_MAX_TRIGGERS_PER_FETCH = 50
+_MAX_TRIGGERS_PER_FETCH = 50
 router = APIRouter(prefix="/api/blueprints", tags=["blueprints"], dependencies=[Depends(verify_token)])
 
 
@@ -314,6 +316,186 @@ async def delete_blueprint(
 
 # ── Auto-fetch helper (also used by cron scheduler) ──────────────────────────
 
+
+
+def _fire_blueprint_triggers(bp, created_entries: list) -> None:
+    """Enqueue runs for PyBook and Workflow subscribers of this blueprint."""
+    from backend.objects.filter import check_trigger_conditions
+    from backend.core import queue_manager
+    from backend.pybooks.models import PyBook, PyBookRun
+    from backend.workflows.models import Workflow, WorkflowRun
+    from backend.database import engine as _engine
+
+    if not created_entries:
+        return
+
+    try:
+        with Session(_engine) as _ts:
+            # PyBook subscribers
+            subscribers = [
+                pb for pb in _ts.exec(
+                    select(PyBook).where(PyBook.trigger_type == "blueprint", PyBook.is_active == True)
+                ).all()
+                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == bp.id
+            ]
+            for sub in subscribers:
+                cfg = json.loads(sub.trigger_config or "{}")
+                conditions = cfg.get("trigger_conditions", [])
+                matching = [e for e in created_entries if check_trigger_conditions(e["parsed"], conditions)]
+                if not matching:
+                    continue
+                matching = matching[:_MAX_TRIGGERS_PER_FETCH]
+                runs = []
+                for entry_info in matching:
+                    run = PyBookRun(
+                        id=str(uuid.uuid4()),
+                        pybook_id=sub.id,
+                        status="queued",
+                        trigger_source="blueprint",
+                        trigger_payload=json.dumps({
+                            "blueprint_id": bp.id,
+                            "entry_id": entry_info["entry_id"],
+                            "entry_data": entry_info["parsed"],
+                        }),
+                        started_at=datetime.now(timezone.utc),
+                    )
+                    _ts.add(run)
+                    runs.append(run)
+                _ts.commit()
+                for run in runs:
+                    queue_manager.enqueue(sub.id, run.id)
+
+            # Workflow subscribers
+            wf_subscribers = [
+                wf for wf in _ts.exec(
+                    select(Workflow).where(Workflow.trigger_type == "blueprint", Workflow.is_active == True)
+                ).all()
+                if json.loads(wf.trigger_config or "{}").get("blueprint_id") == bp.id
+            ]
+            for wf in wf_subscribers:
+                cfg = json.loads(wf.trigger_config or "{}")
+                trigger_event = cfg.get("trigger_event", "on_create")
+                if trigger_event not in ("on_create", "on_create_or_update"):
+                    continue
+                wf_run = WorkflowRun(
+                    id=str(uuid.uuid4()),
+                    workflow_id=wf.id,
+                    status="pending",
+                    trigger_source="blueprint",
+                    started_at=datetime.now(timezone.utc),
+                )
+                _ts.add(wf_run)
+                _ts.commit()
+                wf_run_id = wf_run.id
+                import asyncio as _asyncio
+                try:
+                    loop = _asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(_execute_workflow_bg(wf_run_id))
+                except RuntimeError:
+                    pass
+
+    except Exception as exc:
+        logger.warning("Failed to fire blueprint triggers: %s", exc)
+
+
+async def _execute_workflow_bg(workflow_run_id: str) -> None:
+    from backend.workflows.executor import execute_workflow
+    try:
+        await execute_workflow(workflow_run_id)
+    except Exception as exc:
+        logger.exception("Workflow run %s crashed: %s", workflow_run_id, exc)
+
+
+
+def _fire_blueprint_triggers(bp, created_entries: list) -> None:
+    """Enqueue runs for PyBook and Workflow subscribers of this blueprint."""
+    from backend.objects.filter import check_trigger_conditions
+    from backend.core import queue_manager
+    from backend.pybooks.models import PyBook, PyBookRun
+    from backend.workflows.models import Workflow, WorkflowRun
+    from backend.database import engine as _engine
+
+    if not created_entries:
+        return
+
+    try:
+        with Session(_engine) as _ts:
+            # PyBook subscribers
+            subscribers = [
+                pb for pb in _ts.exec(
+                    select(PyBook).where(PyBook.trigger_type == "blueprint", PyBook.is_active == True)
+                ).all()
+                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == bp.id
+            ]
+            for sub in subscribers:
+                cfg = json.loads(sub.trigger_config or "{}")
+                conditions = cfg.get("trigger_conditions", [])
+                matching = [e for e in created_entries if check_trigger_conditions(e["parsed"], conditions)]
+                if not matching:
+                    continue
+                matching = matching[:_MAX_TRIGGERS_PER_FETCH]
+                runs = []
+                for entry_info in matching:
+                    run = PyBookRun(
+                        id=str(uuid.uuid4()),
+                        pybook_id=sub.id,
+                        status="queued",
+                        trigger_source="blueprint",
+                        trigger_payload=json.dumps({
+                            "blueprint_id": bp.id,
+                            "entry_id": entry_info["entry_id"],
+                            "entry_data": entry_info["parsed"],
+                        }),
+                        started_at=datetime.now(timezone.utc),
+                    )
+                    _ts.add(run)
+                    runs.append(run)
+                _ts.commit()
+                for run in runs:
+                    queue_manager.enqueue(sub.id, run.id)
+
+            # Workflow subscribers
+            wf_subscribers = [
+                wf for wf in _ts.exec(
+                    select(Workflow).where(Workflow.trigger_type == "blueprint", Workflow.is_active == True)
+                ).all()
+                if json.loads(wf.trigger_config or "{}").get("blueprint_id") == bp.id
+            ]
+            for wf in wf_subscribers:
+                cfg = json.loads(wf.trigger_config or "{}")
+                trigger_event = cfg.get("trigger_event", "on_create")
+                if trigger_event not in ("on_create", "on_create_or_update"):
+                    continue
+                wf_run = WorkflowRun(
+                    id=str(uuid.uuid4()),
+                    workflow_id=wf.id,
+                    status="pending",
+                    trigger_source="blueprint",
+                    started_at=datetime.now(timezone.utc),
+                )
+                _ts.add(wf_run)
+                _ts.commit()
+                wf_run_id = wf_run.id
+                import asyncio as _asyncio
+                try:
+                    loop = _asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(_execute_workflow_bg(wf_run_id))
+                except RuntimeError:
+                    pass
+
+    except Exception as exc:
+        logger.warning("Failed to fire blueprint triggers: %s", exc)
+
+
+async def _execute_workflow_bg(workflow_run_id: str) -> None:
+    from backend.workflows.executor import execute_workflow
+    try:
+        await execute_workflow(workflow_run_id)
+    except Exception as exc:
+        logger.exception("Workflow run %s crashed: %s", workflow_run_id, exc)
+
 async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler") -> dict:
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
@@ -355,6 +537,7 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
     )
     created_count = 0
     skipped_count = 0
+    created_entries: list[dict] = []
 
     for item in items:
         parsed = parse_instance(item, field_mappings)
@@ -385,37 +568,15 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
         session.flush()
         index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
         created_count += 1
+        created_entries.append({"entry_id": entry.id, "parsed": parsed})
 
     log_activity(session, "blueprint.fetch", actor=actor,
                  resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
                  detail={"created": created_count, "skipped": skipped_count, "total": len(items)})
     session.commit()
 
-    # Trigger linked PyBook if configured and event matches
-    if bp.trigger_pybook_id and created_count > 0:
-        trigger_event = getattr(bp, 'trigger_event', 'on_create')
-        if trigger_event in ('on_create', 'on_create_or_update'):
-            from backend.core import queue_manager
-            from backend.pybooks.models import PyBook, PyBookRun
-            from backend.database import engine as _engine
-            try:
-                with Session(_engine) as _ts:
-                    _pb = _ts.get(PyBook, bp.trigger_pybook_id)
-                    if _pb and _pb.is_active:
-                        _now = datetime.now(timezone.utc)
-                        _run = PyBookRun(
-                            id=str(uuid.uuid4()),
-                            pybook_id=bp.trigger_pybook_id,
-                            status="queued",
-                            trigger_source=blueprint,
-                            trigger_payload=json.dumps({"blueprint_id": blueprint_id, "created": created_count}),
-                            started_at=_now,
-                        )
-                        _ts.add(_run)
-                        _ts.commit()
-                        queue_manager.enqueue(bp.trigger_pybook_id, _run.id)
-            except Exception as _exc:
-                logger.warning("Failed to trigger PyBook after fetch: %s", _exc)
+    if created_entries:
+        _fire_blueprint_triggers(bp, created_entries)
 
     return {"created": created_count, "skipped": skipped_count, "total": len(items)}
 
@@ -489,6 +650,7 @@ async def create_manual_entry(
                  detail={"blueprint_id": blueprint_id, "via": "manual"})
     session.commit()
     session.refresh(entry)
+    _fire_blueprint_triggers(bp, [{"entry_id": entry.id, "parsed": body.fields}])
     return entry
 
 

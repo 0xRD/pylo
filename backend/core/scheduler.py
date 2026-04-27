@@ -58,6 +58,68 @@ async def _fetch_cron_blueprint(type_id: str):
         logger.error("Cron fetch failed for Blueprint %s: %s", type_id, exc)
 
 
+
+
+async def _run_cron_workflow(workflow_id: str):
+    import uuid as _uuid
+    from datetime import datetime, timezone as _tz
+    from backend.workflows.models import Workflow, WorkflowRun
+    from backend.database import engine as _engine
+    from sqlmodel import Session as _Session
+
+    with _Session(_engine) as session:
+        wf = session.get(Workflow, workflow_id)
+        if not wf or not wf.is_active:
+            return
+        now = datetime.now(_tz.utc)
+        wf_run = WorkflowRun(
+            id=str(_uuid.uuid4()),
+            workflow_id=workflow_id,
+            status="pending",
+            trigger_source="cron",
+            started_at=now,
+        )
+        session.add(wf_run)
+        session.commit()
+        wf_run_id = wf_run.id
+
+    from backend.workflows.executor import execute_workflow
+    try:
+        await execute_workflow(wf_run_id)
+    except Exception as exc:
+        logger.exception("Cron workflow run %s crashed: %s", wf_run_id, exc)
+
+
+
+async def _run_cron_workflow(workflow_id: str):
+    import uuid as _uuid
+    from datetime import datetime, timezone as _tz
+    from backend.workflows.models import Workflow, WorkflowRun
+    from backend.database import engine as _engine
+    from sqlmodel import Session as _Session
+
+    with _Session(_engine) as session:
+        wf = session.get(Workflow, workflow_id)
+        if not wf or not wf.is_active:
+            return
+        now = datetime.now(_tz.utc)
+        wf_run = WorkflowRun(
+            id=str(_uuid.uuid4()),
+            workflow_id=workflow_id,
+            status="pending",
+            trigger_source="cron",
+            started_at=now,
+        )
+        session.add(wf_run)
+        session.commit()
+        wf_run_id = wf_run.id
+
+    from backend.workflows.executor import execute_workflow
+    try:
+        await execute_workflow(wf_run_id)
+    except Exception as exc:
+        logger.exception("Cron workflow run %s crashed: %s", wf_run_id, exc)
+
 def sync_cron_jobs():
     """Rebuild all cron jobs from the database. Call on startup and after updates."""
     # ── PyBook cron jobs ──────────────────────────────────────────────────────
@@ -113,6 +175,64 @@ def sync_cron_jobs():
             replace_existing=True, misfire_grace_time=60,
         )
         logger.info("Scheduled cron fetch Blueprint %s: %s", ot.name, ot.fetch_cron)
+
+    # ── Workflow cron jobs ────────────────────────────────────────────────────
+    from backend.workflows.models import Workflow
+
+    with Session(engine) as session:
+        workflows = session.exec(
+            select(Workflow).where(Workflow.trigger_type == "cron", Workflow.is_active == True)
+        ).all()
+
+    for job in scheduler.get_jobs():
+        if job.id.startswith("cron_wf_"):
+            job.remove()
+
+    for wf in workflows:
+        try:
+            config = json.loads(wf.trigger_config or "{}")
+            cron_expr = config.get("cron", "")
+            kwargs = _parse_cron(cron_expr)
+            if not kwargs:
+                logger.warning("Invalid cron for Workflow %s: %s", wf.id, cron_expr)
+                continue
+            scheduler.add_job(
+                _run_cron_workflow, CronTrigger(**kwargs),
+                args=[wf.id], id=f"cron_wf_{wf.id}",
+                replace_existing=True, misfire_grace_time=60,
+            )
+            logger.info("Scheduled cron Workflow %s: %s", wf.name, cron_expr)
+        except Exception as exc:
+            logger.error("Failed to schedule Workflow %s: %s", wf.id, exc)
+
+    # ── Workflow cron jobs ────────────────────────────────────────────────────
+    from backend.workflows.models import Workflow
+
+    with Session(engine) as session:
+        workflows = session.exec(
+            select(Workflow).where(Workflow.trigger_type == "cron", Workflow.is_active == True)
+        ).all()
+
+    for job in scheduler.get_jobs():
+        if job.id.startswith("cron_wf_"):
+            job.remove()
+
+    for wf in workflows:
+        try:
+            config = json.loads(wf.trigger_config or "{}")
+            cron_expr = config.get("cron", "")
+            kwargs = _parse_cron(cron_expr)
+            if not kwargs:
+                logger.warning("Invalid cron for Workflow %s: %s", wf.id, cron_expr)
+                continue
+            scheduler.add_job(
+                _run_cron_workflow, CronTrigger(**kwargs),
+                args=[wf.id], id=f"cron_wf_{wf.id}",
+                replace_existing=True, misfire_grace_time=60,
+            )
+            logger.info("Scheduled cron Workflow %s: %s", wf.name, cron_expr)
+        except Exception as exc:
+            logger.error("Failed to schedule Workflow %s: %s", wf.id, exc)
 
 
 async def _cleanup_activity_log():
