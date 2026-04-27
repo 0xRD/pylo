@@ -78,12 +78,12 @@ info "Storage directories ready."
 
 # ── 6. Build the PyBook runner base image ─────────────────────────────────────
 info "Building PyBook runner base image (python:3.12-slim + requests/httpx/pydantic) ..."
-docker build -q -t pylo-runner-base:latest docker/pybook-runner/ \
+docker build -q -t pylo-runner-base:latest -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/ \
     && success "pylo-runner-base:latest built."
 
 # ── 7. Start the stack ────────────────────────────────────────────────────────
 info "Starting Pylo stack ..."
-docker compose up -d
+docker compose up -d --build
 
 # ── 8. Wait for the backend to be healthy ────────────────────────────────────
 info "Waiting for backend ..."
