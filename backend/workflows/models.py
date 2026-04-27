@@ -16,6 +16,7 @@ class Workflow(SQLModel, table=True):
     description: Optional[str] = None
     is_active: bool = True
     trigger_type: str = "manual"
+    trigger_config: str = "{}"
     nodes: str = "[]"   # JSON array of node objects
     edges: str = "[]"   # JSON array of edge objects
     created_at: datetime = Field(default_factory=_now)
