@@ -139,6 +139,25 @@ export default function Runs() {
               <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-64">{selected.stderr}</pre>
             </div>
           )}
+          {(() => {
+            let vars = {}
+            try { vars = JSON.parse(selected.output_vars || '{}') } catch {}
+            const entries = Object.entries(vars)
+            if (entries.length === 0) return null
+            return (
+              <div>
+                <p className="text-xs text-gray-400 mb-2">Variables</p>
+                <div className="bg-gray-950 border border-gray-800 rounded divide-y divide-gray-800">
+                  {entries.map(([k, v]) => (
+                    <div key={k} className="flex gap-3 px-3 py-2 text-xs">
+                      <span className="text-indigo-400 font-mono shrink-0">{k}</span>
+                      <span className="text-gray-300 font-mono truncate">{JSON.stringify(v)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

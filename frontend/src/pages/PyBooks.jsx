@@ -343,6 +343,25 @@ function RunPanel({ pybook, onClose, isAdmin }) {
                   <pre className="bg-gray-950 rounded p-2 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-48">{selectedRun.stderr}</pre>
                 </div>
               )}
+              {(() => {
+                let vars = {}
+                try { vars = JSON.parse(selectedRun.output_vars || '{}') } catch {}
+                const entries = Object.entries(vars)
+                if (entries.length === 0) return null
+                return (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Variables</p>
+                    <div className="bg-gray-950 rounded divide-y divide-gray-800">
+                      {entries.map(([k, v]) => (
+                        <div key={k} className="flex gap-3 px-2 py-1.5 text-xs">
+                          <span className="text-indigo-400 font-mono shrink-0">{k}</span>
+                          <span className="text-gray-300 font-mono truncate">{JSON.stringify(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               {!selectedRun.stdout && !selectedRun.stderr && !TERMINAL.has(selectedRun.status) && (
                 <p className="text-xs text-gray-500 italic animate-pulse">Running...</p>
               )}
@@ -408,13 +427,19 @@ score    = payload.get("vt_score", 0)`} />
         </DocSection>
 
         <DocSection title="Exporting output variables">
-          <p>Publish values for downstream workflow nodes to consume via edge payload mappings (<code className="text-indigo-300 bg-gray-800 px-1 rounded">$.vars.key</code>):</p>
+          <p>Publish values for downstream workflow nodes to consume via edge payload mappings (<code className="text-indigo-300 bg-gray-800 px-1 rounded">$.vars.key</code>). Export one at a time or all locals at once:</p>
           <CodeSnippet code={`import pylo_sdk as pylo
 
+# One at a time
 pylo.set_output("alert_id", "abc-123")
 pylo.set_output("vt_score", 0.92)
-pylo.set_output("is_malicious", True)`} />
-          <p className="text-gray-600 text-[10px] mt-1">Reference in edge mappings: <span className="font-mono text-indigo-400">$.vars.vt_score</span></p>
+
+# Or export all local variables in one call
+vt_score = 0.92
+is_malicious = vt_score > 0.7
+alert_id = "abc-123"
+pylo.export_vars(locals())`} />
+          <p className="text-gray-600 text-[10px] mt-1">Reference in edge mappings: <span className="font-mono text-indigo-400">$.vars.vt_score</span>. Variables appear in the <em>Variables</em> panel after the run completes.</p>
         </DocSection>
 
         <DocSection title="Accessing secrets">

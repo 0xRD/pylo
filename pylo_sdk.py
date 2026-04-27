@@ -48,3 +48,35 @@ def set_output(key: str, value) -> None:
         )
     except Exception:
         pass  # Non-fatal — output vars are best-effort
+
+
+def export_vars(local_vars: dict, include: list = None, exclude: list = None) -> None:
+    """Export multiple local variables as output vars in one call.
+
+    Usage in your PyBook:
+        result = 42
+        alert_name = "CVE-2024-1234"
+        pylo.export_vars(locals())
+
+    Args:
+        local_vars: Pass locals() to capture current scope.
+        include:    If set, only export keys in this list.
+        exclude:    Keys to skip (e.g. dunder vars, imports).
+    """
+    _skip = exclude or []
+    _skip_defaults = {k for k in local_vars if k.startswith("_")}
+    keys = include if include is not None else [
+        k for k in local_vars
+        if k not in _skip_defaults and k not in _skip
+        and not callable(local_vars[k])
+        and not hasattr(local_vars[k], "__module__")  # skip imported modules
+    ]
+    for k in keys:
+        if k in local_vars:
+            v = local_vars[k]
+            try:
+                import json as _j
+                _j.dumps(v)  # only export JSON-serialisable values
+            except (TypeError, ValueError):
+                v = str(v)
+            set_output(k, v)
