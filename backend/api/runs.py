@@ -74,3 +74,18 @@ async def run_status_ws(run_id: str, websocket: WebSocket):
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         pass
+
+
+@router.post("/{run_id}/output", dependencies=[Depends(verify_token)])
+async def set_run_output(run_id: str, body: dict, session: Session = Depends(get_session)):
+    """Merge key-value pairs into a run's output_vars (called by pylo.set_output())."""
+    import json as _json
+    run = session.get(PyBookRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    existing = _json.loads(run.output_vars or "{}")
+    existing.update(body)
+    run.output_vars = _json.dumps(existing)
+    session.add(run)
+    session.commit()
+    return {"ok": True}

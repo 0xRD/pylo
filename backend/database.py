@@ -12,6 +12,7 @@ from backend.core.settings_model import SystemSetting         # noqa: F401
 from backend.users.models import User                          # noqa: F401
 from backend.users.invitation import Invitation                # noqa: F401
 from backend.activity.models import ActivityEvent             # noqa: F401
+from backend.workflows.models import Workflow, WorkflowRun, WorkflowNodeRun  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

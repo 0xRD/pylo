@@ -32,3 +32,19 @@ def get_entry(object_id: str) -> dict:
     resp = requests.get(f"{_api_url}/api/blueprints/entries/{object_id}", headers=_headers)
     resp.raise_for_status()
     return resp.json()
+
+
+def set_output(key: str, value) -> None:
+    """Export an output variable to downstream workflow nodes via payload mapping."""
+    run_id = os.environ.get("PYLO_RUN_ID", "")
+    if not run_id:
+        return
+    try:
+        requests.post(
+            f"{_api_url}/api/runs/{run_id}/output",
+            json={key: value},
+            headers=_headers,
+            timeout=10,
+        )
+    except Exception:
+        pass  # Non-fatal — output vars are best-effort
