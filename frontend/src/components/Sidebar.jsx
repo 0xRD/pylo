@@ -6,6 +6,7 @@ const links = [
   { to: '/blueprints', label: 'Blueprints', icon: '⬡' },
   { to: '/entries', label: 'Entries', icon: '◈' },
   { to: '/pybooks', label: 'PyBooks', icon: '📖' },
+  { to: '/workflows', label: 'Workflows', icon: '⬡' },
   { to: '/runs', label: 'Runs', icon: '▶' },
   { to: '/secrets', label: 'Secrets', icon: '🔑' },
   { to: '/activity', label: 'Activity', icon: '◎' },

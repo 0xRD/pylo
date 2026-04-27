@@ -41,6 +41,7 @@ class PyBookRun(SQLModel, table=True):
     started_at: datetime = Field(default_factory=_now)
     ended_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
+    output_vars: str = "{}"     # JSON dict populated by pylo.set_output()
 
 
 # Add required_secrets to PyBook — must be added after initial migration
