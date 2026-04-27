@@ -1,3 +1,5 @@
+name: pylo
+
 services:
   backend:
     build: ./backend
