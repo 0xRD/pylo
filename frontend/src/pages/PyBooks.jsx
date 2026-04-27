@@ -354,6 +354,149 @@ function RunPanel({ pybook, onClose, isAdmin }) {
   )
 }
 
+
+// ── SDK Reference Panel ───────────────────────────────────────────────────────
+
+function CodeSnippet({ code }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <div className="relative group">
+      <pre className="bg-gray-950 border border-gray-800 rounded p-2.5 text-xs font-mono text-green-300 whitespace-pre overflow-auto leading-relaxed">{code}</pre>
+      <button
+        onClick={copy}
+        className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-500 hover:text-gray-300 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+      >{copied ? 'Copied!' : 'Copy'}</button>
+    </div>
+  )
+}
+
+function DocSection({ title, children }) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{title}</h3>
+      {children}
+    </div>
+  )
+}
+
+function DocsPanel({ onClose }) {
+  return (
+    <div className="w-80 shrink-0 border-l border-gray-800 flex flex-col overflow-hidden bg-gray-900">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 shrink-0">
+        <span className="text-sm font-medium text-gray-200">SDK Reference</span>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 text-xs text-gray-400">
+
+        <DocSection title="Reading the trigger payload">
+          <p>When triggered by a workflow edge mapping, the mapped keys arrive in <code className="text-indigo-300 bg-gray-800 px-1 rounded">TRIGGER_PAYLOAD</code>:</p>
+          <CodeSnippet code={`import json, os
+
+payload = json.loads(
+    os.environ.get("TRIGGER_PAYLOAD", "{}")
+)
+
+alert_id = payload.get("alert_id")
+score    = payload.get("vt_score", 0)`} />
+        </DocSection>
+
+        <DocSection title="Exporting output variables">
+          <p>Publish values for downstream workflow nodes to consume via edge payload mappings (<code className="text-indigo-300 bg-gray-800 px-1 rounded">$.vars.key</code>):</p>
+          <CodeSnippet code={`import pylo_sdk as pylo
+
+pylo.set_output("alert_id", "abc-123")
+pylo.set_output("vt_score", 0.92)
+pylo.set_output("is_malicious", True)`} />
+          <p className="text-gray-600 text-[10px] mt-1">Reference in edge mappings: <span className="font-mono text-indigo-400">$.vars.vt_score</span></p>
+        </DocSection>
+
+        <DocSection title="Accessing secrets">
+          <p>Secrets declared in <em>Required secrets</em> are injected as env vars:</p>
+          <CodeSnippet code={`import os
+
+api_key = os.environ["SECRET_virustotal_api_key"]
+token   = os.environ["SECRET_slack_bot_token"]`} />
+        </DocSection>
+
+        <DocSection title="Calling sub-PyBooks">
+          <CodeSnippet code={`import pylo_sdk as pylo
+
+result = pylo.call_sub_pybook(
+    "sub-pybook-id",
+    payload={"ip": "1.2.3.4"}
+)
+# result: {"id": "...", "status": "success", ...}`} />
+        </DocSection>
+
+        <DocSection title="Searching & reading entries">
+          <CodeSnippet code={`import pylo_sdk as pylo
+
+# Full-text search across all blueprints
+entries = pylo.search_entries("malware")
+
+# Filter by blueprint
+entries = pylo.search_entries(
+    "suspicious",
+    type_id="blueprint-uuid"
+)
+
+# Fetch a single entry by ID
+entry = pylo.get_entry("entry-uuid")
+value = entry["data"]["field_name"]`} />
+        </DocSection>
+
+        <DocSection title="Available environment variables">
+          <div className="rounded border border-gray-800 overflow-hidden">
+            {[
+              ["TRIGGER_PAYLOAD", "JSON string with trigger input"],
+              ["PYLO_RUN_ID",     "Current run UUID"],
+              ["PYLO_PYBOOK_ID",  "This PyBook's UUID"],
+              ["PYLO_API_URL",    "Backend base URL"],
+              ["SECRET_<name>",   "Injected secret value"],
+            ].map(([k, v]) => (
+              <div key={k} className="flex border-b border-gray-800 last:border-0">
+                <div className="w-40 shrink-0 px-2.5 py-2 font-mono text-[10px] text-indigo-300 bg-gray-950 border-r border-gray-800">{k}</div>
+                <div className="px-2.5 py-2 text-[10px] text-gray-500">{v}</div>
+              </div>
+            ))}
+          </div>
+        </DocSection>
+
+        <DocSection title="Full example — workflow node">
+          <CodeSnippet code={`import json, os
+import pylo_sdk as pylo
+
+# 1. Read upstream payload
+payload = json.loads(
+    os.environ.get("TRIGGER_PAYLOAD", "{}")
+)
+alert_id = payload.get("alert_id", "")
+
+# 2. Do work
+api_key = os.environ["SECRET_vt_api_key"]
+# ... call VirusTotal, etc.
+score = 0.87
+
+# 3. Export for downstream nodes
+pylo.set_output("vt_score", score)
+pylo.set_output("alert_id", alert_id)
+pylo.set_output("is_malicious", score > 0.7)
+
+print(f"Score: {score}")`} />
+        </DocSection>
+
+      </div>
+    </div>
+  )
+}
+
 // ── Main PyBooks page ─────────────────────────────────────────────────────────
 
 export default function PyBooks() {
@@ -366,6 +509,7 @@ export default function PyBooks() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [selectedTags, setSelectedTags] = useState(null)
+  const [showDocs, setShowDocs] = useState(false)
   const [showTriggerEdit, setShowTriggerEdit] = useState(false)
   const [triggerDraft, setTriggerDraft] = useState(null)
 
@@ -553,8 +697,10 @@ export default function PyBooks() {
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
                 {selected.is_active ? "Disable" : "Enable"}
               </button>
-              <button onClick={() => setShowRuns(s => !s)}
+              <button onClick={() => { setShowRuns(s => !s); setShowDocs(false) }}
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">Runs</button>
+              <button onClick={() => { setShowDocs(s => !s); setShowRuns(false) }}
+                className={"text-xs px-2 py-1 rounded transition-colors " + (showDocs ? "bg-indigo-700 text-white" : "bg-gray-800 hover:bg-gray-700")}>SDK</button>
               <button onClick={handleDelete} disabled={!isAdmin}
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:text-red-300 rounded transition-colors">Delete</button>
               {scriptChanged && (
@@ -643,6 +789,9 @@ export default function PyBooks() {
             <div className="w-80 shrink-0 flex flex-col overflow-hidden">
               <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin} />
             </div>
+          )}
+          {showDocs && (
+            <DocsPanel onClose={() => setShowDocs(false)} />
           )}
         </div>
       )}
