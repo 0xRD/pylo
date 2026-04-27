@@ -5,38 +5,49 @@
 ## Quick Start
 
 ### Requirements
-- OrbStack or Docker + Docker Compose
-- Host running the Docker daemon
+- Docker (with Compose plugin) — installed automatically by `setup.sh` if missing
+- git
 
-### 1. Clone and configure
+### 1. Clone
 
 ```bash
 git clone https://github.com/0xRD/pylo
 cd pylo
-cp .env.example .env
 ```
 
-Edit `.env`:
-
-```env
-SECRET_KEY=your_32_char_secret_key_here
-API_TOKEN=your_secure_token_here   # kept for SDK / script access
-JWT_EXPIRE_HOURS=24                # optional, default 24
-```
-
-### 2. Start
+### 2. Run setup
 
 ```bash
-docker compose up -d
+bash setup.sh
 ```
 
-Frontend: `http://localhost:3000` — API: `http://localhost:8000`
+`setup.sh` handles everything on a fresh machine:
+- Installs Docker if not present
+- Generates a `.env` with secure `SECRET_KEY` and `API_TOKEN`
+- Builds the PyBook runner base image (`pylo-runner-base:latest`)
+- Starts the stack with `docker compose up -d --build`
+- Waits for the backend health check
+
+It prints your `API_TOKEN` at the end — save it for SDK/script access.
 
 ### 3. Create your admin account
 
-On first launch, open `http://localhost:3000` in your browser. You will be redirected to a **setup wizard** (`/setup`) where you create the first admin account (username + password, minimum 8 characters).
+Open `http://localhost:3000` in your browser. You are redirected to a **setup wizard** where you create the first admin account (minimum 8-character password).
 
-This wizard is only shown once — it disappears as soon as the first user exists. Additional users can be created from the **Users** page inside the console.
+The wizard disappears once the first user exists. Add more users from the **Users** page.
+
+### Manual setup (optional)
+
+If you prefer to configure things yourself:
+
+```bash
+cp .env.example .env
+# Edit .env: set SECRET_KEY and API_TOKEN to random values
+# Build the PyBook runner base image:
+docker build -t pylo-runner-base:latest -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/
+# Start:
+docker compose up -d --build
+```
 
 ---
 
