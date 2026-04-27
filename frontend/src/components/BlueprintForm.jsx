@@ -52,7 +52,7 @@ function JsonTree({ data, onSelect }) {
   )
 }
 
-const EMPTY_MAPPING = { source_path: '', field_name: '', field_type: 'string', is_key: false }
+const EMPTY_MAPPING = { source_path: '', field_name: '', field_type: 'string', is_key: false, mutable: false }
 const FIELD_TYPES = ['string', 'number', 'boolean', 'datetime']
 
 
@@ -60,9 +60,9 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial || {
     name: '', description: '', source_url: '', source_method: 'GET',
     source_headers: '{}', source_body: '{}', field_mappings: '[]',
-    fetch_cron: '', fetch_is_active: false, is_manual: false,
+    fetch_cron: '', fetch_is_active: false, is_manual: false, mutable_mode: 'none',
   })
-  const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]') } catch { return [] } })
+  const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]').map(m => ({ mutable: false, ...m })) } catch { return [] } })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [previewing, setPreviewing] = useState(false)
@@ -261,9 +261,10 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
         {mappings.length > 0 && (
           <div className="grid grid-cols-12 gap-2 mb-1 px-1">
             <span className="col-span-1 text-xs text-gray-600 text-center flex items-center justify-center gap-0.5">Key<HelpTip text="Mark one field as the unique key. On each fetch, entries with the same key value are skipped (deduplication)." /></span>
-            <span className="col-span-4 text-xs text-gray-600">JSONPath</span>
-            <span className="col-span-4 text-xs text-gray-600">Field name</span>
+            <span className="col-span-3 text-xs text-gray-600">JSONPath</span>
+            <span className="col-span-3 text-xs text-gray-600">Field name</span>
             <span className="col-span-2 text-xs text-gray-600">Type</span>
+            {form.mutable_mode === 'per_field' && <span className="col-span-1 text-xs text-gray-600 text-center">Edit</span>}
           </div>
         )}
         {mappings.length === 0 && <p className="text-xs text-gray-600 italic">No mappings — raw JSON will be stored only.</p>}
@@ -276,19 +277,42 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
                 {m.is_key ? "★" : "☆"}
               </button>
               <input value={m.source_path} onChange={e => setMapping(i, 'source_path', e.target.value)} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder="$.id"
-                className={"col-span-4 bg-gray-800 border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
+                className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
               <input value={m.field_name} onChange={e => setMapping(i, 'field_name', e.target.value)} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder={m.is_key ? "e.g. alert_id" : "field_name"}
-                className={"col-span-4 bg-gray-800 border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
+                className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
               <select value={m.field_type} onChange={e => setMapping(i, 'field_type', e.target.value)}
                 className="col-span-2 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
                 {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
+              {form.mutable_mode === 'per_field' && (
+                <button type="button" onClick={e => { e.stopPropagation(); setMapping(i, 'mutable', !m.mutable) }}
+                  title={m.mutable ? 'Editable by users' : 'Read-only'}
+                  className={"col-span-1 flex items-center justify-center h-7 rounded text-xs transition-colors " + (m.mutable ? "text-green-400 bg-green-900/30 border border-green-700" : "text-gray-600 border border-transparent hover:border-gray-700")}>
+                  {m.mutable ? '✏' : '–'}
+                </button>
+              )}
               <button type="button" onClick={e => { e.stopPropagation(); setMappings(ms => ms.filter((_, idx) => idx !== i)); if (focusedRow === i) setFocusedRow(null) }}
-                className="col-span-1 text-gray-600 hover:text-red-400 text-center text-sm">×</button>
+                className={"col-span-1 text-gray-600 hover:text-red-400 text-center text-sm " + (form.mutable_mode !== 'per_field' ? 'col-start-12' : '')}>×</button>
             </div>
           ))}
         </div>
         {mappings.length > 0 && !hasKey && <p className="text-xs text-amber-500 mt-2">No unique key set — duplicates may be created on repeated fetches. Click ☆ on the identifier field.</p>}
+      </div>
+
+
+      <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-gray-400 font-medium">Entry mutability<HelpTip text="Controls whether entries can be edited after creation. 'None' is read-only. 'All fields' makes every field editable. 'Per field' lets you mark specific fields as editable." /></label>
+          <select value={form.mutable_mode || 'none'} onChange={e => set('mutable_mode', e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+            <option value="none">None (read-only)</option>
+            <option value="all">All fields editable</option>
+            <option value="per_field">Per field</option>
+          </select>
+        </div>
+        {form.mutable_mode === 'per_field' && (
+          <p className="text-xs text-gray-500">Toggle ✏ on each field above to mark it editable.</p>
+        )}
       </div>
 
       <div className="flex gap-3 pt-2">

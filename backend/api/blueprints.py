@@ -15,11 +15,10 @@ from backend.activity.logger import log_activity
 from backend.core.auth import AuthUser, verify_token
 from backend.database import get_session
 from backend.objects.indexer import index_entry, remove_from_index, search_fts
-from backend.objects.models import Entry, Blueprint
+from backend.objects.models import Entry, Blueprint, EntryEvent
 from backend.objects.parser import extract_text_content, parse_instance
 
 logger = logging.getLogger(__name__)
-_MAX_TRIGGERS_PER_FETCH = 50
 _MAX_TRIGGERS_PER_FETCH = 50
 router = APIRouter(prefix="/api/blueprints", tags=["blueprints"], dependencies=[Depends(verify_token)])
 
@@ -40,6 +39,7 @@ class BlueprintCreate(BaseModel):
     fetch_is_active: bool = False
     is_manual: bool = False
     trigger_event: str = "on_create"
+    mutable_mode: str = "none"
 
 
 class BlueprintUpdate(BaseModel):
@@ -56,6 +56,7 @@ class BlueprintUpdate(BaseModel):
     fetch_is_active: Optional[bool] = None
     is_manual: Optional[bool] = None
     trigger_event: Optional[str] = None
+    mutable_mode: Optional[str] = None
 
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
@@ -406,96 +407,6 @@ async def _execute_workflow_bg(workflow_run_id: str) -> None:
     except Exception as exc:
         logger.exception("Workflow run %s crashed: %s", workflow_run_id, exc)
 
-
-
-def _fire_blueprint_triggers(bp, created_entries: list) -> None:
-    """Enqueue runs for PyBook and Workflow subscribers of this blueprint."""
-    from backend.objects.filter import check_trigger_conditions
-    from backend.core import queue_manager
-    from backend.pybooks.models import PyBook, PyBookRun
-    from backend.workflows.models import Workflow, WorkflowRun
-    from backend.database import engine as _engine
-
-    if not created_entries:
-        return
-
-    try:
-        with Session(_engine) as _ts:
-            # PyBook subscribers
-            subscribers = [
-                pb for pb in _ts.exec(
-                    select(PyBook).where(PyBook.trigger_type == "blueprint", PyBook.is_active == True)
-                ).all()
-                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == bp.id
-            ]
-            for sub in subscribers:
-                cfg = json.loads(sub.trigger_config or "{}")
-                conditions = cfg.get("trigger_conditions", [])
-                matching = [e for e in created_entries if check_trigger_conditions(e["parsed"], conditions)]
-                if not matching:
-                    continue
-                matching = matching[:_MAX_TRIGGERS_PER_FETCH]
-                runs = []
-                for entry_info in matching:
-                    run = PyBookRun(
-                        id=str(uuid.uuid4()),
-                        pybook_id=sub.id,
-                        status="queued",
-                        trigger_source="blueprint",
-                        trigger_payload=json.dumps({
-                            "blueprint_id": bp.id,
-                            "entry_id": entry_info["entry_id"],
-                            "entry_data": entry_info["parsed"],
-                        }),
-                        started_at=datetime.now(timezone.utc),
-                    )
-                    _ts.add(run)
-                    runs.append(run)
-                _ts.commit()
-                for run in runs:
-                    queue_manager.enqueue(sub.id, run.id)
-
-            # Workflow subscribers
-            wf_subscribers = [
-                wf for wf in _ts.exec(
-                    select(Workflow).where(Workflow.trigger_type == "blueprint", Workflow.is_active == True)
-                ).all()
-                if json.loads(wf.trigger_config or "{}").get("blueprint_id") == bp.id
-            ]
-            for wf in wf_subscribers:
-                cfg = json.loads(wf.trigger_config or "{}")
-                trigger_event = cfg.get("trigger_event", "on_create")
-                if trigger_event not in ("on_create", "on_create_or_update"):
-                    continue
-                wf_run = WorkflowRun(
-                    id=str(uuid.uuid4()),
-                    workflow_id=wf.id,
-                    status="pending",
-                    trigger_source="blueprint",
-                    started_at=datetime.now(timezone.utc),
-                )
-                _ts.add(wf_run)
-                _ts.commit()
-                wf_run_id = wf_run.id
-                import asyncio as _asyncio
-                try:
-                    loop = _asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(_execute_workflow_bg(wf_run_id))
-                except RuntimeError:
-                    pass
-
-    except Exception as exc:
-        logger.warning("Failed to fire blueprint triggers: %s", exc)
-
-
-async def _execute_workflow_bg(workflow_run_id: str) -> None:
-    from backend.workflows.executor import execute_workflow
-    try:
-        await execute_workflow(workflow_run_id)
-    except Exception as exc:
-        logger.exception("Workflow run %s crashed: %s", workflow_run_id, exc)
-
 async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler") -> dict:
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
@@ -650,8 +561,102 @@ async def create_manual_entry(
                  detail={"blueprint_id": blueprint_id, "via": "manual"})
     session.commit()
     session.refresh(entry)
+    ev = EntryEvent(
+        id=str(uuid.uuid4()),
+        entry_id=entry.id,
+        blueprint_id=blueprint_id,
+        event_type="created",
+        changed_fields=json.dumps(list(body.fields.keys())),
+        old_values="{}",
+        new_values=json.dumps(body.fields),
+        actor=current_user.username,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(ev)
+    session.commit()
     _fire_blueprint_triggers(bp, [{"entry_id": entry.id, "parsed": body.fields}])
     return entry
+
+
+
+class UpdateEntryBody(BaseModel):
+    fields: dict
+
+
+@router.patch("/{blueprint_id}/entries/{entry_id}")
+async def update_entry(
+    blueprint_id: str,
+    entry_id: str,
+    body: UpdateEntryBody,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
+    bp = session.get(Blueprint, blueprint_id)
+    if not bp:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+
+    mutable_mode = getattr(bp, "mutable_mode", "none") or "none"
+    if mutable_mode == "none":
+        raise HTTPException(status_code=403, detail="This blueprint does not allow entry updates")
+
+    field_mappings = json.loads(bp.field_mappings or "[]")
+    if mutable_mode == "per_field":
+        mutable_fields = {m["field_name"] for m in field_mappings if m.get("mutable")}
+        disallowed = [k for k in body.fields if k not in mutable_fields]
+        if disallowed:
+            raise HTTPException(status_code=403, detail=f"Fields not mutable: {disallowed}")
+
+    entry = session.exec(
+        select(Entry).where(Entry.id == entry_id, Entry.blueprint_id == blueprint_id)
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    old_data = json.loads(entry.data or "{}")
+    new_data = {**old_data, **body.fields}
+    changed = [k for k in body.fields if old_data.get(k) != body.fields[k]]
+
+    entry.data = json.dumps(new_data)
+    entry.updated_at = datetime.now(timezone.utc)
+    session.add(entry)
+
+    ev = EntryEvent(
+        id=str(uuid.uuid4()),
+        entry_id=entry_id,
+        blueprint_id=blueprint_id,
+        event_type="updated",
+        changed_fields=json.dumps(changed),
+        old_values=json.dumps({k: old_data.get(k) for k in changed}),
+        new_values=json.dumps({k: body.fields[k] for k in changed}),
+        actor=current_user.username,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(ev)
+
+    index_entry(session, entry.id, blueprint_id, extract_text_content(new_data))
+    log_activity(session, "entry.updated", actor=current_user.username,
+                 resource_type="entry", resource_id=entry_id,
+                 detail={"blueprint_id": blueprint_id, "changed": changed})
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+@router.get("/{blueprint_id}/entries/{entry_id}/history")
+async def get_entry_history(
+    blueprint_id: str,
+    entry_id: str,
+    session: Session = Depends(get_session),
+):
+    entry = session.exec(
+        select(Entry).where(Entry.id == entry_id, Entry.blueprint_id == blueprint_id)
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    events = session.exec(
+        select(EntryEvent).where(EntryEvent.entry_id == entry_id).order_by(EntryEvent.created_at.desc())
+    ).all()
+    return events
 
 
 @router.post("/preview")

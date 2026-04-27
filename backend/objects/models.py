@@ -26,6 +26,7 @@ class Blueprint(SQLModel, table=True):
     fetch_cron: Optional[str] = None
     fetch_is_active: bool = Field(default=False)
     is_manual: bool = Field(default=False)
+    mutable_mode: str = Field(default="none")
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -40,3 +41,17 @@ class Entry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 # trigger_event added via migration
+
+
+class EntryEvent(SQLModel, table=True):
+    __tablename__ = "entry_event"
+
+    id: str = Field(primary_key=True)
+    entry_id: str = Field(index=True)
+    blueprint_id: str = Field(index=True)
+    event_type: str  # "created" | "updated"
+    changed_fields: str = "[]"
+    old_values: str = "{}"
+    new_values: str = "{}"
+    actor: str
+    created_at: datetime = Field(default_factory=_now)
