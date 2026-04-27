@@ -23,8 +23,7 @@ def db_engine():
 
     engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
 
-    from backend.pybooks.models import PyBook, PyBookRun  # noqa
-    from backend.objects.models import Blueprint, Entry  # noqa
+    import backend.database  # noqa — registers all models in SQLModel.metadata
     SQLModel.metadata.create_all(engine)
 
     with engine.connect() as conn:
@@ -211,7 +210,7 @@ def test_fts_search(client):
 
     r = client.get(f"/api/blueprints/entries?blueprint_id={blueprint_id}&q=critical")
     assert r.status_code == 200
-    ids = [i["id"] for i in r.json()]
+    ids = [i["id"] for i in r.json()["items"]]
     assert entry_id in ids
 
 
