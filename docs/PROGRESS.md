@@ -134,8 +134,54 @@ All core features working end-to-end on `main` branch.
 | `/users` | User management (admin) |
 
 **Pending / backlog items:**
-- `trigger_conditions` support for workflow blueprint triggers (PyBooks already have this)
 - Task 5: `pylo_sdk` as a standalone pip-installable library with `PyloClient` class
+- Paginated API source fetching (#9)
+- Scoped API keys (#6)
+- Configuration backup & restore (#18)
+- Re-parse entries on mapping change (#6b)
+
+## Session 13 — Code quality audit + SDK compatibility + Sekoia demo fix
+- **Branch `audit/code-quality` merged into `main`**: documented audit findings in `docs/CODE_AUDIT.md`; merged and pushed as `c08f4e9`.
+- **SDK compatibility fix**: `pylo_sdk.search_entries()` now unwraps paginated `/api/blueprints/entries` responses and returns the historical list-like result expected by existing PyBooks.
+- **Regression tests**: added `tests/test_pylo_sdk.py` to cover paginated and legacy list responses; full container test suite passed (`64 passed`).
+- **Queue manager syntax fix**: fixed a syntax error in `backend/core/queue_manager.py` discovered during audit validation.
+- **Frontend build/security cleanup**: removed stale frontend `VITE_API_TOKEN` build arg; `npm audit` is clean.
+- **Sekoia IOC demo PyBook**: diagnosed successful API calls with no visible indicators; Sekoia expects raw observables in `value`, not STIX patterns. Updated the runtime demo PyBook script accordingly and verified a successful run with `indicators_count = 97`.
+
+## Session 14 — Frontend refresh + Entries workflow fixes
+- **Branch `feat/frontend-refresh` pushed**: `60e925f feat: refresh frontend navigation and entries`.
+- **Sidebar refresh**: replaced emoji/glyph navigation with `lucide-react` icons; applied a Dracula-inspired dark palette across the app shell.
+- **PyBooks UX refresh**: rebuilt the PyBooks page shell with a cleaner internal list, icon command bar, improved tags/trigger controls, and a bottom run console.
+- **Run variables visibility**: PyBook run output variables are now prominent in the run console instead of hidden in a cramped side panel.
+- **Entries route fix**: entry cards now navigate to canonical `/entries/:id`; deletion from EntryDetail returns to `/entries`; legacy `/blueprints/entries/:id` remains registered for compatibility.
+- **Global Entries bulk delete**: added multi-select checkboxes, select-visible, clear, and delete-selected actions to the global Entries page.
+- **Validation**: frontend build passed, Docker frontend rebuilt, container health checked, backend test suite passed in the backend container (`64 passed`), migrations upgraded cleanly, API and SPA route smokes passed, and `npm audit` reported `0 vulnerabilities`.
+
+## Current state (after Session 14)
+All core features remain working end-to-end on `main`, with the frontend refresh staged on `feat/frontend-refresh` for review.
+
+**Alembic head**: `j9k0l1m2n3o4`
+
+**Active routes:**
+| Route | Description |
+|---|---|
+| `/blueprints` | Blueprint card grid |
+| `/blueprints/:id` | Tabbed detail (Entries / Settings) |
+| `/entries` | Global entries — FTS + field filter + blueprint chips + multi-select bulk delete |
+| `/entries/:id` | Canonical entry detail with Fields/Raw/History tabs |
+| `/blueprints/entries/:id` | Legacy entry detail route kept for compatibility |
+| `/pybooks` | PyBook editor with refreshed layout and run console |
+| `/workflows` | Workflow list |
+| `/workflows/:id` | Workflow DAG editor |
+| `/runs` | Unified PyBook + Workflow run history |
+| `/automations` | All active triggers in one view |
+| `/secrets` | Secret store |
+| `/activity` | Audit log |
+| `/settings` | System settings + self-update |
+| `/users` | User management (admin) |
+
+**Pending / backlog items:**
+- `pylo_sdk` as a standalone pip-installable library with a `PyloClient` class
 - Paginated API source fetching (#9)
 - Scoped API keys (#6)
 - Configuration backup & restore (#18)
