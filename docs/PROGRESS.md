@@ -89,3 +89,54 @@
 - Persistent execution queue with live Runs page stats
 - Secrets: create/list/delete with encryption
 - Settings: live concurrency limit
+
+## Session 11 — Workflow builder merge + fresh-machine setup
+- **Merged `feat/workflow-builder` into main**: DAG workflow executor, 3-panel React Flow editor, node palette, edge config, run progress overlay
+- **`setup.sh`**: one-shot fresh machine bootstrap — installs Docker if absent, generates `.env` with secure keys, builds `pylo-runner-base`, starts the stack, waits for health
+- **Entrypoint DB detection**: `entrypoint.sh` now detects fresh DB (no `alembic_version`) and runs `init_db()` + `alembic stamp head` instead of `alembic upgrade head` — eliminates empty-table errors on new machines
+- **`docker-compose.yml`**: added `name: pylo` so Docker network is always `pylo_pylo_default` regardless of clone directory name
+- **`pylo_sdk.py`**: fixed auth header bug — was using `Authorization: Bearer`, now correctly uses `X-API-Token`
+- **Tests fixed**: `test_phase1_objects.py` DB fixture imports all models; `test_fts_search` updated for paginated entry response
+- **New migration `h7i8j9k0l1m2`**: adds `output_vars` column to `pybook_run`, creates `workflow`, `workflow_run`, `workflow_node_run` tables
+
+## Session 12 — Workflow triggers (blueprint + cron) + mutable entries + run variables + fixes
+- **Workflow blueprint trigger** (`i8j9k0l1m2n3`): `trigger_config: str = "{}"` added to Workflow model; `_fire_blueprint_triggers` extended to query Workflow subscribers in addition to PyBook subscribers; `_run_cron_workflow` added to scheduler; WorkflowEditor now shows 4 trigger types (manual/cron/webhook/blueprint) with ScheduleBuilder for cron and blueprint picker + event selector for blueprint
+- **Bug fix** (critical): `WorkflowCreate` Pydantic schema was missing `trigger_config` — workflows could save `trigger_type=blueprint` but never save `blueprint_id`, so triggers never matched. Fixed by adding `trigger_config: str = "{}"` to schema
+- **asyncio fix**: `asyncio.get_event_loop()` → `asyncio.get_running_loop()` in blueprint trigger path (Python 3.10+ correctness)
+- **Mutable blueprint entry fields** (`j9k0l1m2n3o4`): `mutable_mode` (`none`/`all`/`per_field`) on Blueprint; `EntryEvent` audit table; `PATCH /{bp}/entries/{id}` validates mutability before writing; `GET /{bp}/entries/{id}/history` returns ordered event log; BlueprintForm gets mutable_mode selector + per-field editable toggle; EntryDetail gets tabs (Fields/Raw/History) with inline edit inputs and history diff view
+- **Run variable inspector**: `export_vars(locals())` added to `pylo_sdk.py` — exports all non-private JSON-serialisable local variables at once; Runs page sidebar and PyBooks run panel now show a Variables section when `output_vars` is non-empty
+- **Self-update system**: new `/api/system/*` endpoints — `/info` (current git commit), `/update/check` (compare local HEAD vs origin/main via `git ls-remote`), `/update/apply` (git pull + docker compose up --build in background thread), `/update/status` (poll job state + log); backend Dockerfile now installs git + Docker CLI; repo mounted at `/app/repo`; Settings page gets "System updates" section with check + apply + live log
+- **Unified Runs page**: PyBook runs and Workflow runs shown together with WF/PB type badges; type filter (All/PyBooks/Workflows); workflow detail shows per-node status and output_vars; global `GET /api/workflows/runs` endpoint added
+- **Automations page** (`/automations`): lists all PyBooks and Workflows with active triggers in one view; filterable by type and active/all; shows trigger type badge + detail (cron expression, blueprint name + event); sidebar link added
+- **Duplicate function cleanup**: removed duplicate `_fire_blueprint_triggers` and `_execute_workflow_bg` definitions left by previous patching; fixed duplicate `_MAX_TRIGGERS_PER_FETCH` constant
+- **Remote fix (Rémi)**: `c4c57cc` — removed duplicate cron handlers in scheduler.py, added auth to WebSocket endpoint and `/api/runs/queue`
+
+## Current state (after Session 12)
+All core features working end-to-end on `main` branch.
+
+**Alembic head**: `j9k0l1m2n3o4`
+
+**Active routes:**
+| Route | Description |
+|---|---|
+| `/blueprints` | Blueprint card grid |
+| `/blueprints/:id` | Tabbed detail (Entries / Settings) |
+| `/blueprints/entries/:id` | Entry detail with Fields/Raw/History tabs |
+| `/entries` | Global entries — FTS + field filter + bulk delete |
+| `/pybooks` | PyBook editor |
+| `/workflows` | Workflow list |
+| `/workflows/:id` | Workflow DAG editor |
+| `/runs` | Unified PyBook + Workflow run history |
+| `/automations` | All active triggers in one view |
+| `/secrets` | Secret store |
+| `/activity` | Audit log |
+| `/settings` | System settings + self-update |
+| `/users` | User management (admin) |
+
+**Pending / backlog items:**
+- `trigger_conditions` support for workflow blueprint triggers (PyBooks already have this)
+- Task 5: `pylo_sdk` as a standalone pip-installable library with `PyloClient` class
+- Paginated API source fetching (#9)
+- Scoped API keys (#6)
+- Configuration backup & restore (#18)
+- Re-parse entries on mapping change (#6b)
