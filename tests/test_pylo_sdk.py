@@ -46,3 +46,22 @@ def test_search_entries_preserves_legacy_list_response(monkeypatch):
     )
 
     assert sdk.search_entries("hash") == entries
+
+
+def test_get_payload_reads_trigger_payload(monkeypatch):
+    sdk = load_sdk(monkeypatch)
+    monkeypatch.setenv("TRIGGER_PAYLOAD", '{"entry_id":"entry-1","entry_data":{"hash":"abc"}}')
+
+    assert sdk.get_payload() == {"entry_id": "entry-1", "entry_data": {"hash": "abc"}}
+
+
+def test_get_payload_handles_missing_or_non_object_payload(monkeypatch):
+    sdk = load_sdk(monkeypatch)
+    monkeypatch.delenv("TRIGGER_PAYLOAD", raising=False)
+    assert sdk.get_payload({"mode": "manual"}) == {"mode": "manual"}
+
+    monkeypatch.setenv("TRIGGER_PAYLOAD", '["a", "b"]')
+    assert sdk.get_payload() == {"value": ["a", "b"]}
+
+    monkeypatch.setenv("TRIGGER_PAYLOAD", 'not-json')
+    assert sdk.get_payload() == {}

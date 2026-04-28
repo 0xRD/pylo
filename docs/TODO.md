@@ -66,29 +66,7 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 
 ---
 
-## 5. PyBook payload clarity and development ergonomics
-
-- Make trigger payload handling explicit in the PyBook editor/run console.
-- Show a short copyable snippet near the payload editor:
-
-```python
-import json
-import os
-
-payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
-entry_id = payload.get("entry_id")
-entry_data = payload.get("entry_data", {})
-```
-
-- Add preset payload templates for common cases: manual run, selected Entry, bulk Entries, webhook, workflow edge mapping.
-- Make clear that `pylo.set_output()` and `pylo.export_vars(locals())` publish output variables, while `TRIGGER_PAYLOAD` is the input payload.
-- Consider a small runtime helper in `pylo_sdk.py`, for example `pylo.get_payload()`, to avoid repeating `json.loads(os.environ...)` in every PyBook.
-
-**Why:** Developers need to understand immediately how JSON payloads enter a PyBook and how to consume selected Entry data safely.
-
----
-
-## 6. Dashboard and dense views ergonomics
+## 5. Dashboard and dense views ergonomics
 
 - Rework the dashboard layout to feel less compressed on desktop.
 - Add more breathing room, larger chart panels, and clearer visual hierarchy for high-priority metrics.
@@ -128,3 +106,4 @@ entry_data = payload.get("entry_data", {})
 - Field name required validation in Blueprint field mappings form.
 - Dashboard / command center with operational metrics, charts, failures, automations, and activity.
 - Bulk PyBook dispatch from selected entries.
+- PyBook payload helper and development ergonomics (`pylo.get_payload()`, payload templates, prompt/help updates).

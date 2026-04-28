@@ -1,8 +1,27 @@
+import json
 import os
 import requests
 
 _api_url = os.environ["PYLO_API_URL"]
 _headers = {"X-API-Token": os.environ["PYLO_API_TOKEN"]}
+
+
+def get_payload(default: dict = None) -> dict:
+    """Return the JSON trigger payload injected into the PyBook container.
+
+    Pylo stores run input in TRIGGER_PAYLOAD. Manual runs, selected Entry
+    runs, webhooks, Blueprint triggers, and Workflow edge mappings all use
+    this same JSON payload channel.
+    """
+    fallback = default if default is not None else {}
+    raw = os.environ.get("TRIGGER_PAYLOAD", "")
+    if not raw:
+        return fallback
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return fallback
+    return payload if isinstance(payload, dict) else {"value": payload}
 
 
 def call_sub_pybook(sub_pybook_id: str, payload: dict = None) -> dict:

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Activity,
+  BookOpen,
   Boxes,
   Braces,
   CircuitBoard,
@@ -28,6 +29,7 @@ const links = [
   { to: '/automations', label: 'Automations', icon: Workflow },
   { to: '/secrets', label: 'Secrets', icon: KeyRound },
   { to: '/activity', label: 'Activity', icon: Activity },
+  { to: '/wiki', label: 'Wiki', icon: BookOpen },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 

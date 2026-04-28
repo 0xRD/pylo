@@ -20,6 +20,7 @@ import InviteAccept from './pages/InviteAccept'
 import Workflows from './pages/Workflows'
 import WorkflowEditor from './pages/WorkflowEditor'
 import Automations from './pages/Automations'
+import Wiki from './pages/Wiki'
 
 function SetupGuard({ children }) {
   const [setupRequired, setSetupRequired] = useState(undefined)
@@ -72,6 +73,7 @@ export default function App() {
               <Route path="/secrets" element={<Secrets />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/activity" element={<Activity />} />
+              <Route path="/wiki" element={<Wiki />} />
               <Route path="/workflows" element={<Workflows />} />
               <Route path="/workflows/:id" element={<WorkflowEditor />} />
               <Route path="/users" element={<Users />} />

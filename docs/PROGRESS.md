@@ -274,3 +274,10 @@ The original `_execute_run` opened a single SQLAlchemy session at the start and 
 
 ## Current state (after Session 19)
 All core features remain working end-to-end on `main`. Dashboard is now the default landing page and gives operators a fast health snapshot of data volume, automation throughput, failures, queue pressure, and recent activity.
+
+## Session 20 — Payload clarity, PyBook run ergonomics, and Wiki
+- **SDK payload helper**: added `pylo.get_payload()` to read `TRIGGER_PAYLOAD` consistently from PyBooks, with safe fallback behavior and regression tests.
+- **PyBook run console**: expanded the run panel with a clearer input payload editor, payload templates, copyable Python snippet, larger logs, visible input payload, and clearer output variables.
+- **AI prompt and inline help**: updated the PyBook AI prompt and SDK reference to recommend `pylo.get_payload()` and explain input payloads vs output variables.
+- **Runs page**: PyBook run details now show the input payload alongside stdout/stderr and exported variables.
+- **Wiki page**: added `/wiki` with high-level concepts, usage guidance, and mini examples for Blueprints, Entries, PyBooks, payloads, Workflows, Runs, and security.
