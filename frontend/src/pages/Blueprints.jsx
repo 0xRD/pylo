@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
+import { fmtDate } from '../utils/dates'
 
 function BlueprintCard({ blueprint, onClick }) {
   const isManual = blueprint.is_manual
@@ -39,7 +40,7 @@ function BlueprintCard({ blueprint, onClick }) {
           </span>
         )}
         <span className="text-xs text-gray-600 ml-auto">
-          {new Date(blueprint.created_at).toLocaleDateString()}
+          {fmtDate(blueprint.created_at)}
         </span>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { activityApi } from '../api/activity'
+import { fmtDateTime } from '../utils/dates'
 
 const CATEGORY_COLORS = {
   auth:      'bg-indigo-900/50 text-indigo-300 border-indigo-700',
@@ -72,7 +73,7 @@ function EventRow({ event }) {
       isFailed ? 'border-red-900 bg-red-950/20' : 'border-gray-800 bg-gray-900 hover:border-gray-700'
     }`}>
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-gray-500 w-16 shrink-0" title={new Date(event.created_at).toLocaleString()}>
+        <span className="text-xs text-gray-500 w-16 shrink-0" title={fmtDateTime(event.created_at)}>
           {relativeTime(event.created_at)}
         </span>
         <span className={`text-xs px-2 py-0.5 rounded border font-medium shrink-0 ${badgeClass}`}>

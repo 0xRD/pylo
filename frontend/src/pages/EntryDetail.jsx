@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { blueprintsApi } from '../api/blueprints'
+import { fmtDateTime } from '../utils/dates'
 
 export default function EntryDetail() {
   const { id } = useParams()
@@ -124,8 +125,8 @@ export default function EntryDetail() {
       </div>
 
       <div className="flex gap-4 text-xs text-gray-500">
-        <span>Created: {new Date(entry.created_at).toLocaleString()}</span>
-        <span>Updated: {new Date(entry.updated_at).toLocaleString()}</span>
+        <span>Created: {fmtDateTime(entry.created_at)}</span>
+        <span>Updated: {fmtDateTime(entry.updated_at)}</span>
       </div>
 
       {/* Tabs */}
@@ -222,7 +223,7 @@ export default function EntryDetail() {
                         }`}>{ev.event_type}</span>
                         <span className="text-gray-400 text-xs">by {ev.actor}</span>
                       </div>
-                      <span className="text-xs text-gray-600">{new Date(ev.created_at).toLocaleString()}</span>
+                      <span className="text-xs text-gray-600">{fmtDateTime(ev.created_at)}</span>
                     </div>
                     {ev.event_type === 'updated' && changed.length > 0 && (
                       <div className="mt-2 space-y-1.5">

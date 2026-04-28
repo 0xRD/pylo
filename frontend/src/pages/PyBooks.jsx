@@ -316,7 +316,7 @@ function RunPanel({ pybook, onClose, isAdmin }) {
               onClick={() => { setSelectedRun(run); if (!TERMINAL.has(run.status)) connectWs(run.id) }}
               className={"px-3 py-2 cursor-pointer border-b border-gray-800 hover:bg-gray-800" + (selectedRun?.id === run.id ? " bg-gray-800" : "")}>
               <RunStatusBadge status={run.status} />
-              <p className="text-xs text-gray-500 mt-1">{new Date(run.started_at).toLocaleTimeString()}</p>
+              <p className="text-xs text-gray-500 mt-1">{fmtDateTime(run.started_at)}</p>
               {run.duration_ms != null && <p className="text-xs text-gray-600">{run.duration_ms}ms</p>}
             </div>
           ))}
@@ -497,6 +497,7 @@ value = entry["data"]["field_name"]`} />
         <DocSection title="Full example — workflow node">
           <CodeSnippet code={`import json, os
 import pylo_sdk as pylo
+import { fmtDateTime } from '../utils/dates'
 
 # 1. Read upstream payload
 payload = json.loads(

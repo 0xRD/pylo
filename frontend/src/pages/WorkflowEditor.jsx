@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ScheduleBuilder from '../components/ScheduleBuilder'
+import { fmtShort } from '../utils/dates'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const NODE_W = 204
@@ -756,7 +757,7 @@ function RunHistory({ workflowId }) {
         <tbody>
           {runs.map(r => {
             const c = sc(r.status)
-            const fmt = new Date(r.started_at).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            const fmt = fmtShort(r.started_at)
             return (
               <tr key={r.id} style={{ borderBottom: '1px solid #111118', transition: 'background 0.1s' }}
                 onMouseEnter={e => { e.currentTarget.style.background = '#111118' }}

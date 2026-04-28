@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { secretsApi } from '../api/secrets'
+import { fmtDate } from '../utils/dates'
 
 export default function Secrets() {
   const [secrets, setSecrets] = useState([])
@@ -89,7 +90,7 @@ export default function Secrets() {
             <div>
               <p className="text-sm font-mono text-indigo-300">{s.name}</p>
               {s.description && <p className="text-xs text-gray-500 mt-0.5">{s.description}</p>}
-              <p className="text-xs text-gray-600 mt-1">Added {new Date(s.created_at).toLocaleDateString()}</p>
+              <p className="text-xs text-gray-600 mt-1">Added {fmtDate(s.created_at)}</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-600 font-mono">••••••••</span>
