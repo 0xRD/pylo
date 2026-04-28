@@ -25,6 +25,7 @@ class WorkflowCreate(BaseModel):
     description: Optional[str] = None
     is_active: bool = True
     trigger_type: str = "manual"
+    trigger_config: str = "{}"
     nodes: str = "[]"
     edges: str = "[]"
 
@@ -59,6 +60,23 @@ async def create_workflow(
     session.refresh(wf)
     return wf
 
+
+
+@router.get("/runs")
+async def list_all_workflow_runs(
+    workflow_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+):
+    stmt = select(WorkflowRun).order_by(WorkflowRun.started_at.desc())
+    if workflow_id:
+        stmt = stmt.where(WorkflowRun.workflow_id == workflow_id)
+    if status:
+        stmt = stmt.where(WorkflowRun.status == status)
+    stmt = stmt.offset(offset).limit(limit)
+    return session.exec(stmt).all()
 
 @router.get("/{workflow_id}")
 async def get_workflow(workflow_id: str, session: Session = Depends(get_session)):
@@ -184,6 +202,7 @@ async def get_workflow_run(
                 "node_id": nr.node_id,
                 "pybook_run_id": nr.pybook_run_id,
                 "status": nr.status,
+                "output_vars": nr.output_vars,
                 "started_at": nr.started_at.isoformat() if nr.started_at else None,
                 "ended_at": nr.ended_at.isoformat() if nr.ended_at else None,
                 "duration_ms": nr.duration_ms,

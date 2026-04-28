@@ -18,6 +18,7 @@ import Activity from './pages/Activity'
 import InviteAccept from './pages/InviteAccept'
 import Workflows from './pages/Workflows'
 import WorkflowEditor from './pages/WorkflowEditor'
+import Automations from './pages/Automations'
 
 function SetupGuard({ children }) {
   const [setupRequired, setSetupRequired] = useState(undefined)
@@ -64,6 +65,7 @@ export default function App() {
               <Route path="/entries" element={<Entries />} />
               <Route path="/pybooks" element={<PyBooks />} />
               <Route path="/runs" element={<Runs />} />
+              <Route path="/automations" element={<Automations />} />
               <Route path="/secrets" element={<Secrets />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/activity" element={<Activity />} />

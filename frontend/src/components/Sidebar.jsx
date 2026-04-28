@@ -8,6 +8,7 @@ const links = [
   { to: '/pybooks', label: 'PyBooks', icon: '📖' },
   { to: '/workflows', label: 'Workflows', icon: '⬡' },
   { to: '/runs', label: 'Runs', icon: '▶' },
+  { to: '/automations', label: 'Automations', icon: '⚡' },
   { to: '/secrets', label: 'Secrets', icon: '🔑' },
   { to: '/activity', label: 'Activity', icon: '◎' },
   { to: '/settings', label: 'Settings', icon: '⚙' },

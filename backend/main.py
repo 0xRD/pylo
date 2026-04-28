@@ -17,6 +17,7 @@ from backend.api.settings import router as settings_router
 from backend.api.users import router as users_router
 from backend.api.webhooks import router as webhooks_router
 from backend.api.workflows import router as workflows_router
+from backend.api.system import router as system_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
 from backend.core import queue_manager
@@ -110,6 +111,7 @@ app.include_router(settings_router)
 app.include_router(users_router)
 app.include_router(webhooks_router)
 app.include_router(workflows_router)
+app.include_router(system_router)
 
 
 @app.get("/health")

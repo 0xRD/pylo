@@ -12,6 +12,14 @@ const settingsApi = {
   }).then(r => r.json()),
 }
 
+
+const systemApi = {
+  info: () => fetch('/api/system/info', { credentials: 'include' }).then(r => r.json()),
+  checkUpdate: () => fetch('/api/system/update/check', { credentials: 'include' }).then(r => r.json()),
+  applyUpdate: () => fetch('/api/system/update/apply', { method: 'POST', credentials: 'include' }).then(r => r.json()),
+  updateStatus: () => fetch('/api/system/update/status', { credentials: 'include' }).then(r => r.json()),
+}
+
 export default function Settings() {
   const { isAdmin } = useAuth()
   const [settings, setSettings] = useState(null)
@@ -19,8 +27,14 @@ export default function Settings() {
   const [jwtHours, setJwtHours] = useState(24)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [sysInfo, setSysInfo] = useState(null)
+  const [updateCheck, setUpdateCheck] = useState(null)
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateJob, setUpdateJob] = useState(null)
+  const [applying, setApplying] = useState(false)
 
   useEffect(() => {
+    systemApi.info().then(setSysInfo).catch(() => {})
     settingsApi.get().then(s => {
       setSettings(s)
       setMaxConcurrent(s.max_concurrent_runs)
@@ -121,6 +135,81 @@ export default function Settings() {
             </button>
             {saved && <span className="text-xs text-green-400">Saved — takes effect immediately</span>}
             {isDirty && !saved && <span className="text-xs text-gray-500">Unsaved changes</span>}
+          </div>
+        )}
+
+
+        {isAdmin && (
+          <div className="p-5 bg-gray-900 border border-gray-800 rounded-lg space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-200">System updates</h2>
+                {sysInfo && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Current: <span className="font-mono text-gray-300">{sysInfo.short}</span>
+                    {sysInfo.message && <span className="ml-2 text-gray-600 italic">{sysInfo.message}</span>}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={async () => {
+                  setUpdateChecking(true); setUpdateCheck(null)
+                  try { setUpdateCheck(await systemApi.checkUpdate()) }
+                  catch (e) { setUpdateCheck({ error: e.message }) }
+                  finally { setUpdateChecking(false) }
+                }}
+                disabled={updateChecking}
+                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-xs transition-colors">
+                {updateChecking ? 'Checking…' : 'Check for updates'}
+              </button>
+            </div>
+
+            {updateCheck && !updateCheck.error && (
+              <div className={`p-3 rounded border text-xs ${updateCheck.up_to_date ? 'border-green-800 bg-green-950' : 'border-yellow-800 bg-yellow-950'}`}>
+                {updateCheck.up_to_date ? (
+                  <span className="text-green-400">✓ Up to date ({updateCheck.current_short})</span>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-yellow-300">Update available: <span className="font-mono">{updateCheck.current_short}</span> → <span className="font-mono">{updateCheck.latest_short}</span></p>
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Apply update? This will pull the latest code and rebuild containers. The app will be briefly unavailable.')) return
+                        setApplying(true)
+                        await systemApi.applyUpdate()
+                        const poll = setInterval(async () => {
+                          const st = await systemApi.updateStatus()
+                          setUpdateJob(st)
+                          if (st.status !== 'running') { clearInterval(poll); setApplying(false) }
+                        }, 2000)
+                      }}
+                      disabled={applying}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded font-medium transition-colors">
+                      {applying ? 'Applying…' : 'Apply update'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {updateCheck?.error && (
+              <p className="text-xs text-red-400 bg-red-950 px-3 py-2 rounded">{updateCheck.error}</p>
+            )}
+
+            {updateJob && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded ${
+                    updateJob.status === 'done' ? 'bg-green-900 text-green-300' :
+                    updateJob.status === 'error' ? 'bg-red-900 text-red-300' :
+                    'bg-blue-900 text-blue-300 animate-pulse'
+                  }`}>{updateJob.status}</span>
+                  {updateJob.error && <span className="text-xs text-red-400">{updateJob.error}</span>}
+                </div>
+                {updateJob.log && (
+                  <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-gray-300 whitespace-pre-wrap overflow-auto max-h-48">{updateJob.log}</pre>
+                )}
+              </div>
+            )}
           </div>
         )}
 
