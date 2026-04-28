@@ -373,28 +373,38 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                 ).all()
                 if json.loads(wf.trigger_config or "{}").get("blueprint_id") == bp.id
             ]
+            import asyncio as _asyncio
             for wf in wf_subscribers:
                 cfg = json.loads(wf.trigger_config or "{}")
                 trigger_event = cfg.get("trigger_event", "on_create")
                 if trigger_event not in ("on_create", "on_create_or_update"):
                     continue
-                wf_run = WorkflowRun(
-                    id=str(uuid.uuid4()),
-                    workflow_id=wf.id,
-                    status="pending",
-                    trigger_source="blueprint",
-                    started_at=datetime.now(timezone.utc),
-                )
-                _ts.add(wf_run)
-                _ts.commit()
-                wf_run_id = wf_run.id
-                import asyncio as _asyncio
-                try:
-                    loop = _asyncio.get_running_loop()
-                    loop.create_task(_execute_workflow_bg(wf_run_id))
-                except RuntimeError:
-                    pass
-
+                conditions = cfg.get("trigger_conditions", [])
+                matching = [e for e in created_entries if check_trigger_conditions(e["parsed"], conditions)]
+                if not matching:
+                    continue
+                matching = matching[:_MAX_TRIGGERS_PER_FETCH]
+                for entry_info in matching:
+                    wf_run = WorkflowRun(
+                        id=str(uuid.uuid4()),
+                        workflow_id=wf.id,
+                        status="pending",
+                        trigger_source="blueprint",
+                        trigger_payload=json.dumps({
+                            "blueprint_id": bp.id,
+                            "entry_id": entry_info["entry_id"],
+                            "entry_data": entry_info["parsed"],
+                        }),
+                        started_at=datetime.now(timezone.utc),
+                    )
+                    _ts.add(wf_run)
+                    _ts.commit()
+                    wf_run_id = wf_run.id
+                    try:
+                        loop = _asyncio.get_running_loop()
+                        loop.create_task(_execute_workflow_bg(wf_run_id))
+                    except RuntimeError:
+                        pass
     except Exception as exc:
         logger.warning("Failed to fire blueprint triggers: %s", exc)
 

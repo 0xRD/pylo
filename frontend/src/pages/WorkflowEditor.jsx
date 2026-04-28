@@ -442,6 +442,64 @@ function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelec
   )
 }
 
+// ── WfTriggerConditionBuilder ─────────────────────────────────────────────────────
+const WF_TRIGGER_OPS = [
+  { value: 'eq', label: '=' },
+  { value: 'ne', label: '≠' },
+  { value: 'contains', label: 'contains' },
+  { value: 'starts_with', label: 'starts with' },
+  { value: 'regex', label: 'regex' },
+  { value: 'gt', label: '>' },
+  { value: 'lt', label: '<' },
+]
+
+function WfTriggerConditionBuilder({ value, onChange }) {
+  const conditions = (() => { try { return JSON.parse(value || '[]') } catch { return [] } })()
+  const update = next => onChange(JSON.stringify(next))
+  const add = () => update([...conditions, { field: '', operator: 'eq', value: '' }])
+  const remove = i => update(conditions.filter((_, idx) => idx !== i))
+  const setC = (i, k, v) => update(conditions.map((c, idx) => idx === i ? { ...c, [k]: v } : c))
+
+  const inputStyle = {
+    background: '#0f1117', border: '1px solid #1f2937', borderRadius: 4,
+    padding: '4px 6px', color: '#e2e8f0', fontSize: 11, outline: 'none',
+    fontFamily: 'monospace',
+  }
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid #1f2937', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ color: '#6b7280', fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+          Conditions
+        </span>
+        <button type='button' onClick={add} style={{
+          fontSize: 10, color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+        }}>+ Add</button>
+      </div>
+      {conditions.length === 0 && (
+        <p style={{ color: '#4b5563', fontSize: 10, fontStyle: 'italic', margin: 0 }}>
+          No conditions — fires for every matching entry.
+        </p>
+      )}
+      {conditions.map((cond, i) => (
+        <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input value={cond.field} onChange={e => setC(i, 'field', e.target.value)} placeholder='field'
+            style={{ ...inputStyle, width: 70 }} />
+          <select value={cond.operator} onChange={e => setC(i, 'operator', e.target.value)}
+            style={{ ...inputStyle, padding: '4px 4px' }}>
+            {WF_TRIGGER_OPS.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+          </select>
+          <input value={cond.value} onChange={e => setC(i, 'value', e.target.value)} placeholder='value'
+            style={{ ...inputStyle, flex: 1 }} />
+          <button type='button' onClick={() => remove(i)} style={{
+            color: '#4b5563', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1,
+          }}>×</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── PropertiesPanel ───────────────────────────────────────────────────────────
 function ConditionSelect({ value, onChange }) {
   const opts = [
@@ -571,6 +629,12 @@ function PropertiesPanel({ selectedItem, workflow, blueprints, onUpdateEdge, onU
                       <option value="on_create_or_update">On new or updated entry</option>
                     </select>
                   </div>
+                  {tc.blueprint_id && (
+                    <WfTriggerConditionBuilder
+                      value={JSON.stringify(tc.trigger_conditions || [])}
+                      onChange={v => { try { setTc('trigger_conditions', JSON.parse(v)) } catch {} }}
+                    />
+                  )}
                 </div>
               )}
             </>
