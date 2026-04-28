@@ -4,74 +4,134 @@
 
 ## What is Pylo
 
-Python automation orchestration platform for SOAR and data pipelines. Users write **PyBooks** (Python scripts running in isolated Docker containers), define **Blueprints** (REST API data sources with field mappings), and link them so new data entries automatically trigger playbooks.
+Python automation orchestration platform for SOAR and data pipelines. Users write **PyBooks** (Python scripts running in isolated Docker containers), define **Blueprints** (REST API data sources with field mappings), chain them into **Workflows** (visual DAG editor), and trigger everything on schedules, blueprint events, or webhooks.
 
 ## Environment
 
 - **VM**: `claude-workspace@orb` (OrbStack Ubuntu 25.10) — all code at `~/pylo`
+- **SSH**: `ssh claude-workspace@orb` (OrbStack config included via `~/.ssh/config`)
 - **Stack**: FastAPI + SQLModel + SQLite backend · React 18 + Vite + Tailwind CSS v3 frontend · Docker Compose
 - **Running services**: `docker compose up -d` → frontend on :3000, backend on :8000
-- **Auth**: `X-API-Token` header on all API calls. Token in `~/pylo/.env`
-- **DB**: `~/pylo/objects_storage/pylo.db` (SQLite, migrations via Alembic, run on container start)
-- **No hot-reload in Docker**: after backend changes, run `docker compose build backend --no-cache && docker compose up -d backend`. Frontend: same with `frontend`.
+- **Auth**: `X-API-Token` header on all API calls (or httpOnly JWT cookie from browser login). Token in `~/pylo/.env`
+- **DB**: `~/pylo/objects_storage/pylo.db` (SQLite + FTS5, migrations via Alembic, run on container start)
+- **Test credentials**: username=`Romain`, password=`12345678`
+- **No hot-reload in Docker**: after backend changes → `docker compose build backend && docker compose up -d backend`. Frontend: same with `frontend`.
 
-## Repository State (as of session 10)
+## Repository State (after Session 12)
 
-All features committed and working. Clean `main` branch, 9 commits ahead of `origin/main`.
+Branch: `main`. All features committed. Pushed to `https://github.com/0xRD/pylo`.
 
-Current Alembic head: `f1a2b3c4d5e6` (blueprint trigger ownership migrated to PyBooks)
+**Alembic head**: `j9k0l1m2n3o4` (adds `mutable_mode` on blueprint + `entry_event` table)
 
-## Next Priorities (from `docs/TODO.md`)
-
-1. **#1** Entry deduplication + mutable fields + audit trail — highest SOAR value
-2. **#4** User authentication + roles — JWT, login page, admin/viewer roles
-3. **#9** Paginated API source fetching — cursor/page/offset pagination in `_do_fetch`
-4. **#6** Re-parse entries on mapping change — background task after blueprint update
-5. **#16** Run variable inspector — `output_vars` column + Variables tab in run detail panel
-6. **#19** Always-on sub-PyBooks — warm Docker containers for near-instant invocation
+Migration chain:
+```
+fc661ed4275a (initial) → 1fd00603a2fc (fetch_cron) → a3f2b1c4d5e6 (rename objects→blueprints)
+→ b5c3d2e1f0a9 (trigger_event) → c6d4e3f2a1b0 (pybook tags) → d7e5f4a3b2c1 (system_setting)
+→ e8f6a5b4c3d2 (trigger_conditions) → f1a2b3c4d5e6 (blueprint→pybook trigger ownership)
+→ g2h3i4j5k6l7 (activity_log) → h7i8j9k0l1m2 (workflows + output_vars)
+→ i8j9k0l1m2n3 (workflow trigger_config) → j9k0l1m2n3o4 (mutable_mode + entry_event)
+```
 
 ## Key Files to Know
 
 ```
-backend/api/blueprints.py    # fetch pipeline, _fire_blueprint_triggers, entry CRUD, /subscribers
-backend/objects/filter.py    # field query language + check_trigger_conditions
-backend/core/queue_manager.py # async execution queue
-backend/core/scheduler.py    # APScheduler for cron + blueprint fetch schedules
-frontend/src/components/BlueprintForm.jsx  # reused in create modal + settings tab (no trigger UI)
-frontend/src/pages/BlueprintDetail.jsx     # tabbed detail (entries + settings + subscribers)
-frontend/src/pages/PyBooks.jsx             # editor with blueprint trigger config panel
-frontend/src/pages/Entries.jsx             # global entries view
-pylo_sdk.py                  # mounted into every PyBook container
+backend/api/blueprints.py      # fetch pipeline, _fire_blueprint_triggers (PyBook+Workflow),
+                               # entry CRUD, PATCH entry (mutability), history endpoint
+backend/api/workflows.py       # Workflow CRUD, WorkflowRun, global /runs endpoint
+backend/api/runs.py            # PyBookRun history, WebSocket live log
+backend/api/system.py          # /info, /update/check, /update/apply, /update/status
+backend/api/settings.py        # system settings (concurrency, JWT, retention)
+backend/objects/models.py      # Blueprint, Entry, EntryEvent SQLModel classes
+backend/objects/filter.py      # field query language + check_trigger_conditions
+backend/workflows/executor.py  # DAG executor: topological sort, asyncio.gather, var passing
+backend/core/queue_manager.py  # asyncio Semaphore-based execution queue
+backend/core/scheduler.py      # APScheduler: blueprint cron fetch + workflow cron runs
+frontend/src/pages/Runs.jsx          # unified PyBook + Workflow run history
+frontend/src/pages/Automations.jsx   # all active triggers in one view
+frontend/src/pages/WorkflowEditor.jsx # 3-panel DAG editor (palette / canvas / properties)
+frontend/src/pages/EntryDetail.jsx   # Fields/Raw/History tabs + inline edit
+frontend/src/components/BlueprintForm.jsx  # field mappings + mutable_mode selector
+frontend/src/components/ScheduleBuilder.jsx # human-friendly cron builder
+pylo_sdk.py                    # auto-mounted in every PyBook container
 ```
 
 ## Critical Patterns
 
-- **Route ordering**: `/blueprints/entries/:id` before `/blueprints/:id` in App.jsx; `/api/runs/queue` before `/api/runs/{run_id}` in runs.py
-- **Run lifecycle**: always write `status="queued"` to DB *before* calling `queue_manager.enqueue()` — this ensures orphan recovery on restart
-- **Trigger payload** (blueprint → PyBook): `{"blueprint_id": "...", "entry_id": "...", "entry_data": {...}}`
-- **Blueprint trigger subscription**: owned by PyBook (`trigger_type="blueprint"`, `trigger_config={"blueprint_id":..., "trigger_event":..., "trigger_conditions":[...]}`); Blueprint has no trigger UI — subscribe from the PyBook editor
-- **New DB column**: add to `models.py` with `Field(default=...)` + new Alembic migration with `server_default`
-- **Backend deploy**: source files are copied into the Docker image at build time (not volume-mounted), so `docker compose build` is required after any Python change
-- **BlueprintForm is the single source of truth** for blueprint editing — used both in the "New Blueprint" modal and the Settings tab; don't fork it
+- **Route ordering**: `/blueprints/entries/:id` before `/blueprints/:id` in App.jsx; `/api/runs/queue` and `/api/workflows/runs` before `/{id}` in their routers — FastAPI matches in declaration order
+- **Run lifecycle**: always write `status="queued"` to DB *before* calling `queue_manager.enqueue()` — ensures orphan recovery on restart
+- **Workflow trigger_config**: stored as JSON string in DB, includes `blueprint_id` and `trigger_event` for blueprint triggers, `cron` for cron triggers
+- **Blueprint trigger fan-out**: `_fire_blueprint_triggers(bp, created_entries)` is the single entry point — queries both PyBook and Workflow subscribers, evaluates conditions (PyBooks only), caps at 50 per subscriber
+- **asyncio in sync functions**: use `asyncio.get_running_loop().create_task(...)` — NOT `get_event_loop()` (deprecated in Python 3.10+)
+- **Self-update**: backend container has git + Docker CLI; repo is mounted at `/app/repo`; `git config --global --add safe.directory /app/repo` needed before git commands
 
-## Development Workflow
+## Architecture Summary
+
+```
+Browser (React 18 + Vite + Tailwind)
+  ↓ nginx proxy
+FastAPI backend (port 8000)
+  ├── /api/auth, /api/users          — JWT cookie auth + roles
+  ├── /api/blueprints                — Blueprint CRUD, fetch, entry CRUD, mutability
+  ├── /api/pybooks                   — PyBook CRUD, manual run
+  ├── /api/runs                      — PyBookRun history, WebSocket logs
+  ├── /api/workflows                 — Workflow CRUD, WorkflowRun, global /runs
+  ├── /api/secrets                   — Encrypted Fernet store
+  ├── /api/settings                  — Concurrency, JWT, activity retention
+  ├── /api/system                    — git info, self-update check/apply
+  ├── /api/webhooks                  — inbound webhook triggers
+  └── /api/activity                  — audit event log
+  
+  APScheduler (in-process)
+    ├── blueprint cron jobs (cron_obj_{id})
+    └── workflow cron jobs (cron_wf_{id})
+  
+  asyncio Semaphore queue → Docker sibling containers (DooD)
+    └── pylo_sdk.py + PyBook script mounted at runtime
+    
+  SQLite + FTS5 (objects_storage/pylo.db)
+  Alembic migrations (run on container start)
+  
+  /app/repo → ~/pylo (host) — for self-update
+  /var/run/docker.sock → Docker daemon — for running PyBooks + self-update
+```
+
+## Next Priorities (from docs/TODO.md)
+
+1. **trigger_conditions for workflow blueprint triggers** — PyBooks already have this; Workflows currently fire unconditionally
+2. **Task 5: pylo_sdk standalone library** — pip-installable `PyloClient` class, `docs/SDK.md`
+3. **Paginated API source fetching** — cursor/page/offset pagination in `_do_fetch`
+4. **Scoped API keys** — per-key permissions
+5. **Configuration backup & restore** — export/import + Git integration
+6. **Re-parse entries on mapping change** — background task after blueprint update
+
+## Common Operations
 
 ```bash
-# Deploy backend change
-ssh claude-workspace@orb 'cd ~/pylo && docker compose build backend --no-cache && docker compose up -d backend'
+# Build + restart backend after code changes
+ssh claude-workspace@orb "cd /home/romain/pylo && docker compose build backend && docker compose up -d backend"
 
-# Deploy frontend change
-ssh claude-workspace@orb 'cd ~/pylo && docker compose build frontend --no-cache && docker compose up -d frontend'
+# Build + restart frontend
+ssh claude-workspace@orb "cd /home/romain/pylo && docker compose build frontend && docker compose up -d frontend"
 
-# Check logs
-ssh claude-workspace@orb 'cd ~/pylo && docker compose logs backend --tail=20'
+# Run tests
+ssh claude-workspace@orb "docker compose -f /home/romain/pylo/docker-compose.yml exec backend python3 -m pytest tests/ -x -q"
 
-# Run a quick API test
-ssh claude-workspace@orb 'source ~/pylo/.env && curl -s -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints | python3 -m json.tool | head -20'
+# Apply migrations
+ssh claude-workspace@orb "docker compose -f /home/romain/pylo/docker-compose.yml exec backend python -m alembic upgrade head"
 
-# Write and SCP a patch script (preferred for complex multi-file changes)
-# 1. Write /tmp/patch_X.py locally
-# 2. scp /tmp/patch_X.py claude-workspace@orb:/tmp/
-# 3. ssh claude-workspace@orb 'cd ~/pylo && python3 /tmp/patch_X.py'
-# 4. Rebuild + verify
+# Check current migration
+ssh claude-workspace@orb "docker compose -f /home/romain/pylo/docker-compose.yml exec backend python -m alembic current"
+
+# View backend logs
+ssh claude-workspace@orb "docker compose -f /home/romain/pylo/docker-compose.yml logs backend --tail=50"
+
+# Quick API test (after login)
+ssh claude-workspace@orb "curl -s http://localhost:8000/health"
 ```
+
+## Known Quirks / Watch Out For
+
+- The `/app/repo` mount uses the host user's files but the container runs as root → `git` will complain about "dubious ownership" unless you run `git config --global --add safe.directory /app/repo` first
+- When writing Python patch scripts, escape quotes carefully — the `PYEOF` heredoc approach is safer than inline `-c` commands for complex patches
+- Backend source is baked into the Docker image at build time (`COPY . /app/backend/`); only `migrations/`, `tests/`, `pylo_sdk.py`, `alembic.ini`, and the repo dir (`/app/repo`) are live-mounted
+- The duplicate function bug: a previous patch session accidentally created duplicate `_fire_blueprint_triggers` definitions. Always check after patching with `grep -c 'def function_name'`

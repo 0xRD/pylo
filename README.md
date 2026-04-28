@@ -104,9 +104,11 @@ Every PyBook execution creates a Run record with full stdout/stderr, exit code, 
 | `/blueprints/entries/:id` | Single entry detail with raw and parsed fields |
 | `/entries` | Global entries view — full-text search, field filter, blueprint chips, bulk delete |
 | `/pybooks` | PyBook editor with sidebar (search, type filter, tag filter) |
-| `/runs` | Run history with live concurrency bar and queue depth |
+| `/runs` | Unified PyBook + Workflow run history with type filter |
+| `/automations` | All active scheduled/triggered PyBooks and Workflows in one view |
 | `/secrets` | Encrypted secret management |
-| `/settings` | System settings (max concurrent runs, session duration) |
+| `/workflows` | Workflow list — visual DAG editor for multi-step automation |
+| `/settings` | System settings (max concurrent runs, session duration, self-update) |
 | `/users` | User management — admin only |
 
 ---
@@ -129,6 +131,21 @@ entry = get_entry("<entry_id>")
 result = call_sub_pybook("<sub_pybook_id>", payload={"alert_id": "123"})
 ```
 
+Export variables for use in downstream workflow nodes or for inspection after the run:
+
+```python
+# Export one variable at a time
+pylo.set_output("alert_id", "abc-123")
+pylo.set_output("vt_score", 0.92)
+
+# Or export all local variables at once (filters non-serialisable values)
+vt_score = 0.92
+is_malicious = vt_score > 0.7
+pylo.export_vars(locals())
+```
+
+Exported variables appear in the **Variables** panel of the run detail and can be passed to downstream Workflow nodes via edge payload mappings (`$.vars.key`).
+
 Secrets are injected as environment variables:
 
 ```python
@@ -138,6 +155,21 @@ api_key = os.environ["SECRET_virustotal_key"]
 
 ---
 
+
+### Workflows
+
+Visual DAG (directed acyclic graph) editor for chaining multiple PyBooks into multi-step automations.
+
+- **Nodes**: drag PyBooks onto the canvas from the left palette
+- **Edges**: draw connections between nodes; set condition (`always` / `on success` / `on failure`)
+- **Payload mappings**: pass output variables from one node to the next via `$.vars.key` references
+- **Triggers**: same options as PyBooks — manual, cron, webhook, or blueprint event
+- **Execution**: parallel fan-out via asyncio, topological ordering, per-node status tracking
+- **Runs**: per-workflow run history with node-level status and output variables
+
+The Workflow editor auto-saves changes. Runs are tracked separately from PyBook runs and visible in both the Workflow editor sidebar and the unified Runs page.
+
+---
 ## Blueprint Authentication
 
 The Authentication section in the Blueprint form builds the auth header from a stored secret — no manual template editing required:
@@ -274,7 +306,9 @@ curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
                         │  ├─ /api/pybooks     PyBook CRUD / run    │
                         │  ├─ /api/runs        History, logs, WS    │
                         │  ├─ /api/secrets     Encrypted store      │
+                        │  ├─ /api/workflows    Workflow + DAG runs  │
                         │  ├─ /api/settings    System config        │
+                        │  ├─ /api/system      Self-update & info    │
                         │  └─ /api/webhooks    Inbound triggers     │
                         │                                            │
                         │  APScheduler — cron + blueprint fetches   │
@@ -318,10 +352,9 @@ alembic upgrade head
 
 See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 
-- **Mutable fields + entry history** — update fields on re-fetch; audit trail of changes per entry
+- **trigger_conditions on workflow blueprint triggers** — PyBooks already support per-field conditions before firing; Workflows currently fire unconditionally
+- **pylo_sdk standalone library** — pip-installable `PyloClient` for external script integration without manual SDK mounting
 - **Paginated API fetching** — cursor, page-number, and offset pagination for multi-page sources
 - **Scoped API Keys** — per-key permissions for SIEM/script integrations
+- **Configuration backup & restore** — export/import to ZIP or Git repository
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
-- **Run variable inspector** — view variables in scope after each run; collapsible tree in the run detail panel
-- **Always-on sub-PyBooks** — warm containers for near-instant invocation, eliminating cold-start latency
-- **Visual workflow builder** — React Flow DAG editor for chaining PyBooks with conditional branching
