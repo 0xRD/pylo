@@ -593,7 +593,7 @@ function PropertiesPanel({ selectedItem, workflow, blueprints, onUpdateEdge, onU
                     transition: 'all 0.12s',
                   }}>
                     <input type="radio" checked={workflow.trigger_type === t}
-                      onChange={() => onUpdateWorkflow({ trigger_type: t, trigger_config: '{}' })}
+                      onChange={() => { if (workflow.trigger_type !== t) onUpdateWorkflow({ trigger_type: t, trigger_config: '{}' }) }}
                       style={{ accentColor: '#6366f1' }} />
                     <div style={{ color: workflow.trigger_type === t ? '#818cf8' : '#9ca3af', fontSize: 12, fontWeight: 500 }}>
                       {TRIGGER_LABELS[t]}
@@ -840,6 +840,7 @@ export default function WorkflowEditor() {
             description: workflow.description,
             is_active: workflow.is_active,
             trigger_type: workflow.trigger_type,
+            trigger_config: workflow.trigger_config,
             nodes: JSON.stringify(workflow.nodes),
             edges: JSON.stringify(workflow.edges),
           }),

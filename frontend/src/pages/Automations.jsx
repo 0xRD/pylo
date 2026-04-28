@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 const TRIGGER_LABELS = {
   manual: 'Manual',
@@ -46,6 +46,7 @@ function TriggerDetail({ type, config, blueprints }) {
 }
 
 export default function Automations() {
+  const navigate = useNavigate()
   const [pybooks, setPybooks] = useState([])
   const [workflows, setWorkflows] = useState([])
   const [blueprints, setBlueprints] = useState([])
@@ -134,11 +135,11 @@ export default function Automations() {
               </span>
 
               {/* Name */}
-              <Link
-                to={item._type === 'workflow' ? `/workflows/${item._id}` : `/pybooks/${item._id}`}
-                className="text-sm text-gray-200 hover:text-indigo-300 flex-1 truncate font-medium transition-colors">
+              <button
+                onClick={() => navigate(`/runs?${item._type === 'workflow' ? 'workflow' : 'pybook'}=${item._id}`)}
+                className="text-sm text-gray-200 hover:text-indigo-300 flex-1 truncate font-medium transition-colors text-left bg-transparent border-0 cursor-pointer p-0">
                 {item._name}
-              </Link>
+              </button>
 
               {/* Trigger type */}
               <TriggerBadge type={item.trigger_type} />
@@ -156,6 +157,12 @@ export default function Automations() {
               <span className={`text-xs shrink-0 ${item.is_active ? 'text-green-400' : 'text-gray-600'}`}>
                 {item.is_active ? '● active' : '○ inactive'}
               </span>
+              <button
+                onClick={() => navigate(`/runs?${item._type === 'workflow' ? 'workflow' : 'pybook'}=${item._id}`)}
+                className="text-xs text-indigo-400 hover:text-indigo-200 shrink-0 bg-transparent border-0 cursor-pointer p-0"
+                title="View runs">
+                Runs →
+              </button>
             </div>
           ))}
         </div>
