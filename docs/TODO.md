@@ -64,6 +64,40 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 
 **Why:** PyBooks need a clean way to update lifecycle fields such as status, owner, or verdict.
 
+---
+
+## 5. PyBook payload clarity and development ergonomics
+
+- Make trigger payload handling explicit in the PyBook editor/run console.
+- Show a short copyable snippet near the payload editor:
+
+```python
+import json
+import os
+
+payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+entry_id = payload.get("entry_id")
+entry_data = payload.get("entry_data", {})
+```
+
+- Add preset payload templates for common cases: manual run, selected Entry, bulk Entries, webhook, workflow edge mapping.
+- Make clear that `pylo.set_output()` and `pylo.export_vars(locals())` publish output variables, while `TRIGGER_PAYLOAD` is the input payload.
+- Consider a small runtime helper in `pylo_sdk.py`, for example `pylo.get_payload()`, to avoid repeating `json.loads(os.environ...)` in every PyBook.
+
+**Why:** Developers need to understand immediately how JSON payloads enter a PyBook and how to consume selected Entry data safely.
+
+---
+
+## 6. Dashboard and dense views ergonomics
+
+- Rework the dashboard layout to feel less compressed on desktop.
+- Add more breathing room, larger chart panels, and clearer visual hierarchy for high-priority metrics.
+- Consider a collapsible or wider main content mode for operator pages such as Dashboard, PyBooks, Runs, and Entries.
+- Improve PyBook run/development surfaces so payload, variables, logs, and recent runs are easier to scan without cramped side-by-side panels.
+- Keep compact density available for power users, but avoid making the default view feel squeezed.
+
+**Why:** The current Dracula refresh is functional, but operational views need more space and stronger hierarchy for long development/debugging sessions.
+
 
 ---
 
