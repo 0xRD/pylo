@@ -57,7 +57,7 @@ function PyBookRunDetail({ run }) {
             {run.exit_code != null && <span className="text-xs text-gray-500">exit {run.exit_code}</span>}
             {run.duration_ms != null && <span className="text-xs text-gray-500">{run.duration_ms}ms</span>}
           </div>
-          <span className="font-mono text-[11px] text-gray-500">{run.id}</span>
+          <span className="max-w-full truncate font-mono text-[11px] text-gray-500">{run.id}</span>
         </div>
         <div className="mt-2 grid gap-1 text-xs text-gray-500 md:grid-cols-3">
           <p>PyBook: <span className="font-mono text-gray-300">{run.pybook_id?.slice(0, 12)}</span></p>
@@ -66,7 +66,7 @@ function PyBookRunDetail({ run }) {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-4">
         <div className="space-y-4 min-w-0">
           {run.stdout && (
             <div>
@@ -310,7 +310,7 @@ export default function Runs() {
 
       {/* Detail panel */}
       {selected && (
-        <div className="w-96 shrink-0 space-y-4 overflow-y-auto">
+        <div className="w-[420px] max-w-[42vw] shrink-0 space-y-4 overflow-y-auto">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">
               {selected._type === 'workflow' ? 'Workflow run' : 'PyBook run'}
