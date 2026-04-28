@@ -5,6 +5,7 @@ import { pybooksApi } from "../api/pybooks"
 import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
 import { useAuth } from "../context/AuthContext"
+import { fmtDateTime } from "../utils/dates"
 
 const DEFAULT_SCRIPT = `# Your PyBook script
 # Available: requests, httpx, pydantic (always)
@@ -497,7 +498,6 @@ value = entry["data"]["field_name"]`} />
         <DocSection title="Full example — workflow node">
           <CodeSnippet code={`import json, os
 import pylo_sdk as pylo
-import { fmtDateTime } from '../utils/dates'
 
 # 1. Read upstream payload
 payload = json.loads(
@@ -523,6 +523,229 @@ print(f"Score: {score}")`} />
   )
 }
 
+
+// ── Config Panel ──────────────────────────────────────────────────────────────
+
+function ConfigPanel({ pybook, onClose, onSaved, isAdmin }) {
+  const [form, setForm] = useState({
+    name: pybook.name || '',
+    description: pybook.description || '',
+    dependencies: pybook.dependencies || '[]',
+    required_secrets: pybook.required_secrets || '[]',
+    is_sub_pybook: !!pybook.is_sub_pybook,
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSave = async () => {
+    for (const field of ['dependencies', 'required_secrets']) {
+      try { JSON.parse(form[field] || '[]') }
+      catch { setError(`Invalid JSON in ${field}`); return }
+    }
+    setSaving(true); setError(null)
+    try {
+      await onSaved(form)
+      onClose()
+    } catch (err) {
+      setError(err.message)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="w-80 shrink-0 border-l border-gray-800 flex flex-col overflow-hidden bg-gray-900">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 shrink-0">
+        <span className="text-sm font-medium text-gray-200">Settings</span>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {error && <p className="text-red-400 text-xs bg-red-950 px-3 py-2 rounded">{error}</p>}
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Name</label>
+          <input value={form.name} onChange={e => set('name', e.target.value)} disabled={!isAdmin}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Description</label>
+          <input value={form.description} onChange={e => set('description', e.target.value)} disabled={!isAdmin}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">
+            Dependencies <span className="text-gray-600">(pip packages, JSON array)</span>
+          </label>
+          <input value={form.dependencies} onChange={e => set('dependencies', e.target.value)} disabled={!isAdmin}
+            placeholder='["pandas", "boto3"]'
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+          <p className="text-xs text-gray-600 mt-1">requests, httpx, pydantic are always available</p>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">
+            Required secrets <span className="text-gray-600">(JSON array of secret names)</span>
+          </label>
+          <input value={form.required_secrets} onChange={e => set('required_secrets', e.target.value)} disabled={!isAdmin}
+            placeholder='["virustotal_api_key"]'
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+          <p className="text-xs text-gray-600 mt-1">Injected as SECRET_&lt;name&gt; env vars</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="cfg_is_sub" checked={form.is_sub_pybook}
+            disabled={!isAdmin} onChange={e => set('is_sub_pybook', e.target.checked)}
+            className="rounded border-gray-600 disabled:opacity-50" />
+          <label htmlFor="cfg_is_sub" className="text-sm text-gray-300">
+            Sub-PyBook <span className="text-xs text-gray-500">(callable by other PyBooks)</span>
+          </label>
+        </div>
+        {isAdmin && (
+          <button onClick={handleSave} disabled={saving}
+            className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+            {saving ? 'Saving...' : 'Save settings'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── AI Prompt Modal ───────────────────────────────────────────────────────────
+
+const PYLO_AI_PROMPT = `You are helping write a PyBook script for Pylo, an internal security automation platform.
+
+## What is Pylo?
+Pylo is a workflow automation platform where scripts called PyBooks run in isolated Docker containers. PyBooks can be triggered manually, on a cron schedule, by webhooks, or when new entries are created in a Blueprint (structured data store). They can also be chained together in visual Workflows.
+
+## PyBook execution environment
+- Python 3.11+ isolated container
+- Pre-installed: requests, httpx, pydantic
+- Custom pip packages declared in the PyBook's "dependencies" field
+- Script runs as: python /pybook/main.py
+
+## Available environment variables
+- TRIGGER_PAYLOAD: JSON string with input data (from workflow edge or blueprint event)
+- PYLO_RUN_ID: UUID of the current run
+- PYLO_PYBOOK_ID: UUID of this PyBook
+- PYLO_API_URL: Backend base URL (http://backend:8000 inside containers)
+- SECRET_<name>: Injected secret values (declared in the required_secrets field)
+
+## pylo_sdk functions (auto-mounted, import as: import pylo_sdk as pylo)
+
+\`\`\`python
+# Search blueprint entries
+entries = pylo.search_entries("keyword", type_id="blueprint-uuid-optional")
+# Returns: [{"id": "...", "title": "...", "data": "<JSON string>", ...}, ...]
+
+# IMPORTANT: entry["data"] is always a JSON string, parse it:
+entry = pylo.get_entry("entry-uuid")
+data = json.loads(entry["data"])  # <-- required!
+
+# Export output variable for downstream workflow nodes
+pylo.set_output("key", value)          # one at a time
+pylo.export_vars(locals())             # export all local variables at once
+
+# Call a sub-PyBook and wait for result
+result = pylo.call_sub_pybook("sub-uuid", payload={"key": "value"})
+# result: {"id": "...", "status": "success", "output_vars": {...}}
+\`\`\`
+
+## Standard script template
+\`\`\`python
+import json
+import os
+import pylo_sdk as pylo
+
+# Read trigger payload (input from workflow or blueprint event)
+payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+
+# Access a secret (declared in required_secrets)
+api_key = os.environ["SECRET_my_api_key"]
+
+# Do work
+result = "computed value"
+
+# Export for downstream workflow nodes
+pylo.set_output("result", result)
+print(f"Done: {result}")
+\`\`\`
+
+## Common patterns
+
+### Blueprint-triggered PyBook (process new entries)
+\`\`\`python
+import json, os
+import pylo_sdk as pylo
+
+payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+entry_id = payload.get("entry_id") or payload.get("id")
+entry = pylo.get_entry(entry_id)
+data = json.loads(entry["data"])  # parse the data field!
+title = entry.get("title", "")
+
+# process data...
+pylo.set_output("processed", True)
+\`\`\`
+
+### Batch processing all blueprint entries
+\`\`\`python
+import json, os
+import pylo_sdk as pylo
+
+payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+blueprint_id = payload.get("blueprint_id", "your-blueprint-uuid")
+entries = pylo.search_entries("", type_id=blueprint_id)
+
+results = []
+for item in entries:
+    entry = pylo.get_entry(item["id"])
+    data = json.loads(entry["data"])  # always parse!
+    # process...
+
+pylo.set_output("count", len(results))
+\`\`\`
+
+## Important notes
+- Always add: import os, json at the top
+- entry["data"] is ALWAYS a JSON string — always use json.loads()
+- set_output() is the ONLY way to pass data to the next workflow node
+- Print statements go to stdout (visible in run logs)
+- Raise exceptions to mark the run as failed
+- Default timeout: 300s — print progress for long-running tasks
+`
+
+function AIPromptModal({ onClose }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(PYLO_AI_PROMPT).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-2xl flex flex-col shadow-2xl" style={{maxHeight: '80vh'}}
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <div>
+            <h2 className="text-base font-semibold">AI Prompt — PyBook Assistant</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Copy into any LLM to get context-aware help writing PyBook scripts</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none ml-4">&times;</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap bg-gray-950 rounded-lg p-4 border border-gray-800 leading-relaxed">
+            {PYLO_AI_PROMPT}
+          </pre>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-800 shrink-0 flex justify-between items-center">
+          <p className="text-xs text-gray-600">Paste into ChatGPT, Claude, Gemini, etc. as a system prompt or first message.</p>
+          <button onClick={copy}
+            className={"px-4 py-2 rounded text-sm font-medium transition-colors " + (copied ? "bg-green-700 text-green-100" : "bg-indigo-600 hover:bg-indigo-500")}>
+            {copied ? "Copied!" : "Copy prompt"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main PyBooks page ─────────────────────────────────────────────────────────
 
 export default function PyBooks() {
@@ -536,6 +759,8 @@ export default function PyBooks() {
   const [loading, setLoading] = useState(true)
   const [selectedTags, setSelectedTags] = useState(null)
   const [showDocs, setShowDocs] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
+  const [showAIPrompt, setShowAIPrompt] = useState(false)
   const [showTriggerEdit, setShowTriggerEdit] = useState(false)
   const [triggerDraft, setTriggerDraft] = useState(null)
 
@@ -564,6 +789,7 @@ export default function PyBooks() {
     setSelected(pb)
     setScript(pb.script || "")
     setShowNew(false)
+    setShowConfig(false)
     setShowTriggerEdit(false)
     setTriggerDraft(null)
     try { setSelectedTags(JSON.parse(pb.tags || '[]')) } catch { setSelectedTags([]) }
@@ -578,6 +804,13 @@ export default function PyBooks() {
     setSelected(updated)
     setShowTriggerEdit(false)
     setTriggerDraft(null)
+    load()
+  }
+
+  const handleSaveConfig = async (fields) => {
+    if (!selected) return
+    const updated = await pybooksApi.update(selected.id, fields)
+    setSelected(updated)
     load()
   }
 
@@ -637,6 +870,8 @@ export default function PyBooks() {
   )
 
   return (
+    <>
+    {showAIPrompt && <AIPromptModal onClose={() => setShowAIPrompt(false)} />}
     <div className="flex h-full gap-0 -m-6">
       {/* Sidebar */}
       <div className="w-60 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-hidden">
@@ -723,10 +958,15 @@ export default function PyBooks() {
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
                 {selected.is_active ? "Disable" : "Enable"}
               </button>
-              <button onClick={() => { setShowRuns(s => !s); setShowDocs(false) }}
+              <button onClick={() => { setShowRuns(s => !s); setShowDocs(false); setShowConfig(false) }}
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">Runs</button>
-              <button onClick={() => { setShowDocs(s => !s); setShowRuns(false) }}
+              <button onClick={() => { setShowDocs(s => !s); setShowRuns(false); setShowConfig(false) }}
                 className={"text-xs px-2 py-1 rounded transition-colors " + (showDocs ? "bg-indigo-700 text-white" : "bg-gray-800 hover:bg-gray-700")}>SDK</button>
+              <button onClick={() => { setShowConfig(s => !s); setShowRuns(false); setShowDocs(false) }}
+                className={"text-xs px-2 py-1 rounded transition-colors " + (showConfig ? "bg-indigo-700 text-white" : "bg-gray-800 hover:bg-gray-700")}>Settings</button>
+              <button onClick={() => setShowAIPrompt(true)}
+                title="Copy AI prompt for writing PyBook scripts"
+                className="text-xs px-2 py-1 bg-gray-800 hover:bg-purple-800 hover:text-purple-200 rounded transition-colors">AI Prompt</button>
               <button onClick={handleDelete} disabled={!isAdmin}
                 className="text-xs px-2 py-1 bg-gray-800 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:text-red-300 rounded transition-colors">Delete</button>
               {scriptChanged && (
@@ -819,8 +1059,17 @@ export default function PyBooks() {
           {showDocs && (
             <DocsPanel onClose={() => setShowDocs(false)} />
           )}
+          {showConfig && (
+            <ConfigPanel
+              pybook={selected}
+              onClose={() => setShowConfig(false)}
+              onSaved={handleSaveConfig}
+              isAdmin={isAdmin}
+            />
+          )}
         </div>
       )}
     </div>
+  </>
   )
 }
