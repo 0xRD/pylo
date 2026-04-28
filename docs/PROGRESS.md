@@ -186,3 +186,26 @@ All core features remain working end-to-end on `main`, with the frontend refresh
 - Scoped API keys (#6)
 - Configuration backup & restore (#18)
 - Re-parse entries on mapping change (#6b)
+
+## Session 15 — Paginated Blueprint source fetching
+- **Paginated API source fetching**: Blueprints now support `none`, `page_number`, `offset`, and `cursor` pagination modes.
+- **Wrapped response support**: optional `pagination_items_path` JSONPath extracts item lists from envelopes such as `$.items` or `$.data.results`.
+- **Cursor support**: optional `pagination_path` JSONPath extracts the next cursor token, with loop protection for empty/repeated cursors.
+- **Safety cap**: `pagination_max_pages` defaults to 50 and is clamped to 500 in the fetch loop.
+- **Fetch output**: manual/cron fetch results and activity details include `pages_fetched`.
+- **Blueprint form**: added a Pagination section with type, parameter name, items path, next-cursor path, and max-pages controls.
+- **Migration**: `l1m2n3o4p5q6` adds pagination config columns to `blueprint`.
+- **Tests**: added focused coverage for wrapped item extraction, page-number pagination, and cursor pagination.
+
+## Current state (after Session 15)
+All core features remain working end-to-end, with frontend refresh and paginated fetching staged on `feat/frontend-refresh` for review.
+
+**Alembic head**: `l1m2n3o4p5q6`
+
+**Pending / backlog items:**
+- `pylo_sdk` as a standalone pip-installable library with a `PyloClient` class
+- Scoped API keys (#6)
+- Configuration backup & restore (#18)
+- Re-parse entries on mapping change (#6b)
+- Entry update support in `pylo_sdk`
+- Bulk PyBook dispatch from selected entries

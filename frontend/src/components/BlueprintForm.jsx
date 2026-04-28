@@ -54,6 +54,12 @@ function JsonTree({ data, onSelect }) {
 
 const EMPTY_MAPPING = { source_path: '', field_name: '', field_type: 'string', is_key: false, mutable: false }
 const FIELD_TYPES = ['string', 'number', 'boolean', 'datetime']
+const PAGINATION_TYPES = [
+  ['none', 'No pagination'],
+  ['page_number', 'Page number'],
+  ['offset', 'Offset'],
+  ['cursor', 'Cursor'],
+]
 
 
 export default function BlueprintForm({ initial, onSave, onCancel }) {
@@ -61,6 +67,8 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
     name: '', description: '', source_url: '', source_method: 'GET',
     source_headers: '{}', source_body: '{}', field_mappings: '[]',
     fetch_cron: '', fetch_is_active: false, is_manual: false, mutable_mode: 'none',
+    pagination_type: 'none', pagination_param: '', pagination_path: '',
+    pagination_items_path: '', pagination_max_pages: 50,
   })
   const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]').map(m => ({ mutable: false, ...m })) } catch { return [] } })
   const [saving, setSaving] = useState(false)
@@ -108,7 +116,16 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const handlePreview = async () => {
     setPreviewing(true); setPreviewResult(null); setPreviewError(null)
     try {
-      setPreviewResult(await blueprintsApi.previewEndpoint({ source_url: form.source_url, source_method: form.source_method, source_headers: form.source_headers || '{}', source_body: form.source_body || '{}', sample_limit: 1 }))
+      setPreviewResult(await blueprintsApi.previewEndpoint({
+        source_url: form.source_url,
+        source_method: form.source_method,
+        source_headers: form.source_headers || '{}',
+        source_body: form.source_body || '{}',
+        sample_limit: 1,
+        pagination_type: form.pagination_type || 'none',
+        pagination_param: form.pagination_param || null,
+        pagination_items_path: form.pagination_items_path || null,
+      }))
     } catch (err) { setPreviewError(err.message) }
     finally { setPreviewing(false) }
   }
@@ -130,7 +147,17 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
           return JSON.stringify(h)
         } catch { return form.source_headers }
       }
-      await onSave({ ...form, source_headers: buildFinalHeaders(), field_mappings: JSON.stringify(mappings), fetch_cron: form.fetch_cron || null })
+      await onSave({
+        ...form,
+        source_headers: buildFinalHeaders(),
+        field_mappings: JSON.stringify(mappings),
+        fetch_cron: form.fetch_cron || null,
+        pagination_type: form.pagination_type || 'none',
+        pagination_param: form.pagination_type === 'none' ? null : (form.pagination_param || null),
+        pagination_path: form.pagination_type === 'cursor' ? (form.pagination_path || null) : null,
+        pagination_items_path: form.pagination_items_path || null,
+        pagination_max_pages: Number(form.pagination_max_pages || 50),
+      })
     } catch (err) { setError(err.message); setSaving(false) }
   }
 
@@ -220,6 +247,46 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
             <textarea value={form.source_body} onChange={e => set('source_body', e.target.value)} rows={3}
               className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
           </div>
+        </div>
+
+        <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs text-gray-400 font-medium">Pagination<HelpTip text="Fetch multiple pages from APIs that use page, offset, or cursor parameters. Item path is optional when the response itself is a list." /></label>
+            <select value={form.pagination_type || 'none'} onChange={e => set('pagination_type', e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+              {PAGINATION_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </div>
+
+          {form.pagination_type !== 'none' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Parameter name</label>
+                <input value={form.pagination_param || ''} onChange={e => set('pagination_param', e.target.value)}
+                  placeholder={form.pagination_type === 'cursor' ? 'cursor' : form.pagination_type === 'offset' ? 'offset' : 'page'}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Max pages</label>
+                <input type="number" min="1" max="500" value={form.pagination_max_pages || 50} onChange={e => set('pagination_max_pages', e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Items path</label>
+                <input value={form.pagination_items_path || ''} onChange={e => set('pagination_items_path', e.target.value)}
+                  placeholder="$.items"
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+              </div>
+              {form.pagination_type === 'cursor' && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Next cursor path</label>
+                  <input value={form.pagination_path || ''} onChange={e => set('pagination_path', e.target.value)}
+                    placeholder="$.next_cursor"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {previewError && <div className="p-3 bg-red-950 border border-red-800 rounded text-xs text-red-300">{previewError}</div>}
