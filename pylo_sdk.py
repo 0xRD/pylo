@@ -5,11 +5,11 @@ _api_url = os.environ["PYLO_API_URL"]
 _headers = {"X-API-Token": os.environ["PYLO_API_TOKEN"]}
 
 
-def call_sub_pybook(sub_pybook_id: str, payload: dict = {}) -> dict:
+def call_sub_pybook(sub_pybook_id: str, payload: dict = None) -> dict:
     """Trigger a sub-PyBook and wait for its result."""
     resp = requests.post(
         f"{_api_url}/api/pybooks/{sub_pybook_id}/run",
-        json={"trigger_source": "sub_pybook", "trigger_payload": payload},
+        json={"trigger_source": "sub_pybook", "trigger_payload": payload or {}},
         headers=_headers,
         timeout=300,
     )
@@ -18,13 +18,20 @@ def call_sub_pybook(sub_pybook_id: str, payload: dict = {}) -> dict:
 
 
 def search_entries(query: str, type_id: str = None) -> list:
-    """Full-text search on blueprint entries."""
+    """Full-text search on blueprint entries.
+
+    The backend returns a paginated object, but PyBooks historically expect
+    this helper to return the entry list directly.
+    """
     params = {"q": query}
     if type_id:
         params["blueprint_id"] = type_id
     resp = requests.get(f"{_api_url}/api/blueprints/entries", params=params, headers=_headers)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    if isinstance(data, dict) and isinstance(data.get("items"), list):
+        return data["items"]
+    return data
 
 
 def get_entry(object_id: str) -> dict:

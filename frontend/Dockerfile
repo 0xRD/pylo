@@ -5,9 +5,6 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 
-ARG VITE_API_TOKEN=change_me_in_production
-ENV VITE_API_TOKEN=$VITE_API_TOKEN
-
 RUN npm run build
 
 FROM nginx:alpine

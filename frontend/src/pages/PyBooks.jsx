@@ -870,9 +870,8 @@ export default function PyBooks() {
   )
 
   return (
-    <>
-    {showAIPrompt && <AIPromptModal onClose={() => setShowAIPrompt(false)} />}
     <div className="flex h-full gap-0 -m-6">
+      {showAIPrompt && <AIPromptModal onClose={() => setShowAIPrompt(false)} />}
       {/* Sidebar */}
       <div className="w-60 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 shrink-0">
@@ -1070,6 +1069,5 @@ export default function PyBooks() {
         </div>
       )}
     </div>
-  </>
   )
 }
