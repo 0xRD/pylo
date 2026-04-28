@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import RunStatusBadge from '../components/RunStatusBadge'
 import { runsApi } from '../api/pybooks'
 
@@ -117,34 +117,61 @@ function WorkflowRunDetail({ run }) {
 }
 
 export default function Runs() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initPybookId = searchParams.get('pybook') || ''
+  const initWorkflowId = searchParams.get('workflow') || ''
   const [pyRuns, setPyRuns] = useState([])
   const [wfRuns, setWfRuns] = useState([])
   const [stats, setStats] = useState(null)
   const [status, setStatus] = useState('')
-  const [runType, setRunType] = useState('all')
+  const [runType, setRunType] = useState(initWorkflowId ? 'workflow' : initPybookId ? 'pybook' : 'all')
+  const [scopePybookId, setScopePybookId] = useState(initPybookId)
+  const [scopeWorkflowId, setScopeWorkflowId] = useState(initWorkflowId)
+  const [names, setNames] = useState({})  // id -> name lookup
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const loadRuns = useCallback((s = status, t = runType) => {
+  const loadRuns = useCallback((s = status, t = runType, pbId = scopePybookId, wfId = scopeWorkflowId) => {
     const promises = []
-    if (t !== 'workflow') promises.push(runsApi.list({ status: s || undefined, limit: 100 }).then(setPyRuns))
+    if (t !== 'workflow') promises.push(runsApi.list({ pybookId: pbId || undefined, status: s || undefined, limit: 100 }).then(setPyRuns))
     else promises.push(Promise.resolve())
-    if (t !== 'pybook') promises.push(workflowRunsApi.list({ status: s || undefined }).then(setWfRuns))
+    if (t !== 'pybook') promises.push(workflowRunsApi.list({ workflowId: wfId || undefined, status: s || undefined }).then(setWfRuns))
     else promises.push(Promise.resolve())
     Promise.all(promises).finally(() => setLoading(false))
-  }, [status, runType])
+  }, [status, runType, scopePybookId, scopeWorkflowId])
 
   const loadStats = () => runsApi.queueStats().then(setStats).catch(() => {})
 
   useEffect(() => {
     loadRuns(); loadStats()
+    // Fetch names for display
+    Promise.all([
+      fetch('/api/pybooks', { credentials: 'include' }).then(r => r.json()).catch(() => []),
+      fetch('/api/workflows', { credentials: 'include' }).then(r => r.json()).catch(() => []),
+    ]).then(([pbs, wfs]) => {
+      const n = {}
+      ;(Array.isArray(pbs) ? pbs : []).forEach(pb => { n[pb.id] = pb.name })
+      ;(Array.isArray(wfs) ? wfs : []).forEach(wf => { n[wf.id] = wf.name })
+      setNames(n)
+    })
     const t1 = setInterval(() => loadRuns(), 5000)
     const t2 = setInterval(loadStats, 2000)
     return () => { clearInterval(t1); clearInterval(t2) }
   }, [])
 
   const handleStatusChange = (s) => { setStatus(s); loadRuns(s, runType) }
-  const handleTypeChange = (t) => { setRunType(t); loadRuns(status, t) }
+  const handleTypeChange = (t) => {
+    setRunType(t)
+    // Clear scope filter when switching type manually
+    const newPbId = t === 'workflow' ? '' : scopePybookId
+    const newWfId = t === 'pybook' ? '' : scopeWorkflowId
+    loadRuns(status, t, newPbId, newWfId)
+  }
+  const clearScope = () => {
+    setScopePybookId(''); setScopeWorkflowId('')
+    setSearchParams({})
+    loadRuns(status, runType, '', '')
+  }
 
   // Merge and sort runs by started_at
   const allRuns = [
@@ -181,6 +208,13 @@ export default function Runs() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Scope clear */}
+            {(scopePybookId || scopeWorkflowId) && (
+              <button onClick={clearScope}
+                className="text-xs px-2 py-1 rounded border border-indigo-700 text-indigo-400 hover:text-indigo-200 hover:border-indigo-500 transition-colors bg-transparent cursor-pointer">
+                ✕ {scopePybookId ? names[scopePybookId] || 'PyBook' : names[scopeWorkflowId] || 'Workflow'}
+              </button>
+            )}
             {/* Type filter */}
             <div className="flex rounded overflow-hidden border border-gray-700 text-xs">
               {TYPES.map(t => (
@@ -235,8 +269,10 @@ export default function Runs() {
                 {run._type === 'workflow' ? 'WF' : 'PB'}
               </span>
               <span className="text-xs text-gray-400 font-mono shrink-0">{run.trigger_source}</span>
-              <span className="text-sm text-gray-300 flex-1 truncate font-mono">
-                {run._type === 'workflow' ? (run.workflow_id || '').slice(0, 8) : (run.pybook_id || '').slice(0, 8)}
+              <span className="text-sm text-gray-300 flex-1 truncate">
+                {run._type === 'workflow'
+                  ? (names[run.workflow_id] || (run.workflow_id || '').slice(0, 8))
+                  : (names[run.pybook_id] || (run.pybook_id || '').slice(0, 8))}
               </span>
               <span className="text-xs text-gray-500 shrink-0">{new Date(run.started_at).toLocaleString()}</span>
               {run.duration_ms != null && (
