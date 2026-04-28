@@ -1,5 +1,6 @@
 import logging
 from sqlalchemy import text
+from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel, create_engine, Session
 
 from backend.config import settings
@@ -16,9 +17,13 @@ from backend.workflows.models import Workflow, WorkflowRun, WorkflowNodeRun  # n
 
 logger = logging.getLogger(__name__)
 
+# NullPool: each session gets its own connection, closed on release.
+# This prevents pool exhaustion when many concurrent PyBook runs compete
+# for connections alongside HTTP handlers on the same SQLite database.
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False},
+    poolclass=NullPool,
 )
 
 

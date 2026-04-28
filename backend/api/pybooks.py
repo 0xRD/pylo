@@ -53,6 +53,8 @@ async def _execute_run(pybook_id: str, run_id: str):
     """Executes a run inside its own DB session, called by the queue worker."""
     from backend.core.runner import run_pybook
 
+    # Session 1: read config, mark running, then release the connection before
+    # the long Docker execution so the pool isn't held during the run.
     with Session(engine) as session:
         pb = session.get(PyBook, pybook_id)
         run = session.get(PyBookRun, run_id)
@@ -76,42 +78,54 @@ async def _execute_run(pybook_id: str, run_id: str):
             logger.warning("PyBook %s has invalid required_secrets JSON: %s", pb.id, pb.required_secrets)
             secrets = []
         payload = json.loads(run.trigger_payload or "{}")
-        started = datetime.now(timezone.utc)
+        pb_id = pb.id
+        pb_name = pb.name
+        trigger_source = run.trigger_source
+    # connection returned to pool here — Docker run happens outside the session
 
-        try:
-            stdout, stderr, exit_code = await run_pybook(
-                pybook_id=pb.id,
-                run_id=run.id,
-                script_path=script_path,
-                dependencies=deps,
-                required_secrets=secrets,
-                trigger_payload=payload,
-            )
-            ended = datetime.now(timezone.utc)
+    started = datetime.now(timezone.utc)
+    stdout, stderr, exit_code = "", "", -1
+    final_status = "error"
+
+    try:
+        stdout, stderr, exit_code = await run_pybook(
+            pybook_id=pb_id,
+            run_id=run_id,
+            script_path=script_path,
+            dependencies=deps,
+            required_secrets=secrets,
+            trigger_payload=payload,
+        )
+        final_status = "success" if exit_code == 0 else "error"
+    except TimeoutError as exc:
+        final_status = "timeout"
+        stderr = str(exc)
+        exit_code = -1
+    except Exception as exc:
+        final_status = "error"
+        stderr = str(exc)
+        exit_code = -1
+        logger.exception("Unexpected error running pybook %s", pb_id)
+
+    ended = datetime.now(timezone.utc)
+    duration_ms = int((ended - started).total_seconds() * 1000)
+
+    # Session 2: write results
+    with Session(engine) as session:
+        run = session.get(PyBookRun, run_id)
+        if run:
             run.stdout = stdout
             run.stderr = stderr
             run.exit_code = exit_code
-            run.status = "success" if exit_code == 0 else "error"
-        except TimeoutError as exc:
-            ended = datetime.now(timezone.utc)
-            run.status = "timeout"
-            run.stderr = str(exc)
-            run.exit_code = -1
-        except Exception as exc:
-            ended = datetime.now(timezone.utc)
-            run.status = "error"
-            run.stderr = str(exc)
-            run.exit_code = -1
-            logger.exception("Unexpected error running pybook %s", pb.id)
-
-        run.ended_at = ended
-        run.duration_ms = int((ended - started).total_seconds() * 1000)
-        session.add(run)
-        log_activity(session, "pybook.run", actor=run.trigger_source,
-                     resource_type="pybook", resource_id=run.pybook_id, resource_name=pb.name,
-                     detail={"run_id": run.id, "exit_code": run.exit_code,
-                             "status": run.status, "duration_ms": run.duration_ms})
-        session.commit()
+            run.status = final_status
+            run.ended_at = ended
+            run.duration_ms = duration_ms
+            session.add(run)
+            log_activity(session, "pybook.run", actor=trigger_source,
+                         resource_type="pybook", resource_id=pb_id, resource_name=pb_name,
+                         detail={"run_id": run_id, "exit_code": exit_code,
+                                 "status": final_status, "duration_ms": duration_ms})
+            session.commit()
 
 
 @router.get("")
