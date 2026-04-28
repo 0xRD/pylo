@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { fmtShort } from '../utils/dates'
 
 const NODE_W = 204
 const NODE_H = 90
@@ -134,7 +135,7 @@ function WorkflowCard({ workflow, onEdit, onDelete }) {
             <span style={{ fontSize: 10.5 }}>{nodes.length} nodes</span>
           </div>
           <div style={{ marginLeft: 'auto', color: '#4b5563', fontSize: 10.5, fontFamily: 'monospace' }}>
-            {new Date(workflow.updated_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}
+            {fmtShort(workflow.updated_at, {month:'short', day:'numeric'})}
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { fmtDateTime, parseUTC } from '../utils/dates'
 import RunStatusBadge from '../components/RunStatusBadge'
 import { runsApi } from '../api/pybooks'
 
@@ -49,8 +50,8 @@ function PyBookRunDetail({ run }) {
       </div>
       <div className="text-xs text-gray-500 space-y-0.5">
         <p>PyBook: <span className="font-mono text-gray-300">{run.pybook_id?.slice(0, 12)}</span></p>
-        <p>Started: {new Date(run.started_at).toLocaleString()}</p>
-        {run.ended_at && <p>Ended: {new Date(run.ended_at).toLocaleString()}</p>}
+        <p>Started: {fmtDateTime(run.started_at)}</p>
+        {run.ended_at && <p>Ended: {fmtDateTime(run.ended_at)}</p>}
       </div>
       {run.stdout && (
         <div>
@@ -87,8 +88,8 @@ function WorkflowRunDetail({ run }) {
       </div>
       <div className="text-xs text-gray-500 space-y-0.5">
         <p>Workflow: <span className="font-mono text-gray-300">{run.workflow_id?.slice(0, 12)}</span></p>
-        <p>Started: {new Date(run.started_at).toLocaleString()}</p>
-        {run.ended_at && <p>Ended: {new Date(run.ended_at).toLocaleString()}</p>}
+        <p>Started: {fmtDateTime(run.started_at)}</p>
+        {run.ended_at && <p>Ended: {fmtDateTime(run.ended_at)}</p>}
       </div>
       {detail?.node_runs?.length > 0 && (
         <div>
@@ -177,7 +178,7 @@ export default function Runs() {
   const allRuns = [
     ...(runType !== 'workflow' ? pyRuns.map(r => ({ ...r, _type: 'pybook' })) : []),
     ...(runType !== 'pybook' ? wfRuns.map(r => ({ ...r, _type: 'workflow' })) : []),
-  ].sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
+  ].sort((a, b) => parseUTC(b.started_at) - parseUTC(a.started_at))
 
   if (loading) return <div className="text-gray-500 text-sm">Loading…</div>
 
@@ -274,7 +275,7 @@ export default function Runs() {
                   ? (names[run.workflow_id] || (run.workflow_id || '').slice(0, 8))
                   : (names[run.pybook_id] || (run.pybook_id || '').slice(0, 8))}
               </span>
-              <span className="text-xs text-gray-500 shrink-0">{new Date(run.started_at).toLocaleString()}</span>
+              <span className="text-xs text-gray-500 shrink-0">{fmtDateTime(run.started_at)}</span>
               {run.duration_ms != null && (
                 <span className="text-xs text-gray-600 w-16 text-right shrink-0">{run.duration_ms}ms</span>
               )}

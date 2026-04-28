@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { fmtDate } from '../utils/dates'
 
 export default function EntryCard({ entry, blueprintName, selected = false, onSelect }) {
   const navigate = useNavigate()
@@ -38,7 +39,7 @@ export default function EntryCard({ entry, blueprintName, selected = false, onSe
           )}
         </div>
         <span className="text-xs text-gray-500 shrink-0 ml-2">
-          {new Date(entry.created_at).toLocaleDateString()}
+          {fmtDate(entry.created_at)}
         </span>
       </div>
       <dl className="space-y-1">
