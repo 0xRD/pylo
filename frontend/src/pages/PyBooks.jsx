@@ -29,9 +29,13 @@ import {
 const DEFAULT_SCRIPT = `# Your PyBook script
 # Available: requests, httpx, pydantic (always)
 # Access secrets via os.environ["SECRET_your_key"]
+# Read input payload via pylo.get_payload()
 # Call sub-PyBooks via pylo_sdk (auto-mounted at /pybook/pylo_sdk.py)
 
-print("Hello from Pylo!")
+import pylo_sdk as pylo
+
+payload = pylo.get_payload()
+print("Hello from Pylo!", payload)
 `
 
 const TRIGGER_TYPES = ["manual", "cron", "webhook", "blueprint"]
@@ -283,6 +287,19 @@ function formatJson(value) {
   catch { return String(value || "") }
 }
 
+const PAYLOAD_TEMPLATES = [
+  { label: 'Empty', value: {} },
+  { label: 'Selected Entry', value: { blueprint_id: 'blueprint-uuid', entry_id: 'entry-uuid', entry_data: { hash: 'abc123', severity: 'high' } } },
+  { label: 'Webhook', value: { event_type: 'alert.created', source: 'webhook', data: { id: 'alert-1' } } },
+  { label: 'Workflow input', value: { alert_id: 'alert-1', ioc: '1.2.3.4', verdict: 'suspicious' } },
+]
+
+const PAYLOAD_SNIPPET = `import pylo_sdk as pylo
+
+payload = pylo.get_payload()
+entry_id = payload.get("entry_id")
+entry_data = payload.get("entry_data", {})`
+
 function RunPanel({ pybook, onClose, isAdmin }) {
   const [runs, setRuns] = useState([])
   const [selectedRun, setSelectedRun] = useState(null)
@@ -349,11 +366,14 @@ function RunPanel({ pybook, onClose, isAdmin }) {
     catch { setPayloadText(selectedRun.trigger_payload) }
   }
 
+  const applyTemplate = (value) => setPayloadText(JSON.stringify(value, null, 2))
+  const vars = selectedRun ? parseRunVars(selectedRun) : []
+
   return (
     <div className="flex h-full flex-col border-t border-[#343746] bg-[#191a21]/95">
-      <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#343746]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#343746] px-5 py-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[#f8f8f2]">
+          <div className="flex items-center gap-2 text-base font-semibold text-[#f8f8f2]">
             <TerminalIcon />
             <span>Run console</span>
           </div>
@@ -361,117 +381,162 @@ function RunPanel({ pybook, onClose, isAdmin }) {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => handleRun()} disabled={running || !isAdmin}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
+            className="inline-flex items-center gap-1.5 rounded bg-[#50fa7b] px-3 py-2 text-xs font-semibold text-[#191a21] transition-colors hover:bg-[#69ff94] disabled:cursor-not-allowed disabled:opacity-50">
             <Play className="h-3.5 w-3.5" />
-            {running ? "Starting..." : "Run"}
+            {running ? "Starting..." : "Run empty"}
           </button>
           <button onClick={handleRunWithPayload} disabled={running || !isAdmin}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#8be9fd] text-[#191a21] hover:bg-[#a4f1ff] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
+            className="inline-flex items-center gap-1.5 rounded bg-[#8be9fd] px-3 py-2 text-xs font-semibold text-[#191a21] transition-colors hover:bg-[#a4f1ff] disabled:cursor-not-allowed disabled:opacity-50">
             <Braces className="h-3.5 w-3.5" />
             Run payload
           </button>
-          <button onClick={onClose} className="rounded p-1.5 text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#282a36]" title="Close runs">
+          <button onClick={onClose} className="rounded p-2 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Close runs">
             <X className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-[#343746] px-4 py-3">
-          <div className="mb-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <textarea
-              value={payloadText}
-              onChange={e => setPayloadText(e.target.value)}
-              rows={3}
-              className="min-h-20 rounded border border-[#343746] bg-[#0f1117] px-3 py-2 font-mono text-xs text-[#f8f8f2] outline-none focus:border-[#8be9fd]"
-              placeholder='{"blueprint_id":"...","entry_id":"...","entry_data":{}}'
-            />
-            <button onClick={reuseSelectedPayload} disabled={!selectedRun}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded bg-[#282a36] px-3 text-xs text-[#a7abc4] hover:bg-[#343746] disabled:opacity-40">
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reuse selected
-            </button>
-          </div>
-          {payloadError && <p className="mb-3 text-xs text-[#ff5555]">{payloadError}</p>}
-          {runs.length === 0 ? (
-            <p className="text-xs text-[#6272a4] italic">No runs yet.</p>
-          ) : (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {runs.map(run => (
-                <button key={run.id}
-                  onClick={() => { setSelectedRun(run); if (!TERMINAL.has(run.status)) connectWs(run.id) }}
-                  className={"min-w-48 text-left rounded border px-3 py-2 transition-colors " + (selectedRun?.id === run.id ? "border-[#bd93f9] bg-[#282a36]" : "border-[#343746] bg-[#20222c] hover:border-[#6272a4]")}>
-                  <div className="flex items-center justify-between gap-2">
-                    <RunStatusBadge status={run.status} />
-                    {run.duration_ms != null && <span className="text-[10px] text-[#6272a4]">{run.duration_ms}ms</span>}
-                  </div>
-                  <p className="mt-1 text-[11px] text-[#8b8fa3]">{fmtDateTime(run.started_at)}</p>
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <div className="border-b border-[#343746] p-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[#8be9fd]">
+                  Input payload
+                  <span title="JSON input injected into the PyBook as TRIGGER_PAYLOAD. Recommended access: payload = pylo.get_payload(). Output variables are separate and are created with pylo.set_output()." className="grid h-4 w-4 cursor-help place-items-center rounded-full border border-[#6272a4] text-[10px] text-[#6272a4]">?</span>
+                </label>
+                <button onClick={reuseSelectedPayload} disabled={!selectedRun}
+                  className="inline-flex items-center justify-center gap-1.5 rounded bg-[#282a36] px-2.5 py-1.5 text-xs text-[#a7abc4] hover:bg-[#343746] disabled:opacity-40">
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reuse selected run
                 </button>
-              ))}
+              </div>
+              <textarea
+                value={payloadText}
+                onChange={e => setPayloadText(e.target.value)}
+                rows={6}
+                className="min-h-36 w-full rounded border border-[#343746] bg-[#0f1117] px-3 py-2 font-mono text-xs text-[#f8f8f2] outline-none focus:border-[#8be9fd]"
+                placeholder='{"blueprint_id":"...","entry_id":"...","entry_data":{}}'
+              />
+              {payloadError && <p className="mt-2 text-xs text-[#ff5555]">{payloadError}</p>}
             </div>
-          )}
+
+            <div className="min-w-0 space-y-3">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#bd93f9]">Payload templates</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {PAYLOAD_TEMPLATES.map(template => (
+                    <button key={template.label} onClick={() => applyTemplate(template.value)}
+                      className="rounded border border-[#343746] bg-[#282a36] px-3 py-2 text-left text-xs text-[#f8f8f2] hover:border-[#8be9fd]">
+                      {template.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#bd93f9]">Read it in Python</p>
+                <CodeSnippet code={PAYLOAD_SNIPPET} />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {!selectedRun ? (
-            <p className="text-xs text-[#6272a4] italic">Select a run to view logs.</p>
-          ) : (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
-              <div className="space-y-3 min-w-0">
-                <div className="flex items-center gap-2">
-                <RunStatusBadge status={selectedRun.status} />
-                  <span className="text-xs text-[#8b8fa3]">{selectedRun.trigger_source}</span>
-                  {selectedRun.duration_ms != null && <span className="text-xs text-[#6272a4]">{selectedRun.duration_ms}ms</span>}
+        <div className="grid min-h-0 gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="min-h-0 overflow-hidden rounded border border-[#343746] bg-[#20222c]">
+            <div className="border-b border-[#343746] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#6272a4]">Recent runs</div>
+            {runs.length === 0 ? (
+              <p className="p-4 text-xs italic text-[#6272a4]">No runs yet.</p>
+            ) : (
+              <div className="max-h-full space-y-2 overflow-y-auto p-2">
+                {runs.map(run => (
+                  <button key={run.id}
+                    onClick={() => { setSelectedRun(run); if (!TERMINAL.has(run.status)) connectWs(run.id) }}
+                    className={"w-full rounded border px-3 py-2 text-left transition-colors " + (selectedRun?.id === run.id ? "border-[#bd93f9] bg-[#282a36]" : "border-[#343746] bg-[#191a21] hover:border-[#6272a4]")}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <RunStatusBadge status={run.status} />
+                      {run.duration_ms != null && <span className="text-[10px] text-[#6272a4]">{run.duration_ms}ms</span>}
+                    </div>
+                    <p className="mt-1 truncate text-[11px] text-[#8b8fa3]">{fmtDateTime(run.started_at)}</p>
+                    <p className="mt-1 truncate text-[10px] text-[#6272a4]">{run.trigger_source}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="min-h-0 overflow-y-auto rounded border border-[#343746] bg-[#191a21] p-4">
+            {!selectedRun ? (
+              <p className="text-xs italic text-[#6272a4]">Select a run to view logs.</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-[#343746] bg-[#282a36] px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <RunStatusBadge status={selectedRun.status} />
+                    <span className="text-xs text-[#8b8fa3]">{selectedRun.trigger_source}</span>
+                    {selectedRun.duration_ms != null && <span className="text-xs text-[#6272a4]">{selectedRun.duration_ms}ms</span>}
+                  </div>
+                  <span className="font-mono text-[11px] text-[#6272a4]">{selectedRun.id}</span>
                 </div>
 
-                {selectedRun.trigger_payload && selectedRun.trigger_payload !== "{}" && (
-                  <div>
-                    <p className="text-xs text-[#8b8fa3] mb-1">payload</p>
-                    <pre className="bg-[#0f1117] border border-[#343746] rounded p-3 text-xs font-mono text-[#8be9fd] whitespace-pre-wrap overflow-auto max-h-40">{formatJson(selectedRun.trigger_payload)}</pre>
-                  </div>
-                )}
-
-                {selectedRun.stdout && (
-                  <div>
-                    <p className="text-xs text-[#8b8fa3] mb-1">stdout</p>
-                    <pre className="bg-[#0f1117] border border-[#343746] rounded p-3 text-xs font-mono text-[#50fa7b] whitespace-pre-wrap overflow-auto max-h-56">{selectedRun.stdout}</pre>
-                  </div>
-                )}
-
-                {selectedRun.stderr && (
-                  <div>
-                    <p className="text-xs text-[#8b8fa3] mb-1">stderr</p>
-                    <pre className="bg-[#0f1117] border border-[#343746] rounded p-3 text-xs font-mono text-[#ff5555] whitespace-pre-wrap overflow-auto max-h-56">{selectedRun.stderr}</pre>
-                  </div>
-                )}
-
-                {!selectedRun.stdout && !selectedRun.stderr && !TERMINAL.has(selectedRun.status) && (
-                  <p className="text-xs text-[#6272a4] italic animate-pulse">Running...</p>
-                )}
-              </div>
-
-              <div className="min-w-0">
-                <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#8be9fd]">
-                  <Braces className="h-3.5 w-3.5" />
-                  Variables
-                </p>
-                {parseRunVars(selectedRun).length === 0 ? (
-                  <div className="rounded border border-dashed border-[#343746] bg-[#20222c] p-4 text-xs text-[#6272a4]">
-                    No output variables exported for this run.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {parseRunVars(selectedRun).map(([k, v]) => (
-                      <div key={k} className="rounded border border-[#343746] bg-[#20222c] px-3 py-2">
-                        <p className="font-mono text-xs text-[#bd93f9]">{k}</p>
-                        <p className="mt-1 break-all font-mono text-xs text-[#f8f8f2]">{JSON.stringify(v)}</p>
+                <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="min-w-0 space-y-4">
+                    {selectedRun.stdout && (
+                      <div>
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#50fa7b]">stdout</p>
+                        <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{selectedRun.stdout}</pre>
                       </div>
-                    ))}
+                    )}
+
+                    {selectedRun.stderr && (
+                      <div>
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#ff5555]">stderr</p>
+                        <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{selectedRun.stderr}</pre>
+                      </div>
+                    )}
+
+                    {!selectedRun.stdout && !selectedRun.stderr && !TERMINAL.has(selectedRun.status) && (
+                      <p className="text-xs italic text-[#6272a4] animate-pulse">Running...</p>
+                    )}
+                    {!selectedRun.stdout && !selectedRun.stderr && TERMINAL.has(selectedRun.status) && (
+                      <p className="text-xs italic text-[#6272a4]">This run did not emit stdout or stderr.</p>
+                    )}
                   </div>
-                )}
+
+                  <div className="min-w-0 space-y-4">
+                    <div>
+                      <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#8be9fd]">
+                        <Braces className="h-3.5 w-3.5" />
+                        Input payload
+                      </p>
+                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#8be9fd]">{formatJson(selectedRun.trigger_payload || '{}')}</pre>
+                    </div>
+
+                    <div>
+                      <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#bd93f9]">
+                        <Braces className="h-3.5 w-3.5" />
+                        Output variables
+                      </p>
+                      {vars.length === 0 ? (
+                        <div className="rounded border border-dashed border-[#343746] bg-[#20222c] p-4 text-xs text-[#6272a4]">
+                          No output variables exported. Use pylo.set_output("key", value) to publish them.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {vars.map(([k, v]) => (
+                            <div key={k} className="rounded border border-[#343746] bg-[#20222c] px-3 py-2">
+                              <p className="font-mono text-xs text-[#bd93f9]">{k}</p>
+                              <p className="mt-1 break-all font-mono text-xs text-[#f8f8f2]">{JSON.stringify(v)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -527,15 +592,14 @@ function DocsPanel({ onClose }) {
       <div className="flex-1 overflow-y-auto p-4 space-y-6 text-xs text-gray-400">
 
         <DocSection title="Reading the trigger payload">
-          <p>When triggered by a workflow edge mapping, the mapped keys arrive in <code className="text-indigo-300 bg-gray-800 px-1 rounded">TRIGGER_PAYLOAD</code>:</p>
-          <CodeSnippet code={`import json, os
+          <p>Run input arrives as JSON in <code className="text-indigo-300 bg-gray-800 px-1 rounded">TRIGGER_PAYLOAD</code>. Prefer the SDK helper so every PyBook uses the same pattern:</p>
+          <CodeSnippet code={`import pylo_sdk as pylo
 
-payload = json.loads(
-    os.environ.get("TRIGGER_PAYLOAD", "{}")
-)
-
-alert_id = payload.get("alert_id")
-score    = payload.get("vt_score", 0)`} />
+payload = pylo.get_payload()
+entry_id = payload.get("entry_id")
+entry_data = payload.get("entry_data", {})
+score = payload.get("vt_score", 0)`} />
+          <p className="text-gray-600 text-[10px] mt-1">Payloads are inputs. Output variables are separate and are created with <span className="font-mono text-indigo-400">pylo.set_output()</span>.</p>
         </DocSection>
 
         <DocSection title="Exporting output variables">
@@ -607,13 +671,11 @@ value = entry["data"]["field_name"]`} />
         </DocSection>
 
         <DocSection title="Full example — workflow node">
-          <CodeSnippet code={`import json, os
+          <CodeSnippet code={`import os
 import pylo_sdk as pylo
 
 # 1. Read upstream payload
-payload = json.loads(
-    os.environ.get("TRIGGER_PAYLOAD", "{}")
-)
+payload = pylo.get_payload()
 alert_id = payload.get("alert_id", "")
 
 # 2. Do work
@@ -732,7 +794,7 @@ Pylo is a workflow automation platform where scripts called PyBooks run in isola
 - Script runs as: python /pybook/main.py
 
 ## Available environment variables
-- TRIGGER_PAYLOAD: JSON string with input data (from workflow edge or blueprint event)
+- TRIGGER_PAYLOAD: JSON string with input data (manual run, Entry selection, webhook, Blueprint trigger, or workflow edge)
 - PYLO_RUN_ID: UUID of the current run
 - PYLO_PYBOOK_ID: UUID of this PyBook
 - PYLO_API_URL: Backend base URL (http://backend:8000 inside containers)
@@ -741,6 +803,9 @@ Pylo is a workflow automation platform where scripts called PyBooks run in isola
 ## pylo_sdk functions (auto-mounted, import as: import pylo_sdk as pylo)
 
 \`\`\`python
+# Read run input payload
+payload = pylo.get_payload()
+
 # Search blueprint entries
 entries = pylo.search_entries("keyword", type_id="blueprint-uuid-optional")
 # Returns: [{"id": "...", "title": "...", "data": "<JSON string>", ...}, ...]
@@ -764,8 +829,8 @@ import json
 import os
 import pylo_sdk as pylo
 
-# Read trigger payload (input from workflow or blueprint event)
-payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+# Read trigger payload (input from manual run, Entry selection, webhook, or workflow)
+payload = pylo.get_payload()
 
 # Access a secret (declared in required_secrets)
 api_key = os.environ["SECRET_my_api_key"]
@@ -782,10 +847,10 @@ print(f"Done: {result}")
 
 ### Blueprint-triggered PyBook (process new entries)
 \`\`\`python
-import json, os
+import json
 import pylo_sdk as pylo
 
-payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+payload = pylo.get_payload()
 entry_id = payload.get("entry_id") or payload.get("id")
 entry = pylo.get_entry(entry_id)
 data = json.loads(entry["data"])  # parse the data field!
@@ -797,10 +862,10 @@ pylo.set_output("processed", True)
 
 ### Batch processing all blueprint entries
 \`\`\`python
-import json, os
+import json
 import pylo_sdk as pylo
 
-payload = json.loads(os.environ.get("TRIGGER_PAYLOAD", "{}"))
+payload = pylo.get_payload()
 blueprint_id = payload.get("blueprint_id", "your-blueprint-uuid")
 entries = pylo.search_entries("", type_id=blueprint_id)
 

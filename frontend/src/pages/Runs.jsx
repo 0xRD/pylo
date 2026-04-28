@@ -22,6 +22,11 @@ const workflowRunsApi = {
 const STATUSES = ['', 'queued', 'running', 'success', 'error', 'timeout', 'pending']
 const TYPES = ['all', 'pybook', 'workflow']
 
+function formatJson(value) {
+  try { return JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value, null, 2) }
+  catch { return String(value || '') }
+}
+
 function VarsPanel({ vars }) {
   let entries = []
   try { entries = Object.entries(JSON.parse(vars || '{}')) } catch {}
@@ -43,31 +48,48 @@ function VarsPanel({ vars }) {
 
 function PyBookRunDetail({ run }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <RunStatusBadge status={run.status} />
-        <span className="text-xs text-gray-500">{run.trigger_source}</span>
-        {run.exit_code != null && <span className="text-xs text-gray-600">exit {run.exit_code}</span>}
-        {run.duration_ms != null && <span className="text-xs text-gray-600">{run.duration_ms}ms</span>}
-      </div>
-      <div className="text-xs text-gray-500 space-y-0.5">
-        <p>PyBook: <span className="font-mono text-gray-300">{run.pybook_id?.slice(0, 12)}</span></p>
-        <p>Started: {fmtDateTime(run.started_at)}</p>
-        {run.ended_at && <p>Ended: {fmtDateTime(run.ended_at)}</p>}
-      </div>
-      {run.stdout && (
-        <div>
-          <p className="text-xs text-gray-400 mb-1">stdout</p>
-          <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-green-300 whitespace-pre-wrap overflow-auto max-h-48">{run.stdout}</pre>
+    <div className="space-y-4">
+      <div className="rounded-lg border border-[#343746] bg-[#282a36] px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <RunStatusBadge status={run.status} />
+            <span className="text-xs text-gray-400">{run.trigger_source}</span>
+            {run.exit_code != null && <span className="text-xs text-gray-500">exit {run.exit_code}</span>}
+            {run.duration_ms != null && <span className="text-xs text-gray-500">{run.duration_ms}ms</span>}
+          </div>
+          <span className="font-mono text-[11px] text-gray-500">{run.id}</span>
         </div>
-      )}
-      {run.stderr && (
-        <div>
-          <p className="text-xs text-gray-400 mb-1">stderr</p>
-          <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-48">{run.stderr}</pre>
+        <div className="mt-2 grid gap-1 text-xs text-gray-500 md:grid-cols-3">
+          <p>PyBook: <span className="font-mono text-gray-300">{run.pybook_id?.slice(0, 12)}</span></p>
+          <p>Started: {fmtDateTime(run.started_at)}</p>
+          {run.ended_at && <p>Ended: {fmtDateTime(run.ended_at)}</p>}
         </div>
-      )}
-      <VarsPanel vars={run.output_vars} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-4 min-w-0">
+          {run.stdout && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-300 mb-1">stdout</p>
+              <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-green-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stdout}</pre>
+            </div>
+          )}
+          {run.stderr && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-300 mb-1">stderr</p>
+              <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stderr}</pre>
+            </div>
+          )}
+          {!run.stdout && !run.stderr && <p className="text-xs italic text-gray-600">This run did not emit stdout or stderr.</p>}
+        </div>
+        <div className="space-y-4 min-w-0">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300 mb-1">Input payload</p>
+            <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-cyan-200 whitespace-pre-wrap overflow-auto max-h-64">{formatJson(run.trigger_payload || '{}')}</pre>
+          </div>
+          <VarsPanel vars={run.output_vars} />
+        </div>
+      </div>
     </div>
   )
 }
