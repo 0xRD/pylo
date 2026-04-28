@@ -109,8 +109,7 @@ async def start() -> None:
         for run in stranded:
             run.status = "error"
             run.ended_at = now
-            run.stderr = (run.stderr or "") + "
-[Interrupted: backend restarted while run was active]"
+            run.stderr = (run.stderr or "") + "\n[Interrupted: backend restarted while run was active]"
             if run.exit_code is None:
                 run.exit_code = -1
             session.add(run)

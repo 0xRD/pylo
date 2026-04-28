@@ -11,7 +11,9 @@ const workflowRunsApi = {
     if (status) p.set('status', status)
     p.set('limit', limit)
     p.set('offset', offset)
-    return fetch(`/api/workflows/runs?${p}`, { credentials: 'include' }).then(r => r.json())
+    return fetch(`/api/workflows/runs?${p}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .catch(() => [])
   },
   getDetail: (workflowId, runId) =>
     fetch(`/api/workflows/${workflowId}/runs/${runId}`, { credentials: 'include' }).then(r => r.json()),
@@ -134,9 +136,9 @@ export default function Runs() {
 
   const loadRuns = useCallback((s = status, t = runType, pbId = scopePybookId, wfId = scopeWorkflowId) => {
     const promises = []
-    if (t !== 'workflow') promises.push(runsApi.list({ pybookId: pbId || undefined, status: s || undefined, limit: 100 }).then(setPyRuns))
+    if (t !== 'workflow') promises.push(runsApi.list({ pybookId: pbId || undefined, status: s || undefined, limit: 100 }).then(setPyRuns).catch(() => setPyRuns([])))
     else promises.push(Promise.resolve())
-    if (t !== 'pybook') promises.push(workflowRunsApi.list({ workflowId: wfId || undefined, status: s || undefined }).then(setWfRuns))
+    if (t !== 'pybook') promises.push(workflowRunsApi.list({ workflowId: wfId || undefined, status: s || undefined }).then(setWfRuns).catch(() => setWfRuns([])))
     else promises.push(Promise.resolve())
     Promise.all(promises).finally(() => setLoading(false))
   }, [status, runType, scopePybookId, scopeWorkflowId])
