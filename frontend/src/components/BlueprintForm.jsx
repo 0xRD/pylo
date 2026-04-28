@@ -69,6 +69,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
     fetch_cron: '', fetch_is_active: false, is_manual: false, mutable_mode: 'none',
     pagination_type: 'none', pagination_param: '', pagination_path: '',
     pagination_items_path: '', pagination_max_pages: 50,
+    max_entries: '', retention_days: '',
   })
   const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]').map(m => ({ mutable: false, ...m })) } catch { return [] } })
   const [saving, setSaving] = useState(false)
@@ -157,6 +158,8 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
         pagination_path: form.pagination_type === 'cursor' ? (form.pagination_path || null) : null,
         pagination_items_path: form.pagination_items_path || null,
         pagination_max_pages: Number(form.pagination_max_pages || 50),
+        max_entries: form.max_entries ? Number(form.max_entries) : null,
+        retention_days: form.retention_days ? Number(form.retention_days) : null,
       })
     } catch (err) { setError(err.message); setSaving(false) }
   }
@@ -313,6 +316,23 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
         </div>
       </>)}
 
+      <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
+        <label className="block text-xs text-gray-400 font-medium">Entry retention<HelpTip text="Optional safety limits for this blueprint. Pylo deletes the oldest entries first after fetches or manual entry creation." /></label>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Max entries</label>
+            <input type="number" min="1" value={form.max_entries || ''} onChange={e => set('max_entries', e.target.value)}
+              placeholder="No limit"
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Retention days</label>
+            <input type="number" min="1" value={form.retention_days || ''} onChange={e => set('retention_days', e.target.value)}
+              placeholder="Keep forever"
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+          </div>
+        </div>
+      </div>
 
 
 
