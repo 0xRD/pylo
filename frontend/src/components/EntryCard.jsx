@@ -6,7 +6,7 @@ export default function EntryCard({ entry, blueprintName, selected = false, onSe
   let data = {}
   try { data = JSON.parse(entry.data) } catch {}
 
-  const fields = Object.entries(data).slice(0, 4)
+  const fields = Object.entries(data)
 
   const handleCardClick = () => {
     navigate(`/entries/${entry.id}`)

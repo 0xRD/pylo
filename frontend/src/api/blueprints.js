@@ -43,4 +43,5 @@ export const blueprintsApi = {
   previewEndpoint: (data) => req("POST", "/preview", data),
   updateEntry: (blueprintId, entryId, fields) => req("PATCH", `/${blueprintId}/entries/${entryId}`, { fields }),
   getEntryHistory: (blueprintId, entryId) => req("GET", `/${blueprintId}/entries/${entryId}/history`),
+  getReparseStatus: (id) => req("GET", `/${id}/reparse/status`),
 }

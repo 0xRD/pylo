@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { blueprintsApi } from '../api/blueprints'
@@ -123,6 +123,8 @@ export default function BlueprintDetail() {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
+  const [reparseStatus, setReparseStatus] = useState(null)
+  const reparseTimer = useRef(null)
   const { isAdmin } = useAuth()
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
@@ -136,6 +138,27 @@ export default function BlueprintDetail() {
   useEffect(() => {
     Promise.all([loadBlueprint(), loadEntries()]).finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => () => clearInterval(reparseTimer.current), [])
+
+  const startReparsePolling = () => {
+    clearInterval(reparseTimer.current)
+    reparseTimer.current = setInterval(async () => {
+      try {
+        const s = await blueprintsApi.getReparseStatus(id)
+        setReparseStatus(s)
+        if (s.status !== 'running') {
+          clearInterval(reparseTimer.current)
+          if (s.status === 'done' && s.total > 0) {
+            loadEntries(query, 1, pageSize)
+            setPage(1)
+          }
+        }
+      } catch {
+        clearInterval(reparseTimer.current)
+      }
+    }, 1000)
+  }
 
   const handleFetch = async () => {
     setFetching(true); setFetchResult(null)
@@ -155,6 +178,16 @@ export default function BlueprintDetail() {
     await blueprintsApi.updateBlueprint(id, data)
     await loadBlueprint()
     setTab('entries')
+    if ('field_mappings' in data) {
+      const s = await blueprintsApi.getReparseStatus(id)
+      setReparseStatus(s)
+      if (s.status === 'running') {
+        startReparsePolling()
+      } else if (s.status === 'done') {
+        loadEntries(query, 1, pageSize)
+        setPage(1)
+      }
+    }
   }
 
   const handleDelete = async () => {
@@ -247,6 +280,37 @@ export default function BlueprintDetail() {
       {/* Entries tab */}
       {tab === 'entries' && (
         <div>
+          {reparseStatus && reparseStatus.status !== 'idle' && (
+            <div className={`flex items-center gap-3 px-4 py-2.5 rounded-lg mb-4 text-sm ${
+              reparseStatus.status === 'running' ? 'bg-indigo-950 border border-indigo-800 text-indigo-300'
+              : reparseStatus.status === 'done' ? 'bg-green-950 border border-green-800 text-green-300'
+              : 'bg-red-950 border border-red-800 text-red-300'
+            }`}>
+              {reparseStatus.status === 'running' && (
+                <>
+                  <span className="inline-block w-3 h-3 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
+                  <span>
+                    Re-parsing entries…
+                    {reparseStatus.total > 0 && ` ${reparseStatus.processed} / ${reparseStatus.total}`}
+                  </span>
+                </>
+              )}
+              {reparseStatus.status === 'done' && reparseStatus.total > 0 && (
+                <>
+                  <span>Re-parsed {reparseStatus.total} {reparseStatus.total === 1 ? 'entry' : 'entries'} with the new field mappings.</span>
+                  <button
+                    onClick={() => { loadEntries(query, 1, pageSize); setPage(1) }}
+                    className="px-2.5 py-1 text-xs bg-green-800 hover:bg-green-700 rounded font-medium transition-colors shrink-0">
+                    Refresh entries
+                  </button>
+                </>
+              )}
+              {reparseStatus.status === 'error' && (
+                <span>Re-parse failed: {reparseStatus.error}</span>
+              )}
+              <button onClick={() => setReparseStatus(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">×</button>
+            </div>
+          )}
           <div className="flex items-center gap-3 mb-4">
             <form onSubmit={handleSearch} className="flex gap-2 flex-1">
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"

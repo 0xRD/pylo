@@ -78,6 +78,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const [previewResult, setPreviewResult] = useState(null)
   const [previewError, setPreviewError] = useState(null)
   const [focusedRow, setFocusedRow] = useState(null)
+  const [rowErrors, setRowErrors] = useState({})
   const [secrets, setSecrets] = useState([])
   const [authType, setAuthType] = useState('none')
   const [authSecret, setAuthSecret] = useState('')
@@ -138,6 +139,17 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true); setError(null)
+    const invalid = {}
+    mappings.forEach((m, i) => {
+      if (!m.field_name.trim()) invalid[i] = true
+    })
+    if (Object.keys(invalid).length > 0) {
+      setRowErrors(invalid)
+      setError('Each field mapping requires a Field name.')
+      setSaving(false)
+      return
+    }
+    setRowErrors({})
     try {
       const buildFinalHeaders = () => {
         try {
@@ -349,7 +361,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
           <div className="grid grid-cols-12 gap-2 mb-1 px-1">
             <span className="col-span-1 text-xs text-gray-600 text-center flex items-center justify-center gap-0.5">Key<HelpTip text="Mark one field as the unique key. On each fetch, entries with the same key value are skipped (deduplication)." /></span>
             <span className="col-span-3 text-xs text-gray-600">JSONPath</span>
-            <span className="col-span-3 text-xs text-gray-600">Field name</span>
+            <span className="col-span-3 text-xs text-gray-600">Field name *</span>
             <span className="col-span-2 text-xs text-gray-600">Type</span>
             {form.mutable_mode === 'per_field' && <span className="col-span-1 text-xs text-gray-600 text-center">Edit</span>}
           </div>
@@ -365,8 +377,8 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
               </button>
               <input value={m.source_path} onChange={e => setMapping(i, 'source_path', e.target.value)} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder="$.id"
                 className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
-              <input value={m.field_name} onChange={e => setMapping(i, 'field_name', e.target.value)} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder={m.is_key ? "e.g. alert_id" : "field_name"}
-                className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
+              <input value={m.field_name} onChange={e => { setMapping(i, 'field_name', e.target.value); setRowErrors(r => ({ ...r, [i]: false })) }} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder={m.is_key ? "e.g. alert_id" : "field_name"}
+                className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 " + (rowErrors[i] && !m.field_name.trim() ? "border-red-600" : m.is_key ? "border-yellow-800" : "border-gray-700")} />
               <select value={m.field_type} onChange={e => setMapping(i, 'field_type', e.target.value)}
                 className="col-span-2 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
                 {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
@@ -378,7 +390,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
                   {m.mutable ? '✏' : '–'}
                 </button>
               )}
-              <button type="button" onClick={e => { e.stopPropagation(); setMappings(ms => ms.filter((_, idx) => idx !== i)); if (focusedRow === i) setFocusedRow(null) }}
+              <button type="button" onClick={e => { e.stopPropagation(); setMappings(ms => ms.filter((_, idx) => idx !== i)); setRowErrors({}); if (focusedRow === i) setFocusedRow(null) }}
                 className={"col-span-1 text-gray-600 hover:text-red-400 text-center text-sm " + (form.mutable_mode !== 'per_field' ? 'col-start-12' : '')}>×</button>
             </div>
           ))}

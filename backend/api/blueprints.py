@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -293,6 +294,7 @@ async def update_blueprint(
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
     updated = body.model_dump(exclude_none=True)
+    old_mappings = bp.field_mappings
     for field, value in updated.items():
         setattr(bp, field, value)
     session.add(bp)
@@ -304,6 +306,9 @@ async def update_blueprint(
     if "fetch_cron" in updated or "fetch_is_active" in updated:
         from backend.core.scheduler import sync_cron_jobs
         sync_cron_jobs()
+    if "field_mappings" in updated and old_mappings != bp.field_mappings:
+        _reparse_state[blueprint_id] = {"status": "running", "processed": 0, "total": 0}
+        asyncio.get_running_loop().create_task(_reparse_entries_bg(blueprint_id, bp.field_mappings))
     return bp
 
 
@@ -330,8 +335,52 @@ async def delete_blueprint(
     session.commit()
 
 
+@router.get("/{blueprint_id}/reparse/status")
+async def get_reparse_status(blueprint_id: str):
+    return _reparse_state.get(blueprint_id, {"status": "idle", "processed": 0, "total": 0})
+
+
 # ── Auto-fetch helper (also used by cron scheduler) ──────────────────────────
 
+
+
+_reparse_state: dict[str, dict] = {}
+
+
+def _do_reparse_sync(blueprint_id: str, field_mappings_json: str) -> None:
+    from backend.database import engine as _engine
+    from backend.objects.parser import parse_instance, extract_text_content
+
+    field_mappings = json.loads(field_mappings_json)
+    with Session(_engine) as session:
+        entries = session.exec(select(Entry).where(Entry.blueprint_id == blueprint_id)).all()
+        total = len(entries)
+        _reparse_state[blueprint_id]["total"] = total
+        for i, entry in enumerate(entries):
+            raw = json.loads(entry.raw_data or "{}")
+            parsed = parse_instance(raw, field_mappings)
+            entry.data = json.dumps(parsed)
+            entry.updated_at = datetime.now(timezone.utc)
+            session.add(entry)
+            index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
+            if (i + 1) % 100 == 0 or i == total - 1:
+                session.commit()
+            _reparse_state[blueprint_id]["processed"] = i + 1
+        _reparse_state[blueprint_id]["status"] = "done"
+
+
+async def _reparse_entries_bg(blueprint_id: str, field_mappings_json: str) -> None:
+    try:
+        await asyncio.to_thread(_do_reparse_sync, blueprint_id, field_mappings_json)
+    except Exception as exc:
+        logger.exception("Reparse failed for blueprint %s: %s", blueprint_id, exc)
+        state = _reparse_state.get(blueprint_id, {})
+        _reparse_state[blueprint_id] = {
+            "status": "error",
+            "error": str(exc),
+            "processed": state.get("processed", 0),
+            "total": state.get("total", 0),
+        }
 
 
 def _fire_blueprint_triggers(bp, created_entries: list) -> None:

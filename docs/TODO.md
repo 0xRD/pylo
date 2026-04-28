@@ -15,18 +15,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 2. Re-parse existing entries when blueprint mappings change
-
-- On `PUT /blueprints/:id` with changed `field_mappings`, re-parse existing entries using stored `raw_data`.
-- Run as a background task.
-- Surface progress and completion/failure state in the Blueprint detail view.
-- Re-index FTS after each updated entry.
-
-**Why:** Users iterate on mappings after ingestion; old entries otherwise show stale fields.
-
----
-
-## 3. `pylo_sdk` standalone library
+## 2. `pylo_sdk` standalone library
 
 - Package `pylo_sdk` as a pip-installable library.
 - Add a `PyloClient` class for external scripts:
@@ -118,3 +107,5 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - Frontend Dracula-style navigation and PyBooks/Entries refresh.
 - Per-blueprint entry retention (`max_entries`, `retention_days`).
 - Concurrent execution hardening: `NullPool` for SQLite, per-tag image build lock, split DB sessions — validated at 15 concurrent runs.
+- Re-parse existing entries on blueprint mapping change (background task, progress banner, FTS re-index).
+- Field name required validation in Blueprint field mappings form.
