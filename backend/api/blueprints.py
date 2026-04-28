@@ -49,6 +49,7 @@ class BlueprintCreate(BaseModel):
     pagination_max_pages: int = 50
     max_entries: Optional[int] = None
     retention_days: Optional[int] = None
+    retention_minutes: Optional[int] = None
 
 
 class BlueprintUpdate(BaseModel):
@@ -73,6 +74,7 @@ class BlueprintUpdate(BaseModel):
     pagination_max_pages: Optional[int] = None
     max_entries: Optional[int] = None
     retention_days: Optional[int] = None
+    retention_minutes: Optional[int] = None
 
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
@@ -335,6 +337,24 @@ async def delete_blueprint(
     session.commit()
 
 
+@router.delete("/{blueprint_id}/entries", status_code=204)
+async def delete_all_entries(
+    blueprint_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
+    bp = session.get(Blueprint, blueprint_id)
+    if not bp:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+    entries = session.exec(select(Entry).where(Entry.blueprint_id == blueprint_id)).all()
+    for entry in entries:
+        _delete_entry_row(session, entry)
+    log_activity(session, "blueprint.entries_cleared", actor=current_user.username,
+                 resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
+                 detail={"entries_deleted": len(entries)})
+    session.commit()
+
+
 @router.get("/{blueprint_id}/reparse/status")
 async def get_reparse_status(blueprint_id: str):
     return _reparse_state.get(blueprint_id, {"status": "idle", "processed": 0, "total": 0})
@@ -516,8 +536,9 @@ def _delete_entry_row(session: Session, entry: Entry) -> None:
 
 def _enforce_entry_retention(session: Session, bp: Blueprint) -> int:
     deleted = 0
-    if bp.retention_days and bp.retention_days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=bp.retention_days)
+    retention_mins = bp.retention_minutes or (bp.retention_days * 1440 if bp.retention_days else None)
+    if retention_mins and retention_mins > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=retention_mins)
         expired = session.exec(
             select(Entry)
             .where(Entry.blueprint_id == bp.id, Entry.created_at < cutoff)

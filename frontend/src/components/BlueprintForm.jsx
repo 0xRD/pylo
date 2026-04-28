@@ -54,6 +54,17 @@ function JsonTree({ data, onSelect }) {
 
 const EMPTY_MAPPING = { source_path: '', field_name: '', field_type: 'string', is_key: false, mutable: false }
 const FIELD_TYPES = ['string', 'number', 'boolean', 'datetime']
+const RETENTION_UNITS = ['minutes', 'hours', 'days', 'weeks', 'months']
+const UNIT_TO_MINUTES = { minutes: 1, hours: 60, days: 1440, weeks: 10080, months: 43200 }
+
+function minutesToDisplay(minutes) {
+  if (!minutes || minutes <= 0) return { value: '', unit: 'days' }
+  if (minutes % 43200 === 0) return { value: String(minutes / 43200), unit: 'months' }
+  if (minutes % 10080 === 0) return { value: String(minutes / 10080), unit: 'weeks' }
+  if (minutes % 1440 === 0) return { value: String(minutes / 1440), unit: 'days' }
+  if (minutes % 60 === 0) return { value: String(minutes / 60), unit: 'hours' }
+  return { value: String(minutes), unit: 'minutes' }
+}
 const PAGINATION_TYPES = [
   ['none', 'No pagination'],
   ['page_number', 'Page number'],
@@ -69,8 +80,14 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
     fetch_cron: '', fetch_is_active: false, is_manual: false, mutable_mode: 'none',
     pagination_type: 'none', pagination_param: '', pagination_path: '',
     pagination_items_path: '', pagination_max_pages: 50,
-    max_entries: '', retention_days: '',
+    max_entries: '',
   })
+  const _initRetention = () => {
+    const mins = initial?.retention_minutes || (initial?.retention_days ? initial.retention_days * 1440 : null)
+    return minutesToDisplay(mins)
+  }
+  const [retentionValue, setRetentionValue] = useState(() => _initRetention().value)
+  const [retentionUnit, setRetentionUnit] = useState(() => _initRetention().unit)
   const [mappings, setMappings] = useState(() => { try { return JSON.parse(initial?.field_mappings || '[]').map(m => ({ mutable: false, ...m })) } catch { return [] } })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -171,7 +188,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
         pagination_items_path: form.pagination_items_path || null,
         pagination_max_pages: Number(form.pagination_max_pages || 50),
         max_entries: form.max_entries ? Number(form.max_entries) : null,
-        retention_days: form.retention_days ? Number(form.retention_days) : null,
+        retention_minutes: retentionValue ? Number(retentionValue) * UNIT_TO_MINUTES[retentionUnit] : null,
       })
     } catch (err) { setError(err.message); setSaving(false) }
   }
@@ -338,10 +355,16 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
               className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Retention days</label>
-            <input type="number" min="1" value={form.retention_days || ''} onChange={e => set('retention_days', e.target.value)}
-              placeholder="Keep forever"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+            <label className="block text-xs text-gray-500 mb-1">Retention time</label>
+            <div className="flex gap-1.5">
+              <input type="number" min="1" value={retentionValue} onChange={e => setRetentionValue(e.target.value)}
+                placeholder="No limit"
+                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+              <select value={retentionUnit} onChange={e => setRetentionUnit(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                {RETENTION_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
           </div>
         </div>
       </div>

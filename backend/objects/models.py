@@ -33,6 +33,7 @@ class Blueprint(SQLModel, table=True):
     pagination_max_pages: int = Field(default=50)
     max_entries: Optional[int] = None
     retention_days: Optional[int] = None
+    retention_minutes: Optional[int] = None
     mutable_mode: str = Field(default="none")
     created_at: datetime = Field(default_factory=_now)
 

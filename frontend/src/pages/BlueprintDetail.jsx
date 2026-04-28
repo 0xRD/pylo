@@ -122,6 +122,7 @@ export default function BlueprintDetail() {
   const [fetchResult, setFetchResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [clearingEntries, setClearingEntries] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [reparseStatus, setReparseStatus] = useState(null)
   const reparseTimer = useRef(null)
@@ -187,6 +188,19 @@ export default function BlueprintDetail() {
         loadEntries(query, 1, pageSize)
         setPage(1)
       }
+    }
+  }
+
+  const handleClearEntries = async () => {
+    if (!confirm(`Delete all entries for "${blueprint?.name}"? The blueprint itself will be kept. This cannot be undone.`)) return
+    setClearingEntries(true)
+    try {
+      await blueprintsApi.clearAllEntries(id)
+      setEntries([])
+      setTotal(0)
+      setPage(1)
+    } finally {
+      setClearingEntries(false)
     }
   }
 
@@ -413,6 +427,17 @@ export default function BlueprintDetail() {
 
           <div className="border-t border-gray-800 pt-6">
             <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>
+            <div className="space-y-2">
+            <div className="flex items-center justify-between p-4 bg-red-950/30 border border-red-900/50 rounded-lg">
+              <div>
+                <p className="text-sm text-gray-200">Delete all entries</p>
+                <p className="text-xs text-gray-500 mt-0.5">Removes all fetched entries. The blueprint and its configuration are kept.</p>
+              </div>
+              <button onClick={handleClearEntries} disabled={clearingEntries || !isAdmin}
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors shrink-0 ml-4">
+                {clearingEntries ? 'Clearing…' : 'Clear entries'}
+              </button>
+            </div>
             <div className="flex items-center justify-between p-4 bg-red-950/30 border border-red-900/50 rounded-lg">
               <div>
                 <p className="text-sm text-gray-200">Delete this blueprint</p>
@@ -422,6 +447,7 @@ export default function BlueprintDetail() {
                 className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors shrink-0 ml-4">
                 {deleting ? 'Deleting…' : 'Delete blueprint'}
               </button>
+            </div>
             </div>
           </div>
         </div>
