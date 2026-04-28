@@ -3,9 +3,9 @@ import Sidebar from './Sidebar'
 
 export default function Layout() {
   return (
-    <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
+    <div className="flex h-screen bg-[#0f1117] text-[#f8f8f2] overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto p-6 bg-[radial-gradient(circle_at_top_right,_rgba(189,147,249,0.10),_transparent_34%),linear-gradient(180deg,_#12141c_0%,_#0f1117_100%)]">
         <Outlet />
       </main>
     </div>

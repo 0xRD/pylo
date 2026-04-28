@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { CheckSquare, Search, Trash2, X } from 'lucide-react'
 import { blueprintsApi } from '../api/blueprints'
 import EntryCard from '../components/EntryCard'
 import SearchHelp from '../components/SearchHelp'
+import { useAuth } from '../context/AuthContext'
 
 const PAGE_SIZE_OPTIONS = [25, 48, 100, 200]
 const DEFAULT_PAGE_SIZE = 48
@@ -18,6 +20,8 @@ export default function Entries() {
   const [offset, setOffset] = useState(0)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const { isAdmin } = useAuth()
 
   useEffect(() => {
     blueprintsApi.listBlueprints().then(setBlueprints).catch(() => {})
@@ -36,6 +40,7 @@ export default function Entries() {
       .then(data => {
         setEntries(Array.isArray(data) ? data : (data.items ?? data))
         setTotal(data.total ?? null)
+        setSelectedIds(new Set())
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -74,13 +79,40 @@ export default function Entries() {
   const currentPage = Math.floor(offset / pageSize) + 1
 
   const hasFilter = query || blueprintFilter
+  const selectedCount = selectedIds.size
+  const allVisibleSelected = entries.length > 0 && entries.every(e => selectedIds.has(e.id))
+
+  const toggleSelected = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAllVisible = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (allVisibleSelected) entries.forEach(e => next.delete(e.id))
+      else entries.forEach(e => next.add(e.id))
+      return next
+    })
+  }
+
+  const deleteSelected = async () => {
+    if (!selectedCount || !confirm(`Delete ${selectedCount} selected entr${selectedCount === 1 ? 'y' : 'ies'}?`)) return
+    await Promise.all([...selectedIds].map(id => blueprintsApi.deleteEntry(id)))
+    setSelectedIds(new Set())
+    load(query, blueprintFilter, offset, pageSize)
+  }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-gray-100">Entries</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-2xl font-semibold text-[#f8f8f2] tracking-tight">Entries</h1>
+          <p className="text-sm text-[#6272a4] mt-1">
             {total !== null
               ? `${total} entr${total === 1 ? 'y' : 'ies'}${hasFilter ? ' matching filters' : ''}`
               : 'All entries across blueprints'}
@@ -88,21 +120,21 @@ export default function Entries() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-gray-600">Per page:</span>
+            <span className="text-xs text-[#6272a4]">Per page</span>
             {PAGE_SIZE_OPTIONS.map(n => (
               <button key={n} onClick={() => { setPageSize(n); setOffset(0) }}
-                className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                className={`px-2 py-0.5 text-xs rounded-md transition-colors ${
                   n === pageSize
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
+                    ? 'bg-[#bd93f9] text-[#191a21]'
+                    : 'bg-[#282a36] hover:bg-[#343746] text-[#a7abc4]'
                 }`}>
                 {n}
               </button>
             ))}
           </div>
           {hasFilter && (
-            <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              × Clear filters
+            <button onClick={clearFilters} className="inline-flex items-center gap-1 text-xs text-[#ff79c6] hover:text-[#ffb86c] transition-colors">
+              <X size={13} /> Clear filters
             </button>
           )}
         </div>
@@ -115,8 +147,8 @@ export default function Entries() {
             <button key={bp.id} onClick={() => handleBlueprintFilter(bp.id)}
               className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                 blueprintFilter === bp.id
-                  ? 'bg-indigo-600 border-indigo-500 text-white'
-                  : 'bg-gray-900 border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                  ? 'bg-[#44475a] border-[#bd93f9] text-[#f8f8f2]'
+                  : 'bg-[#191a21] border-[#343746] text-[#a7abc4] hover:border-[#6272a4] hover:text-[#f8f8f2]'
               }`}>
               {bp.name}
             </button>
@@ -125,23 +157,43 @@ export default function Entries() {
       )}
 
       {/* Search */}
-      <form onSubmit={handleSearch} className="flex gap-2 mb-6">
+      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
         <input
           value={draftQuery}
           onChange={e => setDraftQuery(e.target.value)}
           placeholder="Search entries…"
-          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+          className="flex-1 bg-[#191a21] border border-[#343746] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#bd93f9] placeholder:text-[#6272a4]"
         />
         <SearchHelp />
         <button type="submit"
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
-          Search
+          className="inline-flex items-center gap-2 px-4 py-2 bg-[#44475a] hover:bg-[#6272a4] rounded-md text-sm transition-colors">
+          <Search size={15} /> Search
         </button>
         {draftQuery && (
           <button type="button" onClick={() => { setDraftQuery(''); setQuery(''); setOffset(0) }}
-            className="px-3 py-2 text-gray-500 hover:text-gray-300 text-sm">×</button>
+            className="px-3 py-2 text-[#6272a4] hover:text-[#f8f8f2] text-sm">×</button>
         )}
       </form>
+
+      <div className="mb-5 flex min-h-10 items-center justify-between rounded-md border border-[#343746] bg-[#191a21]/85 px-3 py-2">
+        <button onClick={toggleAllVisible}
+          className="inline-flex items-center gap-2 text-xs text-[#a7abc4] hover:text-[#f8f8f2] transition-colors">
+          <CheckSquare size={15} /> {allVisibleSelected ? 'Clear visible selection' : 'Select visible'}
+        </button>
+        {selectedCount > 0 ? (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-[#8be9fd]">{selectedCount} selected</span>
+            <button onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-[#6272a4] hover:text-[#f8f8f2]">Clear</button>
+            <button onClick={deleteSelected} disabled={!isAdmin}
+              className="inline-flex items-center gap-2 rounded-md bg-[#ff5555]/15 px-3 py-1.5 text-xs text-[#ffb3b3] hover:bg-[#ff5555]/25 disabled:opacity-40 disabled:cursor-not-allowed">
+              <Trash2 size={14} /> Delete selected
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-[#6272a4]">Use checkboxes to select entries without leaving the page.</span>
+        )}
+      </div>
 
       {/* Results */}
       {loading ? (
@@ -154,7 +206,13 @@ export default function Entries() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {entries.map(e => (
-              <EntryCard key={e.id} entry={e} blueprintName={blueprintMap[e.blueprint_id]} />
+              <EntryCard
+                key={e.id}
+                entry={e}
+                blueprintName={blueprintMap[e.blueprint_id]}
+                selected={selectedIds.has(e.id)}
+                onSelect={toggleSelected}
+              />
             ))}
           </div>
 
