@@ -16,6 +16,7 @@ import {
   FileText,
   Play,
   Plus,
+  RotateCcw,
   Search,
   Settings2,
   Sparkles,
@@ -277,10 +278,17 @@ function parseRunVars(run) {
   catch { return [] }
 }
 
+function formatJson(value) {
+  try { return JSON.stringify(typeof value === "string" ? JSON.parse(value) : value, null, 2) }
+  catch { return String(value || "") }
+}
+
 function RunPanel({ pybook, onClose, isAdmin }) {
   const [runs, setRuns] = useState([])
   const [selectedRun, setSelectedRun] = useState(null)
   const [running, setRunning] = useState(false)
+  const [payloadText, setPayloadText] = useState("{}")
+  const [payloadError, setPayloadError] = useState("")
   const wsRef = useRef(null)
   const pollRef = useRef(null)
 
@@ -316,12 +324,29 @@ function RunPanel({ pybook, onClose, isAdmin }) {
     ws.onerror = () => {}
   }
 
-  const handleRun = async () => {
+  const handleRun = async (payload = {}) => {
     setRunning(true)
+    setPayloadError("")
     try {
-      const run = await pybooksApi.run(pybook.id)
+      const run = await pybooksApi.run(pybook.id, payload)
       setSelectedRun(run); connectWs(run.id); loadRuns()
+    } catch (err) {
+      setPayloadError(err.message)
     } finally { setRunning(false) }
+  }
+
+  const handleRunWithPayload = async () => {
+    try {
+      await handleRun(JSON.parse(payloadText || "{}"))
+    } catch (err) {
+      setPayloadError(err.message)
+    }
+  }
+
+  const reuseSelectedPayload = () => {
+    if (!selectedRun?.trigger_payload) return
+    try { setPayloadText(JSON.stringify(JSON.parse(selectedRun.trigger_payload), null, 2)) }
+    catch { setPayloadText(selectedRun.trigger_payload) }
   }
 
   return (
@@ -335,10 +360,15 @@ function RunPanel({ pybook, onClose, isAdmin }) {
           <p className="text-xs text-[#6272a4] truncate">{pybook.name}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleRun} disabled={running || !isAdmin}
+          <button onClick={() => handleRun()} disabled={running || !isAdmin}
             className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
             <Play className="h-3.5 w-3.5" />
             {running ? "Starting..." : "Run"}
+          </button>
+          <button onClick={handleRunWithPayload} disabled={running || !isAdmin}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#8be9fd] text-[#191a21] hover:bg-[#a4f1ff] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
+            <Braces className="h-3.5 w-3.5" />
+            Run payload
           </button>
           <button onClick={onClose} className="rounded p-1.5 text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#282a36]" title="Close runs">
             <X className="h-4 w-4" />
@@ -348,6 +378,21 @@ function RunPanel({ pybook, onClose, isAdmin }) {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0 border-b border-[#343746] px-4 py-3">
+          <div className="mb-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <textarea
+              value={payloadText}
+              onChange={e => setPayloadText(e.target.value)}
+              rows={3}
+              className="min-h-20 rounded border border-[#343746] bg-[#0f1117] px-3 py-2 font-mono text-xs text-[#f8f8f2] outline-none focus:border-[#8be9fd]"
+              placeholder='{"blueprint_id":"...","entry_id":"...","entry_data":{}}'
+            />
+            <button onClick={reuseSelectedPayload} disabled={!selectedRun}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded bg-[#282a36] px-3 text-xs text-[#a7abc4] hover:bg-[#343746] disabled:opacity-40">
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reuse selected
+            </button>
+          </div>
+          {payloadError && <p className="mb-3 text-xs text-[#ff5555]">{payloadError}</p>}
           {runs.length === 0 ? (
             <p className="text-xs text-[#6272a4] italic">No runs yet.</p>
           ) : (
@@ -378,6 +423,13 @@ function RunPanel({ pybook, onClose, isAdmin }) {
                   <span className="text-xs text-[#8b8fa3]">{selectedRun.trigger_source}</span>
                   {selectedRun.duration_ms != null && <span className="text-xs text-[#6272a4]">{selectedRun.duration_ms}ms</span>}
                 </div>
+
+                {selectedRun.trigger_payload && selectedRun.trigger_payload !== "{}" && (
+                  <div>
+                    <p className="text-xs text-[#8b8fa3] mb-1">payload</p>
+                    <pre className="bg-[#0f1117] border border-[#343746] rounded p-3 text-xs font-mono text-[#8be9fd] whitespace-pre-wrap overflow-auto max-h-40">{formatJson(selectedRun.trigger_payload)}</pre>
+                  </div>
+                )}
 
                 {selectedRun.stdout && (
                   <div>

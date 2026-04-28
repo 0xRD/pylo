@@ -258,3 +258,10 @@ The original `_execute_run` opened a single SQLAlchemy session at the start and 
 
 ### Commits
 - `f44e8ad fix: NullPool for SQLite + image build lock — fix concurrent run pool exhaustion`
+
+## Session 18 — PyBook development playground
+- **Run with payload**: PyBooks run console now includes a JSON payload editor and a `Run payload` action. The payload is stored in `PyBookRun.trigger_payload` and injected as `TRIGGER_PAYLOAD`.
+- **Payload reuse**: selecting a previous run can copy its payload back into the editor for fast reruns.
+- **Payload visibility**: run detail now shows the trigger payload alongside stdout/stderr and output variables.
+- **Run PyBook from Entries**: the global Entries multi-select toolbar can queue an active PyBook once per selected entry, using the standard blueprint trigger payload shape: `blueprint_id`, `entry_id`, `entry_data`.
+- **Dependency note**: PyBook `dependencies` remains relevant; it is used by the Docker image builder to install per-PyBook pip packages into the runner image.

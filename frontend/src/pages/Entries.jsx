@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CheckSquare, Search, Trash2, X } from 'lucide-react'
+import { CheckSquare, Play, Search, Trash2, X } from 'lucide-react'
 import { blueprintsApi } from '../api/blueprints'
+import { pybooksApi } from '../api/pybooks'
 import EntryCard from '../components/EntryCard'
 import SearchHelp from '../components/SearchHelp'
 import { useAuth } from '../context/AuthContext'
@@ -12,6 +13,7 @@ const DEFAULT_PAGE_SIZE = 48
 export default function Entries() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [blueprints, setBlueprints] = useState([])
+  const [pybooks, setPybooks] = useState([])
   const [entries, setEntries] = useState([])
   const [total, setTotal] = useState(null)
   const [query, setQuery] = useState(searchParams.get('q') || '')
@@ -21,10 +23,14 @@ export default function Entries() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [runPybookId, setRunPybookId] = useState('')
+  const [runningSelected, setRunningSelected] = useState(false)
+  const [runMessage, setRunMessage] = useState('')
   const { isAdmin } = useAuth()
 
   useEffect(() => {
     blueprintsApi.listBlueprints().then(setBlueprints).catch(() => {})
+    pybooksApi.list().then(data => setPybooks(data.filter(pb => pb.is_active))).catch(() => {})
   }, [])
 
   const blueprintMap = Object.fromEntries(blueprints.map(b => [b.id, b.name]))
@@ -107,6 +113,30 @@ export default function Entries() {
     load(query, blueprintFilter, offset, pageSize)
   }
 
+  const runOnSelected = async () => {
+    if (!runPybookId || selectedCount === 0) return
+    if (!confirm(`Run selected PyBook on ${selectedCount} entr${selectedCount === 1 ? 'y' : 'ies'}?`)) return
+    setRunningSelected(true); setRunMessage('')
+    try {
+      const selectedEntries = entries.filter(e => selectedIds.has(e.id))
+      await Promise.all(selectedEntries.map(entry => {
+        let entryData = {}
+        try { entryData = JSON.parse(entry.data || '{}') } catch {}
+        return pybooksApi.run(runPybookId, {
+          blueprint_id: entry.blueprint_id,
+          entry_id: entry.id,
+          entry_data: entryData,
+        }, 'entries_bulk')
+      }))
+      setRunMessage(`${selectedEntries.length} run${selectedEntries.length === 1 ? '' : 's'} queued`)
+      setSelectedIds(new Set())
+    } catch (err) {
+      setRunMessage(err.message)
+    } finally {
+      setRunningSelected(false)
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -181,8 +211,17 @@ export default function Entries() {
           <CheckSquare size={15} /> {allVisibleSelected ? 'Clear visible selection' : 'Select visible'}
         </button>
         {selectedCount > 0 ? (
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <span className="text-xs text-[#8be9fd]">{selectedCount} selected</span>
+            <select value={runPybookId} onChange={e => setRunPybookId(e.target.value)}
+              className="rounded-md border border-[#343746] bg-[#0f1117] px-2 py-1.5 text-xs text-[#f8f8f2] outline-none focus:border-[#8be9fd]">
+              <option value="">Run PyBook…</option>
+              {pybooks.map(pb => <option key={pb.id} value={pb.id}>{pb.name}</option>)}
+            </select>
+            <button onClick={runOnSelected} disabled={!isAdmin || !runPybookId || runningSelected}
+              className="inline-flex items-center gap-2 rounded-md bg-[#50fa7b]/15 px-3 py-1.5 text-xs text-[#b8ffc8] hover:bg-[#50fa7b]/25 disabled:opacity-40 disabled:cursor-not-allowed">
+              <Play size={14} /> {runningSelected ? 'Queueing…' : 'Run on selected'}
+            </button>
             <button onClick={() => setSelectedIds(new Set())}
               className="text-xs text-[#6272a4] hover:text-[#f8f8f2]">Clear</button>
             <button onClick={deleteSelected} disabled={!isAdmin}
@@ -191,9 +230,10 @@ export default function Entries() {
             </button>
           </div>
         ) : (
-          <span className="text-xs text-[#6272a4]">Use checkboxes to select entries without leaving the page.</span>
+          <span className="text-xs text-[#6272a4]">{runMessage || 'Use checkboxes to select entries without leaving the page.'}</span>
         )}
       </div>
+      {runMessage && selectedCount > 0 && <p className="mb-4 text-xs text-[#8be9fd]">{runMessage}</p>}
 
       {/* Results */}
       {loading ? (

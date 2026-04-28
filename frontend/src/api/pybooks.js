@@ -24,8 +24,8 @@ export const pybooksApi = {
   get: (id) => req("GET", `/pybooks/${id}`),
   update: (id, data) => req("PUT", `/pybooks/${id}`, data),
   delete: (id) => req("DELETE", `/pybooks/${id}`),
-  run: (id, payload = {}) =>
-    req("POST", `/pybooks/${id}/run`, { trigger_source: "manual", trigger_payload: payload }),
+  run: (id, payload = {}, triggerSource = "manual") =>
+    req("POST", `/pybooks/${id}/run`, { trigger_source: triggerSource, trigger_payload: payload }),
   build: (id) => req("POST", `/pybooks/${id}/build`),
   getRuns: (id) => req("GET", `/pybooks/${id}/runs`),
 }
