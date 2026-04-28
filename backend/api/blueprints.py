@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_, func, cast, or_, String as SAString
 from sqlmodel import Session, select
+from jsonpath_ng import parse as jsonpath_parse
 
 from backend.activity.logger import log_activity
 from backend.core.auth import AuthUser, verify_token
@@ -40,6 +41,13 @@ class BlueprintCreate(BaseModel):
     is_manual: bool = False
     trigger_event: str = "on_create"
     mutable_mode: str = "none"
+    pagination_type: str = "none"
+    pagination_param: Optional[str] = None
+    pagination_path: Optional[str] = None
+    pagination_items_path: Optional[str] = None
+    pagination_max_pages: int = 50
+    max_entries: Optional[int] = None
+    retention_days: Optional[int] = None
 
 
 class BlueprintUpdate(BaseModel):
@@ -57,6 +65,13 @@ class BlueprintUpdate(BaseModel):
     is_manual: Optional[bool] = None
     trigger_event: Optional[str] = None
     mutable_mode: Optional[str] = None
+    pagination_type: Optional[str] = None
+    pagination_param: Optional[str] = None
+    pagination_path: Optional[str] = None
+    pagination_items_path: Optional[str] = None
+    pagination_max_pages: Optional[int] = None
+    max_entries: Optional[int] = None
+    retention_days: Optional[int] = None
 
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
@@ -416,6 +431,120 @@ async def _execute_workflow_bg(workflow_run_id: str) -> None:
     except Exception as exc:
         logger.exception("Workflow run %s crashed: %s", workflow_run_id, exc)
 
+
+def _jsonpath_first(data, path: str):
+    matches = jsonpath_parse(path).find(data)
+    return matches[0].value if matches else None
+
+
+def _extract_fetch_items(raw_data, items_path: Optional[str]) -> list:
+    data = raw_data
+    if items_path:
+        data = _jsonpath_first(raw_data, items_path)
+    if data is None:
+        return []
+    return data if isinstance(data, list) else [data]
+
+
+def _pagination_value(bp: Blueprint, page_number: int, offset: int, cursor):
+    ptype = (bp.pagination_type or "none").lower()
+    if ptype == "page_number":
+        return page_number
+    if ptype == "offset":
+        return offset
+    if ptype == "cursor":
+        return cursor
+    return None
+
+
+def _delete_entry_row(session: Session, entry: Entry) -> None:
+    remove_from_index(session, entry.id)
+    events = session.exec(select(EntryEvent).where(EntryEvent.entry_id == entry.id)).all()
+    for event in events:
+        session.delete(event)
+    session.delete(entry)
+
+
+def _enforce_entry_retention(session: Session, bp: Blueprint) -> int:
+    deleted = 0
+    if bp.retention_days and bp.retention_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=bp.retention_days)
+        expired = session.exec(
+            select(Entry)
+            .where(Entry.blueprint_id == bp.id, Entry.created_at < cutoff)
+            .order_by(Entry.created_at)
+        ).all()
+        for entry in expired:
+            _delete_entry_row(session, entry)
+            deleted += 1
+
+    if bp.max_entries and bp.max_entries > 0:
+        entries = session.exec(
+            select(Entry)
+            .where(Entry.blueprint_id == bp.id)
+            .order_by(Entry.created_at.desc())
+        ).all()
+        for entry in entries[bp.max_entries:]:
+            _delete_entry_row(session, entry)
+            deleted += 1
+
+    return deleted
+
+
+async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[list, int]:
+    ptype = (bp.pagination_type or "none").lower()
+    if ptype not in {"none", "page_number", "offset", "cursor"}:
+        ptype = "none"
+
+    param = (bp.pagination_param or "").strip()
+    max_pages = max(1, min(int(bp.pagination_max_pages or 50), 500))
+    all_items: list = []
+    page_number = 1
+    offset = 0
+    cursor = None
+    seen_cursors = set()
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for page_idx in range(max_pages):
+            page_body = dict(body or {})
+            params = {}
+            page_value = _pagination_value(bp, page_number, offset, cursor)
+            if ptype != "none" and param and page_value not in (None, ""):
+                if bp.source_method.upper() == "POST":
+                    page_body[param] = page_value
+                else:
+                    params[param] = page_value
+
+            if bp.source_method.upper() == "POST":
+                response = await client.post(bp.source_url, headers=headers, json=page_body, params=params or None)
+            else:
+                response = await client.get(bp.source_url, headers=headers, params=params or None)
+            response.raise_for_status()
+            raw_data = response.json()
+            items = _extract_fetch_items(raw_data, bp.pagination_items_path)
+            all_items.extend(items)
+
+            if ptype == "none":
+                return all_items, 1
+            if not items:
+                return all_items, page_idx + 1
+
+            if ptype == "page_number":
+                page_number += 1
+            elif ptype == "offset":
+                offset += len(items)
+            elif ptype == "cursor":
+                if not bp.pagination_path:
+                    return all_items, page_idx + 1
+                next_cursor = _jsonpath_first(raw_data, bp.pagination_path)
+                if next_cursor in (None, "") or next_cursor in seen_cursors:
+                    return all_items, page_idx + 1
+                seen_cursors.add(next_cursor)
+                cursor = next_cursor
+
+    return all_items, max_pages
+
+
 async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler") -> dict:
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
@@ -440,17 +569,10 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
         pass
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            if bp.source_method.upper() == "POST":
-                response = await client.post(bp.source_url, headers=req_headers, json=req_body)
-            else:
-                response = await client.get(bp.source_url, headers=req_headers)
-        response.raise_for_status()
-        raw_data = response.json()
+        items, pages_fetched = await _fetch_raw_pages(bp, req_headers, req_body)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Upstream fetch failed: {exc}")
 
-    items = raw_data if isinstance(raw_data, list) else [raw_data]
     key_field = next(
         (m["field_name"] for m in field_mappings if m.get("is_key")),
         "external_id",
@@ -490,15 +612,16 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
         created_count += 1
         created_entries.append({"entry_id": entry.id, "parsed": parsed})
 
+    retention_deleted = _enforce_entry_retention(session, bp)
     log_activity(session, "blueprint.fetch", actor=actor,
                  resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
-                 detail={"created": created_count, "skipped": skipped_count, "total": len(items)})
+                 detail={"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted})
     session.commit()
 
     if created_entries:
         _fire_blueprint_triggers(bp, created_entries)
 
-    return {"created": created_count, "skipped": skipped_count, "total": len(items)}
+    return {"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted}
 
 
 @router.post("/{blueprint_id}/fetch")
@@ -526,6 +649,9 @@ class PreviewRequest(BaseModel):
     source_headers: str = "{}"
     source_body: str = "{}"
     sample_limit: int = 1
+    pagination_type: str = "none"
+    pagination_param: Optional[str] = None
+    pagination_items_path: Optional[str] = None
 
 
 
@@ -582,6 +708,7 @@ async def create_manual_entry(
         created_at=datetime.now(timezone.utc),
     )
     session.add(ev)
+    _enforce_entry_retention(session, bp)
     session.commit()
     _fire_blueprint_triggers(bp, [{"entry_id": entry.id, "parsed": body.fields}])
     return entry
@@ -688,11 +815,20 @@ async def preview_endpoint(body: PreviewRequest):
         raise HTTPException(status_code=500, detail=f"Secret resolution failed: {exc}")
 
     try:
+        params = {}
+        preview_body = dict(req_body or {})
+        ptype = (body.pagination_type or "none").lower()
+        if ptype in {"page_number", "offset"} and body.pagination_param:
+            value = 1 if ptype == "page_number" else 0
+            if body.source_method.upper() == "POST":
+                preview_body[body.pagination_param] = value
+            else:
+                params[body.pagination_param] = value
         async with httpx.AsyncClient(timeout=15) as client:
             if body.source_method.upper() == "POST":
-                response = await client.post(body.source_url, headers=req_headers, json=req_body)
+                response = await client.post(body.source_url, headers=req_headers, json=preview_body, params=params or None)
             else:
-                response = await client.get(body.source_url, headers=req_headers)
+                response = await client.get(body.source_url, headers=req_headers, params=params or None)
         response.raise_for_status()
         raw = response.json()
     except httpx.HTTPError as exc:
@@ -700,9 +836,10 @@ async def preview_endpoint(body: PreviewRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    is_list = isinstance(raw, list)
-    total = len(raw) if is_list else 1
-    sample = raw[:body.sample_limit] if is_list else raw
+    items = _extract_fetch_items(raw, body.pagination_items_path)
+    is_list = len(items) != 1 or isinstance(raw, list) or bool(body.pagination_items_path)
+    total = len(items) if is_list else 1
+    sample = items[:body.sample_limit] if is_list else (items[0] if items else raw)
 
     return {
         "is_list": is_list,

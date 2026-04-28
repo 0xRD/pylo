@@ -26,6 +26,13 @@ class Blueprint(SQLModel, table=True):
     fetch_cron: Optional[str] = None
     fetch_is_active: bool = Field(default=False)
     is_manual: bool = Field(default=False)
+    pagination_type: str = Field(default="none")
+    pagination_param: Optional[str] = None
+    pagination_path: Optional[str] = None
+    pagination_items_path: Optional[str] = None
+    pagination_max_pages: int = Field(default=50)
+    max_entries: Optional[int] = None
+    retention_days: Optional[int] = None
     mutable_mode: str = Field(default="none")
     created_at: datetime = Field(default_factory=_now)
 

@@ -67,6 +67,7 @@ Define a schema and data source for structured data. Each Blueprint has:
 - **Authentication** — Bearer Token, API Key (any header), or Basic Auth via stored secrets
 - **Field mappings** — JSONPath expressions mapped to named fields with type coercion
 - A **unique key field** for deduplication on repeated fetches (★ marker in the field mapping builder)
+- Optional **pagination** for page-number, offset, and cursor-based APIs
 - An optional **auto-fetch schedule** (human-friendly builder generates cron under the hood)
 - **Manual mode** — no API source; entries are created directly in the UI (shared variables, rule toggles, allow/blocklists)
 
@@ -101,9 +102,10 @@ Every PyBook execution creates a Run record with full stdout/stderr, exit code, 
 |---|---|
 | `/blueprints` | Blueprint card grid — create and manage data sources |
 | `/blueprints/:id` | Blueprint detail — **Entries** tab (data) + **Settings** tab (config, delete) |
-| `/blueprints/entries/:id` | Single entry detail with raw and parsed fields |
-| `/entries` | Global entries view — full-text search, field filter, blueprint chips, bulk delete |
-| `/pybooks` | PyBook editor with sidebar (search, type filter, tag filter) |
+| `/entries/:id` | Single entry detail with raw, parsed fields, editable mutable fields, and history |
+| `/blueprints/entries/:id` | Legacy single-entry detail route, kept for compatibility |
+| `/entries` | Global entries view — full-text search, field filter, blueprint chips, multi-select bulk delete |
+| `/pybooks` | PyBook editor with sidebar filters, Monaco editor, SDK reference, and run console with output variables |
 | `/runs` | Unified PyBook + Workflow run history with type filter |
 | `/automations` | All active scheduled/triggered PyBooks and Workflows in one view |
 | `/secrets` | Encrypted secret management |
@@ -122,10 +124,11 @@ from pylo_sdk import search_entries, get_entry, call_sub_pybook
 
 # Full-text search across blueprint entries (optionally scoped to a blueprint)
 alerts = search_entries("mimikatz", type_id="<blueprint_id>")
+# search_entries returns the entry list directly, even though the API endpoint is paginated.
 
 # Fetch a single entry by ID
 entry = get_entry("<entry_id>")
-# entry = {"id": "...", "data": {...}, "raw_data": {...}, ...}
+# entry["data"] and entry["raw_data"] are JSON strings; parse them before indexing.
 
 # Trigger a sub-PyBook synchronously and get its result
 result = call_sub_pybook("<sub_pybook_id>", payload={"alert_id": "123"})
@@ -163,7 +166,7 @@ Visual DAG (directed acyclic graph) editor for chaining multiple PyBooks into mu
 - **Nodes**: drag PyBooks onto the canvas from the left palette
 - **Edges**: draw connections between nodes; set condition (`always` / `on success` / `on failure`)
 - **Payload mappings**: pass output variables from one node to the next via `$.vars.key` references
-- **Triggers**: same options as PyBooks — manual, cron, webhook, or blueprint event
+- **Triggers**: same options as PyBooks — manual, cron, webhook, or blueprint event with optional trigger conditions
 - **Execution**: parallel fan-out via asyncio, topological ordering, per-node status tracking
 - **Runs**: per-workflow run history with node-level status and output variables
 
@@ -192,6 +195,18 @@ Both Blueprints and PyBook cron triggers use the **Schedule Builder** — no cro
 - **At a time** mode: choose a 24h time + day-of-week chips ("At 18:00 on Mon–Fri")
 
 The generated cron expression is shown as a read-only preview.
+
+---
+
+## Paginated API Fetching
+
+Blueprint API sources can fetch multiple pages before parsing entries:
+
+- **Page number** — sends `pagination_param=1`, then `2`, `3`, etc.
+- **Offset** — sends `pagination_param=0`, then increments by the number of returned items.
+- **Cursor** — reads the next token from a JSONPath such as `$.next_cursor`, then sends it on the next request.
+
+If the response wraps entries, set **Items path** to the list JSONPath, for example `$.items` or `$.data.results`. `Max pages` caps every fetch to prevent runaway loops.
 
 ---
 
@@ -352,9 +367,7 @@ alembic upgrade head
 
 See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 
-- **trigger_conditions on workflow blueprint triggers** — PyBooks already support per-field conditions before firing; Workflows currently fire unconditionally
 - **pylo_sdk standalone library** — pip-installable `PyloClient` for external script integration without manual SDK mounting
-- **Paginated API fetching** — cursor, page-number, and offset pagination for multi-page sources
 - **Scoped API Keys** — per-key permissions for SIEM/script integrations
 - **Configuration backup & restore** — export/import to ZIP or Git repository
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data

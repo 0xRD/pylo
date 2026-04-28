@@ -1,17 +1,32 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import {
+  Activity,
+  Boxes,
+  Braces,
+  CircuitBoard,
+  Database,
+  GitBranch,
+  KeyRound,
+  LogOut,
+  PlayCircle,
+  Settings,
+  Shield,
+  UserCog,
+  Workflow,
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 const links = [
-  { to: '/blueprints', label: 'Blueprints', icon: '⬡' },
-  { to: '/entries', label: 'Entries', icon: '◈' },
-  { to: '/pybooks', label: 'PyBooks', icon: '📖' },
-  { to: '/workflows', label: 'Workflows', icon: '⬡' },
-  { to: '/runs', label: 'Runs', icon: '▶' },
-  { to: '/automations', label: 'Automations', icon: '⚡' },
-  { to: '/secrets', label: 'Secrets', icon: '🔑' },
-  { to: '/activity', label: 'Activity', icon: '◎' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+  { to: '/blueprints', label: 'Blueprints', icon: Boxes },
+  { to: '/entries', label: 'Entries', icon: Database },
+  { to: '/pybooks', label: 'PyBooks', icon: Braces },
+  { to: '/workflows', label: 'Workflows', icon: GitBranch },
+  { to: '/runs', label: 'Runs', icon: PlayCircle },
+  { to: '/automations', label: 'Automations', icon: Workflow },
+  { to: '/secrets', label: 'Secrets', icon: KeyRound },
+  { to: '/activity', label: 'Activity', icon: Activity },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 function ChangePasswordModal({ onClose }) {
@@ -101,24 +116,32 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className="w-52 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="px-5 py-5 border-b border-gray-800">
-          <NavLink to="/" className="text-lg font-bold text-indigo-400 tracking-tight hover:text-indigo-300 transition-colors">
-            Pylo
+      <aside className="w-60 bg-[#191a21] border-r border-[#343746] flex flex-col shadow-2xl shadow-black/20">
+        <div className="px-4 py-5 border-b border-[#343746]">
+          <NavLink to="/" className="flex items-center gap-3 text-gray-100 hover:text-[#bd93f9] transition-colors">
+            <span className="grid h-9 w-9 place-items-center rounded-md bg-[#282a36] border border-[#44475a] text-[#8be9fd]">
+              <CircuitBoard size={18} />
+            </span>
+            <span>
+              <span className="block text-base font-semibold tracking-tight">Pylo</span>
+              <span className="block text-[11px] text-[#6272a4]">Automation console</span>
+            </span>
           </NavLink>
         </div>
-        <nav className="flex-1 px-2 py-4 space-y-1">
-          {links.map(({ to, label, icon }) => (
+        <nav className="flex-1 px-3 py-4 space-y-1">
+          {links.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'
+                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border ${
+                  isActive
+                    ? 'bg-[#44475a] border-[#6272a4] text-[#f8f8f2]'
+                    : 'border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#f8f8f2]'
                 }`
               }
             >
-              <span className="text-base leading-none">{icon}</span>
+              <Icon size={17} />
               {label}
             </NavLink>
           ))}
@@ -126,30 +149,37 @@ export default function Sidebar() {
             <NavLink
               to="/users"
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'
+                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border ${
+                  isActive
+                    ? 'bg-[#44475a] border-[#6272a4] text-[#f8f8f2]'
+                    : 'border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#f8f8f2]'
                 }`
               }
             >
-              <span className="text-base leading-none">👥</span>
+              <UserCog size={17} />
               Users
             </NavLink>
           )}
         </nav>
-        <div className="px-3 py-3 border-t border-gray-800">
-          <div className="px-2 py-1.5 space-y-1.5">
+        <div className="px-3 py-3 border-t border-[#343746]">
+          <div className="rounded-md bg-[#282a36] border border-[#343746] px-3 py-3 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-gray-300 truncate">{user?.username}</p>
-                <p className="text-xs text-gray-600">{user?.role}</p>
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded bg-[#191a21] text-[#50fa7b]">
+                  <Shield size={14} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-[#f8f8f2] truncate">{user?.username}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[#6272a4]">{user?.role}</p>
+                </div>
               </div>
-              <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-gray-300 transition-colors ml-2 shrink-0">
-                Sign out
+              <button onClick={handleLogout} title="Sign out" className="text-[#6272a4] hover:text-[#ff79c6] transition-colors ml-2 shrink-0">
+                <LogOut size={15} />
               </button>
             </div>
             <button
               onClick={() => setShowChangePwd(true)}
-              className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+              className="text-xs text-[#8be9fd] hover:text-[#bd93f9] transition-colors"
             >
               Change password
             </button>

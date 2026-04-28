@@ -45,7 +45,7 @@ export default function EntryDetail() {
   const handleDelete = async () => {
     if (!confirm('Delete this entry?')) return
     await blueprintsApi.deleteEntry(id)
-    navigate(`/blueprints/${entry.blueprint_id}`)
+    navigate('/entries')
   }
 
   const goBack = () => {
@@ -87,7 +87,7 @@ export default function EntryDetail() {
   const hasEdits = Object.keys(editValues).length > 0
 
   return (
-    <div className="max-w-3xl space-y-6 px-4 py-6">
+    <div className="max-w-5xl space-y-6 px-4 py-6">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-xs text-gray-500">
         <Link to="/entries" className="hover:text-gray-300 transition-colors">Entries</Link>
@@ -105,7 +105,7 @@ export default function EntryDetail() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="text-2xl font-semibold tracking-tight">
             Entry <span className="font-mono text-indigo-400">{entry.id.slice(0, 8)}</span>
           </h1>
           {entry.external_id && (

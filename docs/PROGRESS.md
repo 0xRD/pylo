@@ -134,9 +134,86 @@ All core features working end-to-end on `main` branch.
 | `/users` | User management (admin) |
 
 **Pending / backlog items:**
-- `trigger_conditions` support for workflow blueprint triggers (PyBooks already have this)
 - Task 5: `pylo_sdk` as a standalone pip-installable library with `PyloClient` class
 - Paginated API source fetching (#9)
 - Scoped API keys (#6)
 - Configuration backup & restore (#18)
 - Re-parse entries on mapping change (#6b)
+
+## Session 13 — Code quality audit + SDK compatibility + Sekoia demo fix
+- **Branch `audit/code-quality` merged into `main`**: documented audit findings in `docs/CODE_AUDIT.md`; merged and pushed as `c08f4e9`.
+- **SDK compatibility fix**: `pylo_sdk.search_entries()` now unwraps paginated `/api/blueprints/entries` responses and returns the historical list-like result expected by existing PyBooks.
+- **Regression tests**: added `tests/test_pylo_sdk.py` to cover paginated and legacy list responses; full container test suite passed (`64 passed`).
+- **Queue manager syntax fix**: fixed a syntax error in `backend/core/queue_manager.py` discovered during audit validation.
+- **Frontend build/security cleanup**: removed stale frontend `VITE_API_TOKEN` build arg; `npm audit` is clean.
+- **Sekoia IOC demo PyBook**: diagnosed successful API calls with no visible indicators; Sekoia expects raw observables in `value`, not STIX patterns. Updated the runtime demo PyBook script accordingly and verified a successful run with `indicators_count = 97`.
+
+## Session 14 — Frontend refresh + Entries workflow fixes
+- **Branch `feat/frontend-refresh` pushed**: `60e925f feat: refresh frontend navigation and entries`.
+- **Sidebar refresh**: replaced emoji/glyph navigation with `lucide-react` icons; applied a Dracula-inspired dark palette across the app shell.
+- **PyBooks UX refresh**: rebuilt the PyBooks page shell with a cleaner internal list, icon command bar, improved tags/trigger controls, and a bottom run console.
+- **Run variables visibility**: PyBook run output variables are now prominent in the run console instead of hidden in a cramped side panel.
+- **Entries route fix**: entry cards now navigate to canonical `/entries/:id`; deletion from EntryDetail returns to `/entries`; legacy `/blueprints/entries/:id` remains registered for compatibility.
+- **Global Entries bulk delete**: added multi-select checkboxes, select-visible, clear, and delete-selected actions to the global Entries page.
+- **Validation**: frontend build passed, Docker frontend rebuilt, container health checked, backend test suite passed in the backend container (`64 passed`), migrations upgraded cleanly, API and SPA route smokes passed, and `npm audit` reported `0 vulnerabilities`.
+
+## Current state (after Session 14)
+All core features remain working end-to-end on `main`, with the frontend refresh staged on `feat/frontend-refresh` for review.
+
+**Alembic head**: `j9k0l1m2n3o4`
+
+**Active routes:**
+| Route | Description |
+|---|---|
+| `/blueprints` | Blueprint card grid |
+| `/blueprints/:id` | Tabbed detail (Entries / Settings) |
+| `/entries` | Global entries — FTS + field filter + blueprint chips + multi-select bulk delete |
+| `/entries/:id` | Canonical entry detail with Fields/Raw/History tabs |
+| `/blueprints/entries/:id` | Legacy entry detail route kept for compatibility |
+| `/pybooks` | PyBook editor with refreshed layout and run console |
+| `/workflows` | Workflow list |
+| `/workflows/:id` | Workflow DAG editor |
+| `/runs` | Unified PyBook + Workflow run history |
+| `/automations` | All active triggers in one view |
+| `/secrets` | Secret store |
+| `/activity` | Audit log |
+| `/settings` | System settings + self-update |
+| `/users` | User management (admin) |
+
+**Pending / backlog items:**
+- `pylo_sdk` as a standalone pip-installable library with a `PyloClient` class
+- Paginated API source fetching (#9)
+- Scoped API keys (#6)
+- Configuration backup & restore (#18)
+- Re-parse entries on mapping change (#6b)
+
+## Session 15 — Paginated Blueprint source fetching
+- **Paginated API source fetching**: Blueprints now support `none`, `page_number`, `offset`, and `cursor` pagination modes.
+- **Wrapped response support**: optional `pagination_items_path` JSONPath extracts item lists from envelopes such as `$.items` or `$.data.results`.
+- **Cursor support**: optional `pagination_path` JSONPath extracts the next cursor token, with loop protection for empty/repeated cursors.
+- **Safety cap**: `pagination_max_pages` defaults to 50 and is clamped to 500 in the fetch loop.
+- **Fetch output**: manual/cron fetch results and activity details include `pages_fetched`.
+- **Blueprint form**: added a Pagination section with type, parameter name, items path, next-cursor path, and max-pages controls.
+- **Migration**: `l1m2n3o4p5q6` adds pagination config columns to `blueprint`.
+- **Tests**: added focused coverage for wrapped item extraction, page-number pagination, and cursor pagination.
+
+## Current state (after Session 15)
+All core features remain working end-to-end, with frontend refresh and paginated fetching staged on `feat/frontend-refresh` for review.
+
+**Alembic head**: `l1m2n3o4p5q6`
+
+**Pending / backlog items:**
+- `pylo_sdk` as a standalone pip-installable library with a `PyloClient` class
+- Scoped API keys (#6)
+- Configuration backup & restore (#18)
+- Re-parse entries on mapping change (#6b)
+- Entry update support in `pylo_sdk`
+- Bulk PyBook dispatch from selected entries
+
+## Session 16 — Blueprint entry retention limits
+- **Per-blueprint retention controls**: added optional `max_entries` and `retention_days` settings.
+- **Cleanup behavior**: after API fetches or manual entry creation, Pylo deletes expired entries and trims over-limit blueprints by removing the oldest entries first.
+- **Index/event cleanup**: retention deletion removes FTS rows and entry history rows for deleted entries.
+- **Fetch output**: fetch responses and activity details include `retention_deleted`.
+- **Blueprint form**: added an Entry retention section.
+- **Migration**: `m2n3o4p5q6r7` adds retention columns to `blueprint`.
