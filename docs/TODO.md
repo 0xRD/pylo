@@ -29,6 +29,51 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
+## 3. Dashboard / command center
+
+A main overview page for operational visibility across Pylo.
+
+**Route / navigation:**
+- Add `/dashboard` as the default authenticated landing page.
+- Sidebar item: `Dashboard`, placed above Blueprints.
+- Keep `/blueprints`, `/entries`, `/pybooks`, `/runs` as direct operational pages.
+
+**Backend API:**
+- `GET /api/dashboard/summary` returns counts and recent time-series data.
+- Query params: `days` default `14`, allowed `7 | 14 | 30`.
+- Response should be pre-aggregated server-side to keep the frontend simple.
+
+**Top metrics:**
+- Total Blueprints.
+- Total Entries.
+- Total PyBooks and active PyBooks.
+- Total Workflows and active Workflows.
+- Total runs over the selected period.
+- Current queue stats: queued, running, max concurrent.
+
+**Charts:**
+- Entries created per day.
+- PyBook runs per day, grouped by status: success, error, timeout.
+- Workflow runs per day, grouped by status.
+- Run success rate over time.
+
+**Operational panels:**
+- Recent failed runs with links to run detail and PyBook/Workflow.
+- Top Blueprints by entry count.
+- Active automations summary: cron, webhook, blueprint-triggered.
+- Retention cleanup summary if available: entries deleted by retention over the selected period.
+- Latest activity events.
+
+**Frontend UX:**
+- Dracula-compatible styling matching the refreshed UI.
+- Use compact stat tiles and dense charts; this is an operator dashboard, not a marketing page.
+- Avoid nested cards; use full-width bands/sections and individual tiles only where useful.
+- If adding a chart library, prefer a lightweight React chart package and keep the dependency scoped to dashboard needs.
+
+**Why:** Gives analysts and operators a fast health snapshot: data volume, automation throughput, failures, queue pressure, and which data sources are growing fastest.
+
+---
+
 ## 4. Configuration backup & restore
 
 Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery.
