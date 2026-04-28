@@ -60,6 +60,7 @@ export default function App() {
               <Route path="/objects" element={<Navigate to="/blueprints" replace />} />
               <Route path="/objects/*" element={<Navigate to="/blueprints" replace />} />
               <Route path="/blueprints" element={<Blueprints />} />
+              <Route path="/entries/:id" element={<EntryDetail />} />
               <Route path="/blueprints/entries/:id" element={<EntryDetail />} />
               <Route path="/blueprints/:id" element={<BlueprintDetail />} />
               <Route path="/entries" element={<Entries />} />

@@ -1,3 +1,18 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-color: #44475a #191a21;
+  }
+
+  ::selection {
+    background: #bd93f9;
+    color: #191a21;
+  }
+
+  body {
+    background: #0f1117;
+  }
+}
