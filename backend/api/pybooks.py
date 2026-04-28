@@ -65,8 +65,16 @@ async def _execute_run(pybook_id: str, run_id: str):
         session.commit()
 
         script_path = str(get_script_path(pb.id))
-        deps = json.loads(pb.dependencies or "[]")
-        secrets = json.loads(pb.required_secrets or "[]")
+        try:
+            deps = json.loads(pb.dependencies or "[]")
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("PyBook %s has invalid dependencies JSON: %s", pb.id, pb.dependencies)
+            deps = []
+        try:
+            secrets = json.loads(pb.required_secrets or "[]")
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("PyBook %s has invalid required_secrets JSON: %s", pb.id, pb.required_secrets)
+            secrets = []
         payload = json.loads(run.trigger_payload or "{}")
         started = datetime.now(timezone.utc)
 

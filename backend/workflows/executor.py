@@ -76,8 +76,16 @@ async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[st
         pb_run_id = pb_run.id
         node_run_id = node_run.id
         script_path = str(get_script_path(pb.id))
-        deps = json.loads(pb.dependencies or "[]")
-        secrets = json.loads(pb.required_secrets or "[]")
+        try:
+            deps = json.loads(pb.dependencies or "[]")
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("PyBook %s has invalid dependencies JSON: %s", pb.id, pb.dependencies)
+            deps = []
+        try:
+            secrets = json.loads(pb.required_secrets or "[]")
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("PyBook %s has invalid required_secrets JSON: %s", pb.id, pb.required_secrets)
+            secrets = []
 
     started = datetime.now(timezone.utc)
     final_status = "error"

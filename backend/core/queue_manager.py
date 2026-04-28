@@ -94,10 +94,29 @@ async def start() -> None:
         row = session.get(SystemSetting, "max_concurrent_runs")
         max_concurrent = int(row.value) if row else _get_max()
 
+        # Runs left in queued/pending state can be safely re-queued
         orphans = session.exec(
             select(PyBookRun).where(PyBookRun.status.in_(["queued", "pending"]))
         ).all()
         orphan_ids = [(r.pybook_id, r.id) for r in orphans]
+
+        # Runs stuck in running state were interrupted by a restart — mark as error
+        from datetime import datetime, timezone as tz
+        now = datetime.now(tz.utc)
+        stranded = session.exec(
+            select(PyBookRun).where(PyBookRun.status == "running")
+        ).all()
+        for run in stranded:
+            run.status = "error"
+            run.ended_at = now
+            run.stderr = (run.stderr or "") + "
+[Interrupted: backend restarted while run was active]"
+            if run.exit_code is None:
+                run.exit_code = -1
+            session.add(run)
+        if stranded:
+            session.commit()
+            logger.warning("Reset %d stranded runs to error after restart", len(stranded))
 
     _current_limit = max_concurrent
     _queue = asyncio.Queue()

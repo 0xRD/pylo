@@ -133,7 +133,7 @@ async def run_pybook(
     trigger_payload: dict,
 ) -> tuple[str, str, int]:
     import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(
             loop.run_in_executor(
