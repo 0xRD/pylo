@@ -209,3 +209,11 @@ All core features remain working end-to-end, with frontend refresh and paginated
 - Re-parse entries on mapping change (#6b)
 - Entry update support in `pylo_sdk`
 - Bulk PyBook dispatch from selected entries
+
+## Session 16 — Blueprint entry retention limits
+- **Per-blueprint retention controls**: added optional `max_entries` and `retention_days` settings.
+- **Cleanup behavior**: after API fetches or manual entry creation, Pylo deletes expired entries and trims over-limit blueprints by removing the oldest entries first.
+- **Index/event cleanup**: retention deletion removes FTS rows and entry history rows for deleted entries.
+- **Fetch output**: fetch responses and activity details include `retention_deleted`.
+- **Blueprint form**: added an Entry retention section.
+- **Migration**: `m2n3o4p5q6r7` adds retention columns to `blueprint`.

@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -46,6 +46,8 @@ class BlueprintCreate(BaseModel):
     pagination_path: Optional[str] = None
     pagination_items_path: Optional[str] = None
     pagination_max_pages: int = 50
+    max_entries: Optional[int] = None
+    retention_days: Optional[int] = None
 
 
 class BlueprintUpdate(BaseModel):
@@ -68,6 +70,8 @@ class BlueprintUpdate(BaseModel):
     pagination_path: Optional[str] = None
     pagination_items_path: Optional[str] = None
     pagination_max_pages: Optional[int] = None
+    max_entries: Optional[int] = None
+    retention_days: Optional[int] = None
 
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
@@ -453,6 +457,40 @@ def _pagination_value(bp: Blueprint, page_number: int, offset: int, cursor):
     return None
 
 
+def _delete_entry_row(session: Session, entry: Entry) -> None:
+    remove_from_index(session, entry.id)
+    events = session.exec(select(EntryEvent).where(EntryEvent.entry_id == entry.id)).all()
+    for event in events:
+        session.delete(event)
+    session.delete(entry)
+
+
+def _enforce_entry_retention(session: Session, bp: Blueprint) -> int:
+    deleted = 0
+    if bp.retention_days and bp.retention_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=bp.retention_days)
+        expired = session.exec(
+            select(Entry)
+            .where(Entry.blueprint_id == bp.id, Entry.created_at < cutoff)
+            .order_by(Entry.created_at)
+        ).all()
+        for entry in expired:
+            _delete_entry_row(session, entry)
+            deleted += 1
+
+    if bp.max_entries and bp.max_entries > 0:
+        entries = session.exec(
+            select(Entry)
+            .where(Entry.blueprint_id == bp.id)
+            .order_by(Entry.created_at.desc())
+        ).all()
+        for entry in entries[bp.max_entries:]:
+            _delete_entry_row(session, entry)
+            deleted += 1
+
+    return deleted
+
+
 async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[list, int]:
     ptype = (bp.pagination_type or "none").lower()
     if ptype not in {"none", "page_number", "offset", "cursor"}:
@@ -574,15 +612,16 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
         created_count += 1
         created_entries.append({"entry_id": entry.id, "parsed": parsed})
 
+    retention_deleted = _enforce_entry_retention(session, bp)
     log_activity(session, "blueprint.fetch", actor=actor,
                  resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
-                 detail={"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched})
+                 detail={"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted})
     session.commit()
 
     if created_entries:
         _fire_blueprint_triggers(bp, created_entries)
 
-    return {"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched}
+    return {"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted}
 
 
 @router.post("/{blueprint_id}/fetch")
@@ -669,6 +708,7 @@ async def create_manual_entry(
         created_at=datetime.now(timezone.utc),
     )
     session.add(ev)
+    _enforce_entry_retention(session, bp)
     session.commit()
     _fire_blueprint_triggers(bp, [{"entry_id": entry.id, "parsed": body.fields}])
     return entry
