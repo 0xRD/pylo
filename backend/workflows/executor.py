@@ -151,6 +151,7 @@ async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[st
 
 async def execute_workflow(workflow_run_id: str) -> None:
     """Main entry point — runs the full workflow DAG."""
+    trigger_payload = {}
     with Session(engine) as session:
         wf_run = session.get(WorkflowRun, workflow_run_id)
         if not wf_run:
@@ -162,6 +163,7 @@ async def execute_workflow(workflow_run_id: str) -> None:
             return
         nodes = json.loads(wf.nodes or "[]")
         edges = json.loads(wf.edges or "[]")
+        trigger_payload = json.loads(getattr(wf_run, "trigger_payload", None) or "{}")
         wf_run.status = "running"
         session.add(wf_run)
         session.commit()
@@ -211,7 +213,7 @@ async def execute_workflow(workflow_run_id: str) -> None:
 
     started = datetime.now(timezone.utc)
     try:
-        await asyncio.gather(*[visit(n, {}) for n in start_nodes])
+        await asyncio.gather(*[visit(n, trigger_payload) for n in start_nodes])
         statuses = [v[0] for v in completed.values()]
         final = "success" if all(s == "success" for s in statuses) else "error"
     except Exception as exc:

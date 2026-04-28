@@ -30,6 +30,7 @@ class WorkflowRun(SQLModel, table=True):
     workflow_id: str = Field(index=True)
     status: str = "pending"   # pending | running | success | error | timeout
     trigger_source: str = "manual"
+    trigger_payload: str = "{}"
     started_at: datetime = Field(default_factory=_now)
     ended_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
