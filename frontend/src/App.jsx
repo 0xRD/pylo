@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { authApi } from './api/auth'
 import Layout from './components/Layout'
+import Dashboard from './pages/Dashboard'
 import Blueprints from './pages/Blueprints'
 import BlueprintDetail from './pages/BlueprintDetail'
 import EntryDetail from './pages/EntryDetail'
@@ -56,7 +57,8 @@ export default function App() {
             <Route path="/setup" element={<Setup />} />
             <Route path="/invite/:token" element={<InviteAccept />} />
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-              <Route index element={<Navigate to="/blueprints" replace />} />
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/objects" element={<Navigate to="/blueprints" replace />} />
               <Route path="/objects/*" element={<Navigate to="/blueprints" replace />} />
               <Route path="/blueprints" element={<Blueprints />} />

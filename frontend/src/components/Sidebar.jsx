@@ -8,6 +8,7 @@ import {
   Database,
   GitBranch,
   KeyRound,
+  LayoutDashboard,
   LogOut,
   PlayCircle,
   Settings,
@@ -18,6 +19,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 
 const links = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/blueprints', label: 'Blueprints', icon: Boxes },
   { to: '/entries', label: 'Entries', icon: Database },
   { to: '/pybooks', label: 'PyBooks', icon: Braces },

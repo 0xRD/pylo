@@ -265,3 +265,12 @@ The original `_execute_run` opened a single SQLAlchemy session at the start and 
 - **Payload visibility**: run detail now shows the trigger payload alongside stdout/stderr and output variables.
 - **Run PyBook from Entries**: the global Entries multi-select toolbar can queue an active PyBook once per selected entry, using the standard blueprint trigger payload shape: `blueprint_id`, `entry_id`, `entry_data`.
 - **Dependency note**: PyBook `dependencies` remains relevant; it is used by the Docker image builder to install per-PyBook pip packages into the runner image.
+
+## Session 19 — Dashboard command center
+- **Dashboard API**: added `GET /api/dashboard/summary?days=7|14|30` with pre-aggregated counts, queue stats, entry creation series, PyBook/Workflow run series, success rate, recent failures, top blueprints, active automations, retention cleanup summary, and latest activity.
+- **Dashboard UI**: added `/dashboard` as the authenticated landing page with Dracula-compatible stat tiles, compact SVG charts, and operational panels.
+- **Navigation**: added Dashboard to the sidebar above Blueprints while keeping direct operational pages intact.
+- **Tests**: added focused backend coverage for the dashboard response shape and allowed time windows.
+
+## Current state (after Session 19)
+All core features remain working end-to-end on `main`. Dashboard is now the default landing page and gives operators a fast health snapshot of data volume, automation throughput, failures, queue pressure, and recent activity.

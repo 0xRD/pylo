@@ -29,52 +29,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 3. Dashboard / command center
-
-A main overview page for operational visibility across Pylo.
-
-**Route / navigation:**
-- Add `/dashboard` as the default authenticated landing page.
-- Sidebar item: `Dashboard`, placed above Blueprints.
-- Keep `/blueprints`, `/entries`, `/pybooks`, `/runs` as direct operational pages.
-
-**Backend API:**
-- `GET /api/dashboard/summary` returns counts and recent time-series data.
-- Query params: `days` default `14`, allowed `7 | 14 | 30`.
-- Response should be pre-aggregated server-side to keep the frontend simple.
-
-**Top metrics:**
-- Total Blueprints.
-- Total Entries.
-- Total PyBooks and active PyBooks.
-- Total Workflows and active Workflows.
-- Total runs over the selected period.
-- Current queue stats: queued, running, max concurrent.
-
-**Charts:**
-- Entries created per day.
-- PyBook runs per day, grouped by status: success, error, timeout.
-- Workflow runs per day, grouped by status.
-- Run success rate over time.
-
-**Operational panels:**
-- Recent failed runs with links to run detail and PyBook/Workflow.
-- Top Blueprints by entry count.
-- Active automations summary: cron, webhook, blueprint-triggered.
-- Retention cleanup summary if available: entries deleted by retention over the selected period.
-- Latest activity events.
-
-**Frontend UX:**
-- Dracula-compatible styling matching the refreshed UI.
-- Use compact stat tiles and dense charts; this is an operator dashboard, not a marketing page.
-- Avoid nested cards; use full-width bands/sections and individual tiles only where useful.
-- If adding a chart library, prefer a lightweight React chart package and keep the dependency scoped to dashboard needs.
-
-**Why:** Gives analysts and operators a fast health snapshot: data volume, automation throughput, failures, queue pressure, and which data sources are growing fastest.
-
----
-
-## 4. Configuration backup & restore
+## 3. Configuration backup & restore
 
 Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery.
 
@@ -101,7 +56,7 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 
 ---
 
-## 5. Entry update support in `pylo_sdk`
+## 4. Entry update support in `pylo_sdk`
 
 - Add `update_entry(entry_id, fields)` helper.
 - The helper should discover or accept `blueprint_id` because the API route is currently blueprint-scoped.
@@ -109,23 +64,6 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 
 **Why:** PyBooks need a clean way to update lifecycle fields such as status, owner, or verdict.
 
----
-
-## 6. Bulk PyBook dispatch from selected entries
-
-- Extend the global Entries multi-select toolbar.
-- Admins can select a PyBook and trigger it once per selected entry.
-- Payload shape should match blueprint-triggered PyBooks:
-
-```json
-{
-  "blueprint_id": "...",
-  "entry_id": "...",
-  "entry_data": {"field1": "value1"}
-}
-```
-
-**Why:** Bulk cleanup exists now; bulk playbook dispatch is the natural SOAR companion action.
 
 ---
 
@@ -154,3 +92,5 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - Concurrent execution hardening: `NullPool` for SQLite, per-tag image build lock, split DB sessions — validated at 15 concurrent runs.
 - Re-parse existing entries on blueprint mapping change (background task, progress banner, FTS re-index).
 - Field name required validation in Blueprint field mappings form.
+- Dashboard / command center with operational metrics, charts, failures, automations, and activity.
+- Bulk PyBook dispatch from selected entries.
