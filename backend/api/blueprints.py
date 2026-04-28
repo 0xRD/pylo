@@ -390,9 +390,8 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                 wf_run_id = wf_run.id
                 import asyncio as _asyncio
                 try:
-                    loop = _asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(_execute_workflow_bg(wf_run_id))
+                    loop = _asyncio.get_running_loop()
+                    loop.create_task(_execute_workflow_bg(wf_run_id))
                 except RuntimeError:
                     pass
 
