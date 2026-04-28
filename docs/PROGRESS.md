@@ -217,3 +217,44 @@ All core features remain working end-to-end, with frontend refresh and paginated
 - **Fetch output**: fetch responses and activity details include `retention_deleted`.
 - **Blueprint form**: added an Entry retention section.
 - **Migration**: `m2n3o4p5q6r7` adds retention columns to `blueprint`.
+- **Branches merged**: `feat/frontend-refresh` (retention + pagination + nav refresh) merged into `main`; `audit/code-quality` was already merged.
+- **Frontend image rebuild**: frontend Docker image was stale (built before the retention commit); rebuilt so the Entry retention section is visible in the UI.
+
+## Current state (after Session 16)
+All core features working end-to-end on `main`. Frontend refresh, paginated fetching, and entry retention live.
+
+**Alembic head**: `m2n3o4p5q6r7`
+
+**Pending / backlog items:**
+- `pylo_sdk` as a standalone pip-installable library with a `PyloClient` class
+- Scoped API keys
+- Configuration backup & restore
+- Re-parse entries on mapping change
+- Entry update support in `pylo_sdk`
+- Bulk PyBook dispatch from selected entries
+
+---
+
+## Session 17 — Concurrent execution stress test + concurrency bug fixes
+
+### Stress test
+Designed and ran a 15-run concurrent stress test (6 × fast/4s, 5 × medium/8s, 4 × slow/14s) to validate the PyBook execution queue under load. All 15 runs fired in under 500 ms and peaked at **15 concurrent** in the UI concurrency counter; the queue drained cleanly in ~33 s with all runs completing as `success`.
+
+### Bugs found and fixed
+
+**1 — `QueuePool` exhaustion under concurrent load (`database.py`)**
+SQLAlchemy's default `QueuePool(size=5, overflow=10)` = 15 total connections. Under concurrent load, 15 PyBook `_execute_run` tasks plus HTTP handlers race for the same pool. Tasks beyond slot 15 wait 30 s then crash silently with `QueuePool limit reached`, leaving their runs stuck in `queued` or never updating to `error`. This is why the concurrency counter never exceeded 2 before this session.
+
+Fix: switched the engine to `NullPool` — SQLite connections are cheap, so each session gets its own connection and closes it immediately. Pool exhaustion is no longer possible.
+
+**2 — Duplicate Docker image builds (thundering herd) (`core/image_builder.py`)**
+When N runs of a brand-new PyBook start simultaneously, all N executor threads race through `ensure_image`. Without locking, every thread sees "image not found" and kicks off a redundant build for the same tag. Fix: added a per-image-tag `threading.Lock` with double-checked locking — only the first thread builds; others wait and get a cache hit.
+
+**3 — DB session held across Docker execution (`api/pybooks.py`)**
+The original `_execute_run` opened a single SQLAlchemy session at the start and kept it open for the full Docker run (up to the timeout limit). Even after fixing `QueuePool`, this held a connection during the long blocking operation and leaked the connection until the run completed. Fix: split into two sessions — one short session to read config and mark the run as `running` (closed before Docker starts), and a second short session to write the final result.
+
+### Test scripts (left in VM for re-use)
+- `/home/romain/pylo_stress2.sh` — bash stress test with image warming, 15-run concurrent burst, live queue monitor, result validation, and cleanup.
+
+### Commits
+- `f44e8ad fix: NullPool for SQLite + image build lock — fix concurrent run pool exhaustion`

@@ -69,6 +69,7 @@ Define a schema and data source for structured data. Each Blueprint has:
 - A **unique key field** for deduplication on repeated fetches (★ marker in the field mapping builder)
 - Optional **pagination** for page-number, offset, and cursor-based APIs
 - An optional **auto-fetch schedule** (human-friendly builder generates cron under the hood)
+- **Entry retention** — optional `max_entries` cap and `retention_days` TTL; oldest entries pruned automatically after each fetch or manual creation
 - **Manual mode** — no API source; entries are created directly in the UI (shared variables, rule toggles, allow/blocklists)
 
 Multiple PyBooks can subscribe to a Blueprint's entry events independently (see [Blueprint → PyBook Trigger](#blueprint--pybook-trigger)).
@@ -92,7 +93,7 @@ Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=` — AND-chained. 
 Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables.
 
 ### Runs
-Every PyBook execution creates a Run record with full stdout/stderr, exit code, duration, and trigger source. Live log streaming via WebSocket. The **execution queue** (default: 5 concurrent runs) ensures no run is lost even under heavy load.
+Every PyBook execution creates a Run record with full stdout/stderr, exit code, duration, and trigger source. Live log streaming via WebSocket. The **execution queue** (default: 20 concurrent runs) ensures no run is lost even under heavy load — backed by a persistent asyncio queue that survives restarts and recovers orphaned runs.
 
 ---
 
@@ -371,3 +372,5 @@ See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 - **Scoped API Keys** — per-key permissions for SIEM/script integrations
 - **Configuration backup & restore** — export/import to ZIP or Git repository
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
+- **Bulk PyBook dispatch** — trigger a PyBook once per selected entry from the global Entries view
+- **Entry update support in pylo_sdk** — `update_entry(entry_id, fields)` helper for PyBooks

@@ -116,3 +116,5 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - Workflow blueprint trigger conditions.
 - Paginated API source fetching.
 - Frontend Dracula-style navigation and PyBooks/Entries refresh.
+- Per-blueprint entry retention (`max_entries`, `retention_days`).
+- Concurrent execution hardening: `NullPool` for SQLite, per-tag image build lock, split DB sessions — validated at 15 concurrent runs.
