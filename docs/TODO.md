@@ -4,22 +4,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 1. Paginated API source fetching
-
-- Per-Blueprint pagination config:
-  - `pagination_type`: `none | cursor | page_number | offset`
-  - `pagination_param`: request parameter name
-  - `pagination_path`: JSONPath to extract the next cursor or page token
-  - `max_pages`: safety limit, default `50`
-- `_do_fetch` loops until an empty response, no next cursor, or `max_pages`.
-- UI: collapsible Pagination section in Blueprint form.
-- Tests for cursor, page-number, offset, and max-page stop conditions.
-
-**Why:** Most APIs page results. Single-request fetches silently drop data.
-
----
-
-## 2. Scoped API keys
+## 1. Scoped API keys
 
 - Per-key permissions: `blueprints:read`, `entries:read`, `entries:write`, `pybooks:trigger`, `runs:read`.
 - Keys stored hashed; raw value shown only at creation.
@@ -30,7 +15,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 3. Re-parse existing entries when blueprint mappings change
+## 2. Re-parse existing entries when blueprint mappings change
 
 - On `PUT /blueprints/:id` with changed `field_mappings`, re-parse existing entries using stored `raw_data`.
 - Run as a background task.
@@ -41,7 +26,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 4. `pylo_sdk` standalone library
+## 3. `pylo_sdk` standalone library
 
 - Package `pylo_sdk` as a pip-installable library.
 - Add a `PyloClient` class for external scripts:
@@ -55,7 +40,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 5. Configuration backup & restore
+## 4. Configuration backup & restore
 
 Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery.
 
@@ -82,7 +67,7 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 
 ---
 
-## 6. Entry update support in `pylo_sdk`
+## 5. Entry update support in `pylo_sdk`
 
 - Add `update_entry(entry_id, fields)` helper.
 - The helper should discover or accept `blueprint_id` because the API route is currently blueprint-scoped.
@@ -92,7 +77,7 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 
 ---
 
-## 7. Bulk PyBook dispatch from selected entries
+## 6. Bulk PyBook dispatch from selected entries
 
 - Extend the global Entries multi-select toolbar.
 - Admins can select a PyBook and trigger it once per selected entry.
@@ -129,4 +114,5 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - Run variable inspector via `pylo.set_output()` and `pylo.export_vars(locals())`.
 - Visual Workflow builder.
 - Workflow blueprint trigger conditions.
+- Paginated API source fetching.
 - Frontend Dracula-style navigation and PyBooks/Entries refresh.
