@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from backend.core.auth import verify_token
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session
 
 from backend.database import get_session
@@ -19,7 +19,6 @@ router = APIRouter(prefix="/api/webhooks", tags=["webhooks"], dependencies=[Depe
 async def receive_webhook(
     pybook_id: str,
     request: Request,
-    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ):
     pb = session.get(PyBook, pybook_id)
