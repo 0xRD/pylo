@@ -5,6 +5,7 @@ import { pybooksApi } from "../api/pybooks"
 import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
 import { useAuth } from "../context/AuthContext"
+import { useGitops } from "../context/GitopsContext"
 import { fmtDateTime } from "../utils/dates"
 import { exportApi, importApi, readImportFile } from "../api/exportImport"
 import ImportConflictModal from "../components/ImportConflictModal"
@@ -684,7 +685,7 @@ print(f"Score: {score}")`} />
 
 // ── Config Panel ──────────────────────────────────────────────────────────────
 
-function ConfigPanel({ pybook, onClose, onSaved, isAdmin }) {
+function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false }) {
   const [form, setForm] = useState({
     name: pybook.name || '',
     description: pybook.description || '',
@@ -754,11 +755,16 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin }) {
             Sub-PyBook <span className="text-xs text-gray-500">(callable by other PyBooks)</span>
           </label>
         </div>
-        {isAdmin && (
+        {isAdmin && !isProd && (
           <button onClick={handleSave} disabled={saving}
             className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
             {saving ? 'Saving...' : 'Save settings'}
           </button>
+        )}
+        {isProd && (
+          <p className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded px-3 py-2">
+            Production — read-only
+          </p>
         )}
         <div className="border-t border-[#343746] pt-3 mt-1">
           <p className="text-xs text-[#6272a4] mb-2">Export</p>
@@ -943,6 +949,7 @@ export default function PyBooks() {
   const [activeTag, setActiveTag] = useState('')
 
   const { isAdmin } = useAuth()
+  const { isProd } = useGitops()
   const load = () => pybooksApi.list().then(data => { setPybooks(data); setLoading(false) }).catch(console.error)
   useEffect(() => {
     load()
@@ -1216,11 +1223,16 @@ export default function PyBooks() {
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete
               </button>
-              {scriptChanged && (
+              {scriptChanged && !isProd && (
                 <button onClick={handleSave} disabled={saving || !isAdmin}
                   className="text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
                   {saving ? "Saving..." : "Save"}
                 </button>
+              )}
+              {isProd && (
+                <span className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 px-2.5 py-1 rounded">
+                  Production — read-only
+                </span>
               )}
             </div>
 
@@ -1315,6 +1327,7 @@ export default function PyBooks() {
               onClose={() => setShowConfig(false)}
               onSaved={handleSaveConfig}
               isAdmin={isAdmin}
+              isProd={isProd}
             />
           )}
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useGitops } from '../context/GitopsContext'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
@@ -130,6 +131,7 @@ export default function BlueprintDetail() {
   const [includeEntries, setIncludeEntries] = useState(false)
   const reparseTimer = useRef(null)
   const { isAdmin } = useAuth()
+  const { isProd } = useGitops()
 
   const loadBlueprint = () => blueprintsApi.getBlueprint(id).then(setBlueprint).catch(() => navigate('/blueprints'))
   const loadEntries = (q = query, pg = page, ps = pageSize) =>
@@ -422,10 +424,16 @@ export default function BlueprintDetail() {
               You have read-only access. Contact an admin to modify this blueprint.
             </p>
           )}
+          {isProd && (
+            <p className="text-sm text-yellow-500 bg-yellow-900/20 border border-yellow-700 rounded px-4 py-2 mb-4">
+              Production mode — config is read-only. Use Sync from git to apply changes.
+            </p>
+          )}
           <BlueprintForm
             initial={blueprint}
             onSave={handleUpdate}
             onCancel={() => setTab('entries')}
+            readOnly={isProd}
           />
 
           <div className="border-t border-gray-800 pt-6">

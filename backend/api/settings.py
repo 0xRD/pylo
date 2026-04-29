@@ -15,6 +15,13 @@ DEFAULTS = {
     "activity_retention_days": "7",
     "backup_cron": "",          # empty = auto-backup disabled
     "backup_retention": "7",    # number of auto-backup files to keep
+    # GitOps settings (managed via /api/gitops/config, read here for convenience)
+    "environment": "dev",
+    "git_repo_url": "",
+    "git_branch": "main",
+    "git_token_enc": "",
+    "git_committer_name": "Pylo",
+    "git_committer_email": "pylo@localhost",
 }
 
 

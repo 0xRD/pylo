@@ -73,7 +73,7 @@ const PAGINATION_TYPES = [
 ]
 
 
-export default function BlueprintForm({ initial, onSave, onCancel }) {
+export default function BlueprintForm({ initial, onSave, onCancel, readOnly = false }) {
   const [form, setForm] = useState(initial || {
     name: '', description: '', source_url: '', source_method: 'GET',
     source_headers: '{}', source_body: '{}', field_mappings: '[]',
@@ -482,9 +482,9 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
       </div>
 
       <div className="flex gap-3 pt-2">
-        <button type="submit" disabled={saving}
+        <button type="submit" disabled={saving || readOnly}
           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
-          {saving ? 'Saving…' : 'Save'}
+          {saving ? 'Saving…' : readOnly ? 'Read-only (prod)' : 'Save'}
         </button>
         <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
           Cancel
