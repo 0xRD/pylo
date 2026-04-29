@@ -23,7 +23,7 @@ function JsonNode({ label, data, path, onSelect, depth }) {
           ? <button type="button" onClick={() => setOpen(o => !o)} className="text-gray-600 w-3 text-xs shrink-0 hover:text-gray-400">{open ? '▾' : '▸'}</button>
           : <span className="w-3 shrink-0" />}
         <span className="text-blue-400 text-xs font-mono shrink-0">{label}</span>
-        {!isObj && <><span className="text-gray-600 text-xs mx-0.5">:</span><span className="text-green-300 text-xs font-mono truncate max-w-32">{preview}</span></>}
+        {!isObj && <><span className="text-gray-600 text-xs mx-0.5">:</span><span className="text-green-300 text-xs font-mono truncate max-w-[28rem]">{preview}</span></>}
         {isObj && !open && <span className="text-gray-600 text-xs ml-1">{preview}</span>}
         <button type="button" onClick={() => onSelect(path)} title={"Use path: " + path}
           className="ml-1 text-indigo-500 hover:text-indigo-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -46,7 +46,7 @@ function JsonTree({ data, onSelect }) {
   const root = Array.isArray(data) ? data[0] : data
   const label = Array.isArray(data) ? `[0] (of ${data.length})` : 'response'
   return (
-    <div className="font-mono text-xs overflow-auto max-h-72 pr-1">
+    <div className="font-mono text-xs overflow-auto max-h-[32rem] pr-1">
       <JsonNode label={label} data={root} path="$" onSelect={onSelect} depth={0} />
     </div>
   )
@@ -94,6 +94,7 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const [previewing, setPreviewing] = useState(false)
   const [previewResult, setPreviewResult] = useState(null)
   const [previewError, setPreviewError] = useState(null)
+  const [autoParsePreview, setAutoParsePreview] = useState(false)
   const [focusedRow, setFocusedRow] = useState(null)
   const [rowErrors, setRowErrors] = useState({})
   const [secrets, setSecrets] = useState([])
@@ -132,10 +133,18 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
   const setKeyField = (i) => setMappings(ms => ms.map((m, idx) => ({ ...m, is_key: idx === i })))
   const hasKey = mappings.some(m => m.is_key)
 
+  const applyPreviewSuggestions = (result) => {
+    if (result?.recommended_items_path) set('pagination_items_path', result.recommended_items_path)
+    if (result?.auto_mappings?.length) {
+      setMappings(result.auto_mappings)
+      setFocusedRow(null)
+    }
+  }
+
   const handlePreview = async () => {
     setPreviewing(true); setPreviewResult(null); setPreviewError(null)
     try {
-      setPreviewResult(await blueprintsApi.previewEndpoint({
+      const result = await blueprintsApi.previewEndpoint({
         source_url: form.source_url,
         source_method: form.source_method,
         source_headers: form.source_headers || '{}',
@@ -144,7 +153,10 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
         pagination_type: form.pagination_type || 'none',
         pagination_param: form.pagination_param || null,
         pagination_items_path: form.pagination_items_path || null,
-      }))
+        auto_parse_items: autoParsePreview,
+      })
+      setPreviewResult(result)
+      if (autoParsePreview) applyPreviewSuggestions(result)
     } catch (err) { setPreviewError(err.message) }
     finally { setPreviewing(false) }
   }
@@ -228,10 +240,16 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
                 <option>GET</option><option>POST</option>
               </select>
             </div>
-            <button type="button" onClick={handlePreview} disabled={!form.source_url || previewing}
-              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 rounded text-sm transition-colors shrink-0">
-              {previewing ? 'Testing…' : 'Test'}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer whitespace-nowrap">
+                <input type="checkbox" checked={autoParsePreview} onChange={e => setAutoParsePreview(e.target.checked)} className="rounded border-gray-600" />
+                Auto-map JSON
+              </label>
+              <button type="button" onClick={handlePreview} disabled={!form.source_url || previewing}
+                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 rounded text-sm transition-colors shrink-0">
+                {previewing ? 'Testing…' : 'Test'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -283,11 +301,19 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
 
         <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
           <div className="flex items-center justify-between">
-            <label className="block text-xs text-gray-400 font-medium">Pagination<HelpTip text="Fetch multiple pages from APIs that use page, offset, or cursor parameters. Item path is optional when the response itself is a list." /></label>
+            <label className="block text-xs text-gray-400 font-medium">Response parsing<HelpTip text="Use Items path for wrapped list responses such as $.data or $.items. Pagination is only needed when the API requires multiple requests." /></label>
             <select value={form.pagination_type || 'none'} onChange={e => set('pagination_type', e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
               {PAGINATION_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Items path</label>
+            <input value={form.pagination_items_path || ''} onChange={e => set('pagination_items_path', e.target.value)}
+              placeholder="$.data or $.items"
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+            <p className="text-xs text-gray-600 mt-1">For responses like {`{ success, count, data: [...] }`}, set Items path to <code>$.data</code>. Field mappings are then relative to each item.</p>
           </div>
 
           {form.pagination_type !== 'none' && (
@@ -303,12 +329,6 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
                 <input type="number" min="1" max="500" value={form.pagination_max_pages || 50} onChange={e => set('pagination_max_pages', e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Items path</label>
-                <input value={form.pagination_items_path || ''} onChange={e => set('pagination_items_path', e.target.value)}
-                  placeholder="$.items"
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
-              </div>
               {form.pagination_type === 'cursor' && (
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Next cursor path</label>
@@ -323,13 +343,37 @@ export default function BlueprintForm({ initial, onSave, onCancel }) {
 
         {previewError && <div className="p-3 bg-red-950 border border-red-800 rounded text-xs text-red-300">{previewError}</div>}
         {previewResult && (
-          <div className="p-3 bg-gray-950 border border-gray-700 rounded space-y-2">
-            <div className="flex items-center gap-3">
+          <div className="p-4 bg-gray-950 border border-gray-700 rounded-lg space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs text-green-400">HTTP {previewResult.status_code}</span>
-              <span className="text-xs text-gray-400">{previewResult.is_list ? `List of ${previewResult.total} items — showing first item` : 'Single object response'}</span>
-              <span className="text-xs text-gray-600 ml-auto">{focusedRow !== null ? `Click a path to fill row ${focusedRow + 1}` : 'Click a path to add a new mapping'}</span>
+              <span className="text-xs text-gray-400">{previewResult.is_list ? `List of ${previewResult.total} items - showing first item` : 'Single object response'}</span>
+              <span className="text-xs text-gray-600 lg:ml-auto">{focusedRow !== null ? `Click a path to fill row ${focusedRow + 1}` : 'Click a path to add a new mapping'}</span>
             </div>
-            <JsonTree data={previewResult.sample} onSelect={handlePathSelect} />
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 rounded border border-gray-800 bg-gray-900/50 p-3">
+                <div className="text-xs text-gray-500 mb-2">Response sample</div>
+                <JsonTree data={previewResult.sample} onSelect={handlePathSelect} />
+              </div>
+              <div className="rounded border border-gray-800 bg-gray-900/50 p-3 space-y-3">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Detected items path</div>
+                  <div className="text-xs font-mono text-cyan-300 break-all">{previewResult.recommended_items_path || (previewResult.is_list ? 'Response is already a list' : 'None detected')}</div>
+                </div>
+                {previewResult.auto_mappings?.length > 0 && (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Generated mappings</div>
+                    <div className="text-xs text-gray-300">{previewResult.auto_mappings.length} fields, key: {previewResult.auto_mappings.find(m => m.is_key)?.field_name || 'first field'}</div>
+                  </div>
+                )}
+                {(previewResult.recommended_items_path || previewResult.auto_mappings?.length > 0) && (
+                  <button type="button" onClick={() => applyPreviewSuggestions(previewResult)}
+                    className="w-full px-3 py-2 bg-indigo-700 hover:bg-indigo-600 rounded text-xs font-medium transition-colors">
+                    Apply detected parsing
+                  </button>
+                )}
+                <p className="text-xs text-gray-600">Auto-map fills fields from the first item. Arrays and nested objects stay available in raw JSON and are mapped as strings for searchable fields.</p>
+              </div>
+            </div>
           </div>
         )}
 

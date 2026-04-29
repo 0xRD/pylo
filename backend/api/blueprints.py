@@ -531,6 +531,81 @@ def _extract_fetch_items(raw_data, items_path: Optional[str]) -> list:
     return data if isinstance(data, list) else [data]
 
 
+_COMMON_ITEM_KEYS = ("items", "data", "results", "records", "value")
+_KEY_FIELD_NAMES = ("applicationid", "application_id", "externalid", "external_id", "id", "uuid")
+
+
+def _jsonpath_child(root: str, key: str) -> str:
+    if re.match(r"^[A-Za-z_]\w*$", key):
+        return f"{root}.{key}"
+    return f"{root}['{key}']"
+
+
+def _infer_items_path(raw_data) -> Optional[str]:
+    if isinstance(raw_data, list):
+        return None
+    if not isinstance(raw_data, dict):
+        return None
+
+    candidates = []
+    for key, value in raw_data.items():
+        if not isinstance(value, list) or not value:
+            continue
+        if not any(isinstance(item, dict) for item in value[:5]):
+            continue
+        priority = _COMMON_ITEM_KEYS.index(key) if key in _COMMON_ITEM_KEYS else len(_COMMON_ITEM_KEYS)
+        candidates.append((priority, -len(value), _jsonpath_child("$", key)))
+
+    if not candidates:
+        return None
+    return sorted(candidates)[0][2]
+
+
+def _field_type_for_value(value) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return "number"
+    return "string"
+
+
+def _field_name_from_key(key: str) -> str:
+    name = re.sub(r"\W+", "_", key).strip("_")
+    if not name:
+        return "field"
+    if name[0].isdigit():
+        return f"field_{name}"
+    return name
+
+
+def _build_auto_mappings(sample_item) -> list[dict]:
+    if not isinstance(sample_item, dict):
+        return []
+
+    mappings = []
+    key_index = None
+    key_priority = None
+    for idx, (key, value) in enumerate(sample_item.items()):
+        field_name = _field_name_from_key(key)
+        lower_name = field_name.lower()
+        if lower_name in _KEY_FIELD_NAMES:
+            priority = _KEY_FIELD_NAMES.index(lower_name)
+            if key_priority is None or priority < key_priority:
+                key_index = idx
+                key_priority = priority
+        mappings.append({
+            "source_path": _jsonpath_child("$", key),
+            "field_name": field_name,
+            "field_type": _field_type_for_value(value),
+            "is_key": False,
+            "mutable": False,
+        })
+
+    if mappings:
+        mappings[key_index if key_index is not None else 0]["is_key"] = True
+    return mappings
+
+
 def _pagination_value(bp: Blueprint, page_number: int, offset: int, cursor):
     ptype = (bp.pagination_type or "none").lower()
     if ptype == "page_number":
@@ -796,6 +871,7 @@ class PreviewRequest(BaseModel):
     pagination_type: str = "none"
     pagination_param: Optional[str] = None
     pagination_items_path: Optional[str] = None
+    auto_parse_items: bool = False
 
 
 
@@ -980,14 +1056,22 @@ async def preview_endpoint(body: PreviewRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    items = _extract_fetch_items(raw, body.pagination_items_path)
-    is_list = len(items) != 1 or isinstance(raw, list) or bool(body.pagination_items_path)
+    items_path = body.pagination_items_path
+    recommended_items_path = _infer_items_path(raw)
+    if body.auto_parse_items and not items_path:
+        items_path = recommended_items_path
+
+    items = _extract_fetch_items(raw, items_path)
+    is_list = len(items) != 1 or isinstance(raw, list) or bool(items_path)
     total = len(items) if is_list else 1
     sample = items[:body.sample_limit] if is_list else (items[0] if items else raw)
+    sample_item = items[0] if items else raw
 
     return {
         "is_list": is_list,
         "total": total,
         "sample": sample,
         "status_code": response.status_code,
+        "recommended_items_path": recommended_items_path,
+        "auto_mappings": _build_auto_mappings(sample_item) if body.auto_parse_items else [],
     }
