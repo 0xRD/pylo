@@ -121,14 +121,17 @@ Every PyBook execution creates a Run record with full stdout/stderr, exit code, 
 Available inside every PyBook at `/app/pylo_sdk.py` (auto-mounted at runtime):
 
 ```python
-from pylo_sdk import search_entries, get_entry, call_sub_pybook
+from pylo_sdk import search_entries, get_entry, create_entry, update_entry, delete_entry, call_sub_pybook
 
 # Full-text search across blueprint entries (optionally scoped to a blueprint)
 alerts = search_entries("mimikatz", type_id="<blueprint_id>")
 # search_entries returns the entry list directly, even though the API endpoint is paginated.
 
-# Fetch a single entry by ID
+# Fetch, create, update mutable fields, or delete entries
 entry = get_entry("<entry_id>")
+created = create_entry("<blueprint_id>", {"hash": "abc", "status": "new"})
+updated = update_entry("<entry_id>", {"status": "sent"})
+delete_entry("<entry_id>")
 # entry["data"] and entry["raw_data"] are JSON strings; parse them before indexing.
 
 # Trigger a sub-PyBook synchronously and get its result
@@ -373,4 +376,3 @@ See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
 - **Configuration backup & restore** — export/import to ZIP or Git repository
 - **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
 - **Bulk PyBook dispatch** — trigger a PyBook once per selected entry from the global Entries view
-- **Entry update support in pylo_sdk** — `update_entry(entry_id, fields)` helper for PyBooks

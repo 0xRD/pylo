@@ -286,3 +286,11 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 ### Safety update
 
 - Self-update system removed: `/api/system/*` endpoints, Settings update controls, and the `/app/repo` container mount were removed. Manual full backup/restore ZIP was added under Settings; secrets remain excluded.
+
+
+### Mutable fetch updates + SDK entry writes
+
+- Mutable API-fetched entries now update existing deduplicated rows when source values change: `mutable_mode=all` updates all parsed fields, and `mutable_mode=per_field` updates only fields marked mutable. Updates refresh FTS, write `EntryEvent` history, and expose `updated` in fetch results.
+- Blueprint triggers now honor `trigger_event` for PyBook subscribers too: `on_create` sees only new entries, while `on_create_or_update` also receives mutable fetch updates with `event_type` in the payload.
+- Mounted `pylo_sdk.py` now includes `create_entry`, `update_entry`, and `delete_entry` helpers for PyBooks.
+- Remaining 3b work is documented in `docs/TODO.md`: encrypted secret backup/restore and Git-based backup automation, kept separate from the removed self-update system.

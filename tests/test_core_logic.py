@@ -387,3 +387,89 @@ class TestEntryDataParsing:
         # malformed data
         sha1, sha256, name = extract_hashes({"id": "e-3", "data": "not-json"})
         assert sha1 is None
+
+
+# ── mutable fetch upserts ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_updates_existing_entry_for_mutable_blueprint(session, monkeypatch):
+    from backend.api import blueprints as bp_api
+    from backend.objects.models import Blueprint, EntryEvent
+    from sqlmodel import select
+
+    mappings = json.dumps([
+        {"source_path": "$.id", "field_name": "external_id", "field_type": "string", "is_key": True},
+        {"source_path": "$.enabled", "field_name": "enabled", "field_type": "boolean"},
+    ])
+    bp = Blueprint(
+        id="mutable-fetch-bp",
+        name="Mutable Fetch",
+        source_url="https://example.invalid/api",
+        field_mappings=mappings,
+        mutable_mode="all",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(bp)
+    session.commit()
+
+    calls = [
+        ([{"id": "ioc-1", "enabled": False}], 1),
+        ([{"id": "ioc-1", "enabled": True}], 1),
+    ]
+
+    async def fake_fetch_pages(bp, headers, body):
+        return calls.pop(0)
+
+    monkeypatch.setattr(bp_api, "_fetch_raw_pages", fake_fetch_pages)
+    monkeypatch.setattr(bp_api, "_fire_blueprint_triggers", lambda *args, **kwargs: None)
+
+    first = await bp_api._do_fetch(bp.id, session, actor="test")
+    second = await bp_api._do_fetch(bp.id, session, actor="test")
+
+    assert first["created"] == 1
+    assert second["updated"] == 1
+    entry = session.exec(select(bp_api.Entry).where(bp_api.Entry.blueprint_id == bp.id)).one()
+    assert json.loads(entry.data)["enabled"] is True
+    event = session.exec(select(EntryEvent).where(EntryEvent.entry_id == entry.id)).one()
+    assert event.event_type == "updated"
+    assert json.loads(event.changed_fields) == ["enabled"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_keeps_existing_entry_immutable_by_default(session, monkeypatch):
+    from backend.api import blueprints as bp_api
+    from sqlmodel import select
+
+    mappings = json.dumps([
+        {"source_path": "$.id", "field_name": "external_id", "field_type": "string", "is_key": True},
+        {"source_path": "$.enabled", "field_name": "enabled", "field_type": "boolean"},
+    ])
+    bp = bp_api.Blueprint(
+        id="immutable-fetch-bp",
+        name="Immutable Fetch",
+        source_url="https://example.invalid/api",
+        field_mappings=mappings,
+        mutable_mode="none",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(bp)
+    session.commit()
+
+    calls = [
+        ([{"id": "ioc-1", "enabled": False}], 1),
+        ([{"id": "ioc-1", "enabled": True}], 1),
+    ]
+
+    async def fake_fetch_pages(bp, headers, body):
+        return calls.pop(0)
+
+    monkeypatch.setattr(bp_api, "_fetch_raw_pages", fake_fetch_pages)
+    monkeypatch.setattr(bp_api, "_fire_blueprint_triggers", lambda *args, **kwargs: None)
+
+    await bp_api._do_fetch(bp.id, session, actor="test")
+    result = await bp_api._do_fetch(bp.id, session, actor="test")
+
+    assert result["updated"] == 0
+    assert result["skipped"] == 1
+    entry = session.exec(select(bp_api.Entry).where(bp_api.Entry.blueprint_id == bp.id)).one()
+    assert json.loads(entry.data)["enabled"] is False

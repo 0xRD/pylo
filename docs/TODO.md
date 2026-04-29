@@ -64,7 +64,7 @@ Export and import individual objects as JSON files directly from their detail pa
 
 ### 3b. Full backup & restore — partially implemented
 
-Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery. Manual ZIP export/import is implemented; Git integration and encrypted secret backup remain pending.
+Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery. Manual ZIP export/import is implemented; the remaining 3b work is encrypted secret backup/restore and Git-based backup automation.
 
 **Backed up objects:**
 - `blueprints/` — one JSON file per blueprint
@@ -76,31 +76,22 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 **Manual export/import:**
 - Settings page "Download backup" button. ✅
 - Secrets excluded from backup. ✅
-- Optional encrypted secret backup with warning. Pending.
+- Optional encrypted secret backup with warning. Pending: design passphrase-based encryption, avoid API disclosure of decrypted secret values, and add restore conflict handling for existing secret names.
 - Import ZIP with manifest validation. ✅
 - Blocking confirmation requiring the user to type `RESTORE`. ✅
 
-**Git integration:**
+**Git integration remaining:**
 - Settings form for repository URL, branch, token, author.
-- Manual "Push now".
+- Manual "Push now" that commits the generated backup ZIP or expanded JSON snapshot.
 - Optional debounced auto-push after config changes.
 - Status line with last push or last error.
+- Safety requirement: keep this separate from the removed self-update system; backup Git operations must never run `git pull`, rebuild containers, or modify application code.
 
 **Why:** A single VM failure or bad import can destroy weeks of blueprints and PyBooks.
 
 ---
 
-## 4. Entry update support in `pylo_sdk`
-
-- Add `update_entry(entry_id, fields)` helper.
-- The helper should discover or accept `blueprint_id` because the API route is currently blueprint-scoped.
-- Document mutable-field requirements and expected 403/400 failure modes.
-
-**Why:** PyBooks need a clean way to update lifecycle fields such as status, owner, or verdict.
-
----
-
-## 5. Dashboard and dense views ergonomics
+## 4. Dashboard and dense views ergonomics
 
 - Rework the dashboard layout to feel less compressed on desktop.
 - Add more breathing room, larger chart panels, and clearer visual hierarchy for high-priority metrics.
@@ -143,3 +134,4 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - PyBook payload helper and development ergonomics (`pylo.get_payload()`, payload templates, prompt/help updates).
 - Granular export/import for blueprints, PyBooks, and workflows.
 - Manual full backup/restore ZIP for blueprints, PyBooks, workflows, and settings.
+- Mounted `pylo_sdk` entry helpers: `create_entry`, `update_entry`, and `delete_entry`.

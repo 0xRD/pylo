@@ -60,6 +60,42 @@ def get_entry(object_id: str) -> dict:
     return resp.json()
 
 
+def create_entry(blueprint_id: str, fields: dict) -> dict:
+    """Create an entry in a manual or mutable Blueprint."""
+    resp = requests.post(
+        f"{_api_url}/api/blueprints/{blueprint_id}/entries",
+        json={"fields": fields},
+        headers=_headers,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def update_entry(entry_id: str, fields: dict, blueprint_id: str = None) -> dict:
+    """Update mutable fields on an entry.
+
+    If blueprint_id is omitted, the helper fetches the entry first and uses
+    its blueprint_id. The backend enforces Blueprint mutability rules.
+    """
+    bp_id = blueprint_id or get_entry(entry_id).get("blueprint_id")
+    if not bp_id:
+        raise ValueError("blueprint_id is required when it cannot be inferred from the entry")
+    resp = requests.patch(
+        f"{_api_url}/api/blueprints/{bp_id}/entries/{entry_id}",
+        json={"fields": fields},
+        headers=_headers,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def delete_entry(entry_id: str) -> bool:
+    """Delete an entry by ID."""
+    resp = requests.delete(f"{_api_url}/api/blueprints/entries/{entry_id}", headers=_headers)
+    resp.raise_for_status()
+    return True
+
+
 def set_output(key: str, value) -> None:
     """Export an output variable to downstream workflow nodes via payload mapping."""
     run_id = os.environ.get("PYLO_RUN_ID", "")

@@ -403,6 +403,13 @@ async def _reparse_entries_bg(blueprint_id: str, field_mappings_json: str) -> No
         }
 
 
+def _trigger_event_matches(entry_info: dict, trigger_event: str) -> bool:
+    event_type = entry_info.get("event_type", "created")
+    if trigger_event == "on_create_or_update":
+        return event_type in {"created", "updated"}
+    return event_type == "created"
+
+
 def _fire_blueprint_triggers(bp, created_entries: list) -> None:
     """Enqueue runs for PyBook and Workflow subscribers of this blueprint."""
     from backend.objects.filter import check_trigger_conditions
@@ -425,8 +432,12 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
             ]
             for sub in subscribers:
                 cfg = json.loads(sub.trigger_config or "{}")
+                trigger_event = cfg.get("trigger_event", "on_create")
                 conditions = cfg.get("trigger_conditions", [])
-                matching = [e for e in created_entries if check_trigger_conditions(e["parsed"], conditions)]
+                matching = [
+                    e for e in created_entries
+                    if _trigger_event_matches(e, trigger_event) and check_trigger_conditions(e["parsed"], conditions)
+                ]
                 if not matching:
                     continue
                 matching = matching[:_MAX_TRIGGERS_PER_FETCH]
@@ -441,6 +452,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                             "blueprint_id": bp.id,
                             "entry_id": entry_info["entry_id"],
                             "entry_data": entry_info["parsed"],
+                            "event_type": entry_info.get("event_type", "created"),
                         }),
                         started_at=datetime.now(timezone.utc),
                     )
@@ -464,7 +476,10 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                 if trigger_event not in ("on_create", "on_create_or_update"):
                     continue
                 conditions = cfg.get("trigger_conditions", [])
-                matching = [e for e in created_entries if check_trigger_conditions(e["parsed"], conditions)]
+                matching = [
+                    e for e in created_entries
+                    if _trigger_event_matches(e, trigger_event) and check_trigger_conditions(e["parsed"], conditions)
+                ]
                 if not matching:
                     continue
                 matching = matching[:_MAX_TRIGGERS_PER_FETCH]
@@ -478,6 +493,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                             "blueprint_id": bp.id,
                             "entry_id": entry_info["entry_id"],
                             "entry_data": entry_info["parsed"],
+                            "event_type": entry_info.get("event_type", "created"),
                         }),
                         started_at=datetime.now(timezone.utc),
                     )
@@ -524,6 +540,55 @@ def _pagination_value(bp: Blueprint, page_number: int, offset: int, cursor):
     if ptype == "cursor":
         return cursor
     return None
+
+
+def _mutable_fetch_fields(bp: Blueprint, field_mappings: list[dict], parsed: dict) -> set[str]:
+    mutable_mode = (getattr(bp, "mutable_mode", "none") or "none").lower()
+    if mutable_mode == "all":
+        return set(parsed.keys())
+    if mutable_mode == "per_field":
+        return {m.get("field_name") for m in field_mappings if m.get("mutable") and m.get("field_name")}
+    return set()
+
+
+def _update_entry_from_fetch(
+    session: Session,
+    bp: Blueprint,
+    entry: Entry,
+    parsed: dict,
+    raw_item,
+    mutable_fields: set[str],
+    actor: str,
+) -> list[str]:
+    if not mutable_fields:
+        return []
+
+    old_data = json.loads(entry.data or "{}")
+    updates = {k: parsed[k] for k in mutable_fields if k in parsed and old_data.get(k) != parsed[k]}
+    if not updates:
+        return []
+
+    new_data = {**old_data, **updates}
+    changed = list(updates.keys())
+    entry.data = json.dumps(new_data)
+    entry.raw_data = json.dumps(raw_item)
+    entry.updated_at = datetime.now(timezone.utc)
+    session.add(entry)
+
+    ev = EntryEvent(
+        id=str(uuid.uuid4()),
+        entry_id=entry.id,
+        blueprint_id=bp.id,
+        event_type="updated",
+        changed_fields=json.dumps(changed),
+        old_values=json.dumps({k: old_data.get(k) for k in changed}),
+        new_values=json.dumps(updates),
+        actor=actor,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(ev)
+    index_entry(session, entry.id, bp.id, extract_text_content(new_data))
+    return changed
 
 
 def _delete_entry_row(session: Session, entry: Entry) -> None:
@@ -648,11 +713,15 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
         "external_id",
     )
     created_count = 0
+    updated_count = 0
     skipped_count = 0
-    created_entries: list[dict] = []
+    trigger_entries: list[dict] = []
+    mutable_fields = _mutable_fetch_fields(bp, field_mappings, {})
 
     for item in items:
         parsed = parse_instance(item, field_mappings)
+        if (getattr(bp, "mutable_mode", "none") or "none").lower() == "all":
+            mutable_fields = _mutable_fetch_fields(bp, field_mappings, parsed)
         external_id = parsed.get(key_field)
 
         if external_id:
@@ -663,7 +732,12 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
                 )
             ).first()
             if existing:
-                skipped_count += 1
+                changed = _update_entry_from_fetch(session, bp, existing, parsed, item, mutable_fields, actor)
+                if changed:
+                    updated_count += 1
+                    trigger_entries.append({"entry_id": existing.id, "parsed": json.loads(existing.data or "{}"), "event_type": "updated"})
+                else:
+                    skipped_count += 1
                 continue
 
         now = datetime.now(timezone.utc)
@@ -680,18 +754,18 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
         session.flush()
         index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
         created_count += 1
-        created_entries.append({"entry_id": entry.id, "parsed": parsed})
+        trigger_entries.append({"entry_id": entry.id, "parsed": parsed, "event_type": "created"})
 
     retention_deleted = _enforce_entry_retention(session, bp)
     log_activity(session, "blueprint.fetch", actor=actor,
                  resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
-                 detail={"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted})
+                 detail={"created": created_count, "updated": updated_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted})
     session.commit()
 
-    if created_entries:
-        _fire_blueprint_triggers(bp, created_entries)
+    if trigger_entries:
+        _fire_blueprint_triggers(bp, trigger_entries)
 
-    return {"created": created_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted}
+    return {"created": created_count, "updated": updated_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted}
 
 
 @router.post("/{blueprint_id}/fetch")
