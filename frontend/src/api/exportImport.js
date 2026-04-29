@@ -9,6 +9,24 @@ function _downloadJson(data, filename) {
   URL.revokeObjectURL(url)
 }
 
+// Triggers a browser file download from a ZIP response.
+async function _downloadZip(res, fallbackName) {
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}))
+    throw new Error(json.detail ?? 'Backup export failed')
+  }
+  const blob = await res.blob()
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="?([^";]+)"?/)
+  const filename = match?.[1] || fallbackName
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const exportApi = {
   async pybook(id) {
     const res = await fetch(`/api/pybooks/${id}/export`, { credentials: 'include' })
@@ -80,36 +98,70 @@ export const importApi = {
   },
 }
 
-
 export const backupApi = {
+  /** Download a full backup ZIP (secrets excluded). */
   async downloadFull() {
     const res = await fetch('/api/export/full', { credentials: 'include' })
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}))
-      throw new Error(json.detail ?? 'Backup export failed')
-    }
-    const blob = await res.blob()
-    const disposition = res.headers.get('Content-Disposition') || ''
-    const match = disposition.match(/filename="?([^";]+)"?/)
-    const filename = match?.[1] || `pylo_backup_${new Date().toISOString().slice(0, 10)}.zip`
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
+    await _downloadZip(res, `pylo_backup_${new Date().toISOString().slice(0, 10)}.zip`)
   },
 
-  async importFull(file, confirm) {
+  /** Download a full backup ZIP with encrypted secrets. */
+  async downloadFullWithSecrets(passphrase) {
+    const res = await fetch('/api/export/full/secrets', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase }),
+    })
+    await _downloadZip(res, `pylo_backup_with_secrets_${new Date().toISOString().slice(0, 10)}.zip`)
+  },
+
+  /** Import a backup ZIP. Optionally supply passphrase if the backup contains encrypted secrets. */
+  async importFull(file, confirm, passphrase = '') {
     const body = await file.arrayBuffer()
+    const headers = { 'Content-Type': 'application/zip' }
+    if (passphrase) headers['X-Backup-Passphrase'] = passphrase
     const res = await fetch(`/api/import/full?confirm=${encodeURIComponent(confirm)}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/zip' },
+      headers,
       body,
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(json.detail ?? `Backup import failed (${res.status})`)
+    return json
+  },
+
+  /** List auto-saved backup files on disk. */
+  async getHistory() {
+    const res = await fetch('/api/backup/history', { credentials: 'include' })
+    if (!res.ok) throw new Error('Could not load backup history')
+    return res.json()
+  },
+
+  /** Download a specific saved backup file. */
+  async downloadSaved(filename) {
+    const res = await fetch(`/api/backup/history/${encodeURIComponent(filename)}`, { credentials: 'include' })
+    await _downloadZip(res, filename)
+  },
+
+  /** Delete a specific saved backup file. */
+  async deleteSaved(filename) {
+    const res = await fetch(`/api/backup/history/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    if (!res.ok && res.status !== 204) {
+      const json = await res.json().catch(() => ({}))
+      throw new Error(json.detail ?? 'Delete failed')
+    }
+  },
+
+  /** Trigger an immediate backup to disk (no secrets). */
+  async runNow() {
+    const res = await fetch('/api/backup/now', { method: 'POST', credentials: 'include' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.detail ?? 'Backup failed')
     return json
   },
 }

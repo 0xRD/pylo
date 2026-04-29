@@ -1,11 +1,18 @@
+import base64
 import io
 import json
+import logging
+import os
+import pathlib
 import re
 import uuid
 import zipfile
 from datetime import datetime, timezone
 from typing import Optional
 
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -20,7 +27,11 @@ from backend.pybooks.models import PyBook
 from backend.pybooks.store import write_script
 from backend.workflows.models import Workflow
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["export_import"], dependencies=[Depends(verify_token)])
+
+BACKUPS_DIR = pathlib.Path("/app/objects_storage/backups")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -244,7 +255,123 @@ def _upsert_workflow(session: Session, data: dict, pybook_id_map: dict[str, str]
     return original_id, wf.id
 
 
-# ── Export ────────────────────────────────────────────────────────────────────
+# ── Backup helpers ─────────────────────────────────────────────────────────────
+
+def _derive_fernet_key(passphrase: str, salt: bytes) -> bytes:
+    """Derive a Fernet-compatible key from a passphrase using PBKDF2-SHA256."""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100_000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
+
+
+def _build_full_zip(
+    session: Session,
+    include_secrets: bool = False,
+    passphrase: str | None = None,
+) -> tuple[bytes, dict]:
+    """Build the full backup ZIP. Returns (zip_bytes, manifest)."""
+    from backend.core.crypto import decrypt as _crypto_decrypt
+
+    exported_at = datetime.now(timezone.utc)
+    blueprints = session.exec(select(Blueprint)).all()
+    pybooks = session.exec(select(PyBook)).all()
+    workflows = session.exec(select(Workflow)).all()
+    settings_rows = session.exec(select(SystemSetting)).all()
+
+    manifest = {
+        "pylo_export": "full_backup",
+        "version": 1,
+        "exported_at": exported_at.isoformat(),
+        "include_secrets": include_secrets and bool(passphrase),
+        "counts": {
+            "blueprints": len(blueprints),
+            "pybooks": len(pybooks),
+            "workflows": len(workflows),
+            "settings": len(settings_rows),
+        },
+    }
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+        zf.writestr("settings.json", json.dumps({r.key: r.value for r in settings_rows}, indent=2))
+
+        if include_secrets and passphrase:
+            from backend.secrets.models import Secret as SecretModel
+            secrets = session.exec(select(SecretModel)).all()
+            salt = os.urandom(16)
+            fernet_key = _derive_fernet_key(passphrase, salt)
+            f = Fernet(fernet_key)
+            encrypted_secrets: dict[str, str] = {}
+            for s in secrets:
+                try:
+                    plain = _crypto_decrypt(s.encrypted_value)
+                    encrypted_secrets[s.name] = f.encrypt(plain.encode()).decode()
+                except Exception:
+                    pass  # skip secrets that cannot be decrypted
+            secrets_payload = {
+                "algorithm": "PBKDF2HMAC-SHA256",
+                "iterations": 100_000,
+                "salt": salt.hex(),
+                "secrets": encrypted_secrets,
+            }
+            zf.writestr("secrets/encrypted.json", json.dumps(secrets_payload, indent=2))
+        else:
+            zf.writestr("secrets/README.txt", "Secrets are intentionally excluded from this backup.\n")
+
+        def _unique_name(used: set, slug: str, fallback_id: str) -> str:
+            """Return a unique filename within the ZIP (dedup by appending the ID)."""
+            candidate = slug
+            if candidate in used:
+                candidate = f"{slug}_{fallback_id[:8]}"
+            used.add(candidate)
+            return candidate
+
+        bp_used: set = set()
+        for bp in blueprints:
+            slug = _unique_name(bp_used, _safe_filename(bp.name, bp.id), bp.id)
+            zf.writestr(f"blueprints/{slug}.json", json.dumps(_blueprint_export_data(session, bp), indent=2))
+        pb_used: set = set()
+        for pb in pybooks:
+            slug = _unique_name(pb_used, _safe_filename(pb.name, pb.id), pb.id)
+            zf.writestr(f"pybooks/{slug}.json", json.dumps(_pybook_export_data(pb), indent=2))
+        wf_used: set = set()
+        for wf in workflows:
+            slug = _unique_name(wf_used, _safe_filename(wf.name, wf.id), wf.id)
+            zf.writestr(f"workflows/{slug}.json", json.dumps(_workflow_export_data(session, wf, embed_pybooks=False), indent=2))
+
+    buffer.seek(0)
+    return buffer.getvalue(), manifest
+
+
+def save_backup_to_disk(session: Session) -> str:
+    """Generate a full backup ZIP (no secrets) and save it to BACKUPS_DIR. Returns filename."""
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    zip_bytes, _ = _build_full_zip(session)
+    now = datetime.now(timezone.utc)
+    filename = f"pylo_backup_{now.strftime('%Y%m%d_%H%M%S')}.zip"
+    (BACKUPS_DIR / filename).write_bytes(zip_bytes)
+    return filename
+
+
+def prune_old_backups(retention: int) -> None:
+    """Delete the oldest backup files beyond the retention count."""
+    if not BACKUPS_DIR.exists() or retention <= 0:
+        return
+    files = sorted(BACKUPS_DIR.glob("pylo_backup_*.zip"), key=lambda p: p.stat().st_mtime)
+    for f in files[:-retention]:
+        try:
+            f.unlink()
+            logger.info("Pruned old backup: %s", f.name)
+        except OSError as exc:
+            logger.warning("Could not prune backup %s: %s", f.name, exc)
+
+
+# ── Granular export ───────────────────────────────────────────────────────────
 
 @router.get("/pybooks/{pybook_id}/export")
 async def export_pybook(
@@ -388,60 +515,134 @@ async def export_workflow(
     )
 
 
+# ── Full backup export ────────────────────────────────────────────────────────
+
 @router.get("/export/full")
 async def export_full_backup(
-    include_secrets: bool = False,
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(require_admin),
 ):
-    if include_secrets:
-        raise HTTPException(status_code=400, detail="Secret backup is not available yet; export secrets separately from Pylo.")
-
-    exported_at = datetime.now(timezone.utc)
-    blueprints = session.exec(select(Blueprint)).all()
-    pybooks = session.exec(select(PyBook)).all()
-    workflows = session.exec(select(Workflow)).all()
-    settings_rows = session.exec(select(SystemSetting)).all()
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        manifest = {
-            "pylo_export": "full_backup",
-            "version": 1,
-            "exported_at": exported_at.isoformat(),
-            "include_secrets": False,
-            "counts": {
-                "blueprints": len(blueprints),
-                "pybooks": len(pybooks),
-                "workflows": len(workflows),
-                "settings": len(settings_rows),
-            },
-        }
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-        zf.writestr("settings.json", json.dumps({r.key: r.value for r in settings_rows}, indent=2))
-        zf.writestr("secrets/README.txt", "Secrets are intentionally excluded from this backup.\n")
-
-        for bp in blueprints:
-            name = _safe_filename(bp.name, bp.id)
-            zf.writestr(f"blueprints/{name}.json", json.dumps(_blueprint_export_data(session, bp), indent=2))
-        for pb in pybooks:
-            name = _safe_filename(pb.name, pb.id)
-            zf.writestr(f"pybooks/{name}.json", json.dumps(_pybook_export_data(pb), indent=2))
-        for wf in workflows:
-            name = _safe_filename(wf.name, wf.id)
-            zf.writestr(f"workflows/{name}.json", json.dumps(_workflow_export_data(session, wf, embed_pybooks=False), indent=2))
-
+    """Download full backup ZIP (secrets excluded)."""
+    zip_bytes, manifest = _build_full_zip(session, include_secrets=False)
     log_activity(session, "backup.exported", actor=current_user.username,
                  detail={"counts": manifest["counts"], "include_secrets": False})
     session.commit()
-    buffer.seek(0)
+    exported_at = datetime.fromisoformat(manifest["exported_at"])
     filename = f"pylo_backup_{exported_at.strftime('%Y%m%d_%H%M%S')}.zip"
     return StreamingResponse(
-        buffer,
+        io.BytesIO(zip_bytes),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+
+class SecretBackupBody(BaseModel):
+    passphrase: str
+
+
+@router.post("/export/full/secrets")
+async def export_full_backup_with_secrets(
+    body: SecretBackupBody,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(require_admin),
+):
+    """Download full backup ZIP with encrypted secrets."""
+    if not body.passphrase or len(body.passphrase) < 8:
+        raise HTTPException(status_code=400, detail="Passphrase must be at least 8 characters")
+
+    zip_bytes, manifest = _build_full_zip(session, include_secrets=True, passphrase=body.passphrase)
+    log_activity(session, "backup.exported", actor=current_user.username,
+                 detail={"counts": manifest["counts"], "include_secrets": True})
+    session.commit()
+    exported_at = datetime.fromisoformat(manifest["exported_at"])
+    filename = f"pylo_backup_with_secrets_{exported_at.strftime('%Y%m%d_%H%M%S')}.zip"
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Saved backup management ───────────────────────────────────────────────────
+
+@router.get("/backup/history")
+async def list_backup_history(
+    current_user: AuthUser = Depends(require_admin),
+):
+    """List auto-saved backup files on disk."""
+    if not BACKUPS_DIR.exists():
+        return []
+    files = sorted(BACKUPS_DIR.glob("pylo_backup_*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+    result = []
+    for f in files:
+        stat = f.stat()
+        result.append({
+            "filename": f.name,
+            "size": stat.st_size,
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        })
+    return result
+
+
+@router.get("/backup/history/{filename}")
+async def download_saved_backup(
+    filename: str,
+    current_user: AuthUser = Depends(require_admin),
+):
+    """Download a specific auto-saved backup file."""
+    # Sanitize: only allow simple filenames, no path traversal
+    if not re.match(r"^pylo_backup_[\w.-]+\.zip$", filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = BACKUPS_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+
+    def _iter_file():
+        with open(path, "rb") as fh:
+            while chunk := fh.read(65536):
+                yield chunk
+
+    return StreamingResponse(
+        _iter_file(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/backup/history/{filename}", status_code=204)
+async def delete_saved_backup(
+    filename: str,
+    current_user: AuthUser = Depends(require_admin),
+):
+    """Delete a specific auto-saved backup file."""
+    if not re.match(r"^pylo_backup_[\w.-]+\.zip$", filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = BACKUPS_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+    path.unlink()
+
+
+@router.post("/backup/now", status_code=201)
+async def trigger_backup_now(
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(require_admin),
+):
+    """Trigger an immediate backup to disk."""
+    from backend.api.settings import get_setting
+    try:
+        filename = save_backup_to_disk(session)
+        retention = int(get_setting(session, "backup_retention") or 7)
+        prune_old_backups(retention)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Backup failed: {exc}")
+    log_activity(session, "backup.saved", actor=current_user.username,
+                 detail={"filename": filename, "trigger": "manual"})
+    session.commit()
+    return {"filename": filename}
+
+
+# ── Full backup restore ───────────────────────────────────────────────────────
 
 @router.post("/import/full")
 async def import_full_backup(
@@ -452,6 +653,8 @@ async def import_full_backup(
 ):
     if confirm != "RESTORE":
         raise HTTPException(status_code=400, detail="Type RESTORE to import a full backup")
+
+    passphrase = request.headers.get("X-Backup-Passphrase", "")
 
     blob = await request.body()
     if not blob:
@@ -470,8 +673,12 @@ async def import_full_backup(
 
         if manifest.get("pylo_export") != "full_backup" or manifest.get("version") != 1:
             raise HTTPException(status_code=400, detail="Unsupported backup manifest")
-        if manifest.get("include_secrets"):
-            raise HTTPException(status_code=400, detail="This Pylo version cannot restore secret backups")
+
+        if manifest.get("include_secrets") and not passphrase:
+            raise HTTPException(
+                status_code=400,
+                detail="This backup contains encrypted secrets. Provide the passphrase via the X-Backup-Passphrase header.",
+            )
 
         def read_folder(folder: str) -> list[dict]:
             items = []
@@ -494,6 +701,27 @@ async def import_full_backup(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid settings.json")
 
+        # Decrypt secrets if included
+        restored_secrets: list[dict] = []
+        if manifest.get("include_secrets") and passphrase:
+            try:
+                secrets_raw = json.loads(zf.read("secrets/encrypted.json"))
+            except (KeyError, json.JSONDecodeError):
+                raise HTTPException(status_code=400, detail="Backup claims to include secrets but secrets/encrypted.json is missing or invalid")
+
+            try:
+                salt = bytes.fromhex(secrets_raw["salt"])
+                fernet_key = _derive_fernet_key(passphrase, salt)
+                f = Fernet(fernet_key)
+                for name, token in secrets_raw.get("secrets", {}).items():
+                    try:
+                        plain = f.decrypt(token.encode()).decode()
+                        restored_secrets.append({"name": name, "value": plain})
+                    except Exception:
+                        pass  # skip secrets that fail to decrypt
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Could not decrypt secrets: {exc}")
+
     now = datetime.now(timezone.utc)
     pybook_id_map: dict[str, str] = {}
     for data in blueprints:
@@ -505,8 +733,10 @@ async def import_full_backup(
     for data in workflows:
         _upsert_workflow(session, data, pybook_id_map, now)
 
+    # Restore settings (excluding backup_cron / backup_retention to avoid overwriting schedule)
+    skip_keys = {"backup_cron", "backup_retention"}
     for key, value in imported_settings.items():
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key in skip_keys:
             continue
         row = session.get(SystemSetting, key)
         if row:
@@ -524,6 +754,32 @@ async def import_full_backup(
         except (TypeError, ValueError):
             pass
 
+    # Restore secrets
+    secrets_restored = 0
+    if restored_secrets:
+        from backend.secrets.models import Secret as SecretModel
+        from backend.core.crypto import encrypt as _crypto_encrypt
+        from sqlmodel import select as _select
+        for s_data in restored_secrets:
+            name = s_data["name"]
+            existing_secret = session.exec(_select(SecretModel).where(SecretModel.name == name)).first()
+            if existing_secret:
+                existing_secret.encrypted_value = _crypto_encrypt(s_data["value"])
+                existing_secret.updated_at = now
+                session.add(existing_secret)
+            else:
+                new_secret = SecretModel(
+                    id=str(uuid.uuid4()),
+                    name=name,
+                    description=None,
+                    encrypted_value=_crypto_encrypt(s_data["value"]),
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(new_secret)
+            secrets_restored += 1
+        session.commit()
+
     result = {
         "ok": True,
         "imported": {
@@ -531,6 +787,7 @@ async def import_full_backup(
             "pybooks": len(pybooks),
             "workflows": len(workflows),
             "settings": len(imported_settings),
+            "secrets": secrets_restored,
         },
     }
     log_activity(session, "backup.imported", actor=current_user.username, detail=result["imported"])
@@ -538,7 +795,7 @@ async def import_full_backup(
     return result
 
 
-# ── Import ────────────────────────────────────────────────────────────────────
+# ── Granular import ───────────────────────────────────────────────────────────
 
 class ImportBody(BaseModel):
     data: dict

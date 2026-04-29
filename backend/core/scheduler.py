@@ -194,8 +194,56 @@ async def _cleanup_activity_log():
             logger.info("Activity log cleanup: deleted %d events older than %d days", len(events), days)
 
 
+async def _run_auto_backup():
+    """Scheduled auto-backup job: saves a ZIP to disk and prunes old files."""
+    from backend.api.export_import import save_backup_to_disk, prune_old_backups
+    from backend.api.settings import get_setting
+    from backend.activity.logger import log_activity
+
+    try:
+        with Session(engine) as session:
+            filename = save_backup_to_disk(session)
+            retention = int(get_setting(session, "backup_retention") or 7)
+            prune_old_backups(retention)
+            log_activity(session, "backup.saved", actor="scheduler",
+                         detail={"filename": filename, "trigger": "auto"})
+            session.commit()
+        logger.info("Auto-backup saved: %s", filename)
+    except Exception as exc:
+        logger.error("Auto-backup failed: %s", exc)
+
+
+def sync_backup_job():
+    """Add, update, or remove the auto-backup APScheduler job based on current settings."""
+    from backend.api.settings import get_setting
+
+    JOB_ID = "auto_backup"
+    for job in scheduler.get_jobs():
+        if job.id == JOB_ID:
+            job.remove()
+
+    with Session(engine) as session:
+        cron_expr = get_setting(session, "backup_cron") or ""
+
+    if not cron_expr.strip():
+        logger.info("Auto-backup: disabled (no cron expression set)")
+        return
+
+    kwargs = _parse_cron(cron_expr)
+    if not kwargs:
+        logger.warning("Auto-backup: invalid cron expression '%s', job not scheduled", cron_expr)
+        return
+
+    scheduler.add_job(
+        _run_auto_backup, CronTrigger(**kwargs),
+        id=JOB_ID, replace_existing=True, misfire_grace_time=3600,
+    )
+    logger.info("Auto-backup scheduled: %s", cron_expr)
+
+
 def start_scheduler():
     sync_cron_jobs()
+    sync_backup_job()
     scheduler.add_job(
         _cleanup_activity_log, "cron",
         hour=3, minute=0, id="cleanup_activity_log",
