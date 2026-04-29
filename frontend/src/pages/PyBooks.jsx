@@ -6,6 +6,8 @@ import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
 import { useAuth } from "../context/AuthContext"
 import { fmtDateTime } from "../utils/dates"
+import { exportApi, importApi, readImportFile } from "../api/exportImport"
+import ImportConflictModal from "../components/ImportConflictModal"
 import {
   BookOpen,
   Braces,
@@ -758,6 +760,14 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin }) {
             {saving ? 'Saving...' : 'Save settings'}
           </button>
         )}
+        <div className="border-t border-[#343746] pt-3 mt-1">
+          <p className="text-xs text-[#6272a4] mb-2">Export</p>
+          <button
+            onClick={async () => { try { await exportApi.pybook(pybook.id) } catch {} }}
+            className="w-full px-3 py-2 bg-[#282a36] hover:bg-[#343746] rounded text-xs text-[#8b8fa3] hover:text-[#f8f8f2] transition-colors text-left">
+            Download .json
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -922,6 +932,10 @@ export default function PyBooks() {
   const [showAIPrompt, setShowAIPrompt] = useState(false)
   const [showTriggerEdit, setShowTriggerEdit] = useState(false)
   const [triggerDraft, setTriggerDraft] = useState(null)
+  const [importConflicts, setImportConflicts] = useState(null)
+  const [importData, setImportData] = useState(null)
+  const [importError, setImportError] = useState(null)
+  const importRef = useRef(null)
 
   // Filters
   const [search, setSearch] = useState('')
@@ -992,6 +1006,29 @@ export default function PyBooks() {
 
   const handleCreate = async (data) => { await pybooksApi.create(data); setShowNew(false); load() }
 
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setImportError(null)
+    try {
+      const parsed = await readImportFile(file)
+      if (parsed.pylo_export !== 'pybook') { setImportError('This file is not a PyBook export.'); return }
+      const res = await importApi.pybook(parsed)
+      if (!res.ok) { setImportData(parsed); setImportConflicts(res.conflicts) }
+      else { load(); selectPybook(res.result) }
+    } catch (err) { setImportError(err.message) }
+  }
+
+  const handleImportResolve = async ({ main, pybooks: pybookRes }) => {
+    setImportError(null)
+    try {
+      const res = await importApi.pybook(importData, main, pybookRes)
+      if (!res.ok) { setImportConflicts(res.conflicts) }
+      else { setImportConflicts(null); setImportData(null); load(); selectPybook(res.result) }
+    } catch (err) { setImportError(err.message); setImportConflicts(null) }
+  }
+
   const handleDelete = async () => {
     if (!selected || !confirm(`Delete "${selected.name}"?`)) return
     await pybooksApi.delete(selected.id)
@@ -1031,6 +1068,15 @@ export default function PyBooks() {
   return (
     <div className="flex h-full gap-0 -m-6 overflow-hidden bg-[#191a21] text-[#f8f8f2]">
       {showAIPrompt && <AIPromptModal onClose={() => setShowAIPrompt(false)} />}
+      {importConflicts && (
+        <ImportConflictModal
+          conflicts={importConflicts}
+          onResolve={handleImportResolve}
+          onCancel={() => { setImportConflicts(null); setImportData(null) }}
+        />
+      )}
+      <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+
       {/* Sidebar */}
       <div className="w-72 shrink-0 bg-[#151720] border-r border-[#343746] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-4 border-b border-[#343746] shrink-0">
@@ -1041,11 +1087,19 @@ export default function PyBooks() {
             </div>
             <p className="mt-0.5 text-xs text-[#6272a4]">{filtered.length} visible</p>
           </div>
-          <button onClick={() => { setShowNew(true); setSelected(null) }} disabled={!isAdmin}
-            className="inline-flex items-center gap-1.5 text-xs bg-[#bd93f9] text-[#191a21] hover:bg-[#caa9fa] disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1.5 rounded font-semibold">
-            <Plus className="h-3.5 w-3.5" />
-            New
-          </button>
+          <div className="flex items-center gap-1.5">
+            {importError && <span className="text-xs text-red-400 max-w-24 truncate" title={importError}>!</span>}
+            <button onClick={() => importRef.current?.click()} disabled={!isAdmin}
+              className="inline-flex items-center gap-1 text-xs bg-[#282a36] hover:bg-[#343746] disabled:opacity-50 disabled:cursor-not-allowed px-2 py-1.5 rounded text-[#8b8fa3]"
+              title="Import PyBook from file">
+              Import
+            </button>
+            <button onClick={() => { setShowNew(true); setSelected(null) }} disabled={!isAdmin}
+              className="inline-flex items-center gap-1.5 text-xs bg-[#bd93f9] text-[#191a21] hover:bg-[#caa9fa] disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1.5 rounded font-semibold">
+              <Plus className="h-3.5 w-3.5" />
+              New
+            </button>
+          </div>
         </div>
 
         {/* Search */}

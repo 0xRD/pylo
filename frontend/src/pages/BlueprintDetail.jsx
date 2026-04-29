@@ -5,6 +5,7 @@ import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import EntryCard from '../components/EntryCard'
 import SearchHelp from '../components/SearchHelp'
+import { exportApi } from '../api/exportImport'
 
 function AddEntryModal({ blueprint, onSave, onClose }) {
   const fieldMappings = (() => { try { return JSON.parse(blueprint.field_mappings || '[]') } catch { return [] } })()
@@ -125,6 +126,8 @@ export default function BlueprintDetail() {
   const [clearingEntries, setClearingEntries] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [reparseStatus, setReparseStatus] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [includeEntries, setIncludeEntries] = useState(false)
   const reparseTimer = useRef(null)
   const { isAdmin } = useAuth()
 
@@ -424,6 +427,30 @@ export default function BlueprintDetail() {
             onSave={handleUpdate}
             onCancel={() => setTab('entries')}
           />
+
+          <div className="border-t border-gray-800 pt-6">
+            <h3 className="text-sm font-medium text-gray-300 mb-3">Export</h3>
+            <div className="flex items-center gap-4">
+              {blueprint.is_manual && (
+                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                  <input type="checkbox" checked={includeEntries} onChange={e => setIncludeEntries(e.target.checked)}
+                    className="rounded border-gray-600 accent-indigo-500" />
+                  Include entries
+                </label>
+              )}
+              <button
+                onClick={async () => {
+                  setExporting(true)
+                  try { await exportApi.blueprint(id, blueprint.is_manual ? includeEntries : false) }
+                  finally { setExporting(false) }
+                }}
+                disabled={exporting}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+                {exporting ? 'Exporting…' : 'Export blueprint'}
+              </button>
+              <span className="text-xs text-gray-600">Downloads a .json file you can import on another Pylo instance.</span>
+            </div>
+          </div>
 
           <div className="border-t border-gray-800 pt-6">
             <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>

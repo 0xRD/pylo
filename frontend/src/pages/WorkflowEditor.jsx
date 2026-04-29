@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ScheduleBuilder from '../components/ScheduleBuilder'
 import { fmtShort } from '../utils/dates'
+import { exportApi } from '../api/exportImport'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const NODE_W = 204
@@ -1022,6 +1023,15 @@ export default function WorkflowEditor() {
           <SaveIndicator saved={saved} />
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button onClick={() => exportApi.workflow(id).catch(() => {})} style={{
+              padding: '6px 12px', background: '#1f2937', border: 'none',
+              borderRadius: 7, color: '#9ca3af', fontSize: 12, cursor: 'pointer',
+              transition: 'all 0.15s', fontFamily: 'inherit',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#374151'; e.currentTarget.style.color = '#e2e8f0' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#1f2937'; e.currentTarget.style.color = '#9ca3af' }}>
+              Export
+            </button>
             <button onClick={handleRun} disabled={runState.active || workflow.nodes.length === 0} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
               background: runState.active ? '#1f2937' : '#4f46e5', border: 'none',

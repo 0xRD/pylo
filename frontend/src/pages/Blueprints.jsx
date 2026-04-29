@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { blueprintsApi } from '../api/blueprints'
 import BlueprintForm from '../components/BlueprintForm'
 import { fmtDate } from '../utils/dates'
+import { importApi, readImportFile } from '../api/exportImport'
+import ImportConflictModal from '../components/ImportConflictModal'
 
 function BlueprintCard({ blueprint, onClick }) {
   const isManual = blueprint.is_manual
@@ -51,6 +53,10 @@ export default function Blueprints() {
   const [blueprints, setBlueprints] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [importConflicts, setImportConflicts] = useState(null)
+  const [importData, setImportData] = useState(null)
+  const [importError, setImportError] = useState(null)
+  const importRef = useRef(null)
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
 
@@ -70,17 +76,56 @@ export default function Blueprints() {
     navigate(`/blueprints/${bp.id}`)
   }
 
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setImportError(null)
+    try {
+      const parsed = await readImportFile(file)
+      if (parsed.pylo_export !== 'blueprint') { setImportError('This file is not a blueprint export.'); return }
+      const res = await importApi.blueprint(parsed)
+      if (!res.ok) { setImportData(parsed); setImportConflicts(res.conflicts) }
+      else { load(); navigate(`/blueprints/${res.result.id}`) }
+    } catch (err) { setImportError(err.message) }
+  }
+
+  const handleImportResolve = async ({ main, pybooks }) => {
+    setImportError(null)
+    try {
+      const res = await importApi.blueprint(importData, main, pybooks)
+      if (!res.ok) { setImportConflicts(res.conflicts) }
+      else { setImportConflicts(null); setImportData(null); load(); navigate(`/blueprints/${res.result.id}`) }
+    } catch (err) { setImportError(err.message); setImportConflicts(null) }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
+      {importConflicts && (
+        <ImportConflictModal
+          conflicts={importConflicts}
+          onResolve={handleImportResolve}
+          onCancel={() => { setImportConflicts(null); setImportData(null) }}
+        />
+      )}
+      <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-gray-100">Blueprints</h1>
           <p className="text-sm text-gray-500 mt-0.5">Data sources and schemas for your entries</p>
         </div>
-        <button onClick={() => setCreating(true)} disabled={!isAdmin}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
-          + New Blueprint
-        </button>
+        <div className="flex items-center gap-2">
+          {importError && <span className="text-xs text-red-400">{importError}</span>}
+          <button onClick={() => importRef.current?.click()} disabled={!isAdmin}
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+            Import
+          </button>
+          <button onClick={() => setCreating(true)} disabled={!isAdmin}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+            + New Blueprint
+          </button>
+        </div>
       </div>
 
       {loading ? (

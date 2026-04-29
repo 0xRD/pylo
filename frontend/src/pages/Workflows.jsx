@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fmtShort } from '../utils/dates'
+import { importApi, readImportFile } from '../api/exportImport'
+import ImportConflictModal from '../components/ImportConflictModal'
 
 const NODE_W = 204
 const NODE_H = 90
@@ -173,6 +175,10 @@ export default function Workflows() {
   const navigate = useNavigate()
   const [workflows, setWorkflows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [importConflicts, setImportConflicts] = useState(null)
+  const [importData, setImportData] = useState(null)
+  const [importError, setImportError] = useState(null)
+  const importRef = useRef(null)
 
   const fetchWorkflows = async () => {
     try {
@@ -203,10 +209,42 @@ export default function Workflows() {
     setWorkflows(wfs => wfs.filter(w => w.id !== id))
   }
 
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setImportError(null)
+    try {
+      const parsed = await readImportFile(file)
+      if (parsed.pylo_export !== 'workflow') { setImportError('This file is not a workflow export.'); return }
+      const res = await importApi.workflow(parsed)
+      if (!res.ok) { setImportData(parsed); setImportConflicts(res.conflicts) }
+      else { fetchWorkflows(); navigate(`/workflows/${res.result.id}`) }
+    } catch (err) { setImportError(err.message) }
+  }
+
+  const handleImportResolve = async ({ main, pybooks }) => {
+    setImportError(null)
+    try {
+      const res = await importApi.workflow(importData, main, pybooks)
+      if (!res.ok) { setImportConflicts(res.conflicts) }
+      else { setImportConflicts(null); setImportData(null); fetchWorkflows(); navigate(`/workflows/${res.result.id}`) }
+    } catch (err) { setImportError(err.message); setImportConflicts(null) }
+  }
+
   const active = workflows.filter(w => w.is_active).length
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', background: '#09090f', padding: '28px' }}>
+      {importConflicts && (
+        <ImportConflictModal
+          conflicts={importConflicts}
+          onResolve={handleImportResolve}
+          onCancel={() => { setImportConflicts(null); setImportData(null) }}
+        />
+      )}
+      <input ref={importRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
@@ -215,22 +253,35 @@ export default function Workflows() {
           </h1>
           <div style={{ color: '#4b5563', fontSize: 12.5, marginTop: 4 }}>
             {active} active · {workflows.length} total
+            {importError && <span style={{ color: '#f87171', marginLeft: 12 }}>{importError}</span>}
           </div>
         </div>
-        <button onClick={handleNew} style={{
-          display: 'flex', alignItems: 'center', gap: 7,
-          padding: '8px 16px', borderRadius: 8,
-          background: '#4f46e5', border: 'none', color: '#fff',
-          fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'background 0.15s',
-          fontFamily: 'inherit',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = '#4338ca' }}
-        onMouseLeave={e => { e.currentTarget.style.background = '#4f46e5' }}>
-          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="6.5" y1="1" x2="6.5" y2="12" /><line x1="1" y1="6.5" x2="12" y2="6.5" />
-          </svg>
-          New Workflow
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={() => importRef.current?.click()} style={{
+            padding: '8px 14px', borderRadius: 8,
+            background: '#1f2937', border: 'none', color: '#9ca3af',
+            fontSize: 12.5, fontWeight: 500, cursor: 'pointer', transition: 'background 0.15s',
+            fontFamily: 'inherit',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#374151'; e.currentTarget.style.color = '#e2e8f0' }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#1f2937'; e.currentTarget.style.color = '#9ca3af' }}>
+            Import
+          </button>
+          <button onClick={handleNew} style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '8px 16px', borderRadius: 8,
+            background: '#4f46e5', border: 'none', color: '#fff',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'background 0.15s',
+            fontFamily: 'inherit',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#4338ca' }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#4f46e5' }}>
+            <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="6.5" y1="1" x2="6.5" y2="12" /><line x1="1" y1="6.5" x2="12" y2="6.5" />
+            </svg>
+            New Workflow
+          </button>
+        </div>
       </div>
 
       {loading ? (
