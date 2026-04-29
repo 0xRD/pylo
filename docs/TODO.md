@@ -64,30 +64,67 @@ Export and import individual objects as JSON files directly from their detail pa
 
 ### 3b. Full backup & restore — partially implemented
 
-Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery. Manual ZIP export/import is implemented; the remaining 3b work is encrypted secret backup/restore and Git-based backup automation.
-
-**Backed up objects:**
-- `blueprints/` — one JSON file per blueprint
-- `pybooks/` — one JSON file per PyBook, script included
-- `secrets/` — excluded by default; optionally encrypted with a user-supplied backup passphrase
-- `settings.json`
-- `manifest.json`
+Full snapshot of Pylo configuration exportable to a ZIP file, re-importable for disaster recovery. Manual ZIP export/import is implemented; remaining work is encrypted secret backup/restore and a scheduled auto-backup.
 
 **Manual export/import:**
 - Settings page "Download backup" button. ✅
 - Secrets excluded from backup. ✅
-- Optional encrypted secret backup with warning. Pending: design passphrase-based encryption, avoid API disclosure of decrypted secret values, and add restore conflict handling for existing secret names.
 - Import ZIP with manifest validation. ✅
 - Blocking confirmation requiring the user to type `RESTORE`. ✅
 
-**Git integration remaining:**
-- Settings form for repository URL, branch, token, author.
-- Manual "Push now" that commits the generated backup ZIP or expanded JSON snapshot.
-- Optional debounced auto-push after config changes.
-- Status line with last push or last error.
-- Safety requirement: keep this separate from the removed self-update system; backup Git operations must never run `git pull`, rebuild containers, or modify application code.
+**Remaining:**
+- Scheduled auto-backup (cron) with configurable retention.
+- Optional encrypted secret inclusion with passphrase (avoid exposing decrypted values via API).
 
 **Why:** A single VM failure or bad import can destroy weeks of blueprints and PyBooks.
+
+---
+
+### 3c. Git-based dev → prod promotion
+
+GitOps-style workflow: objects are authored in a dev instance, committed to a Git repository, and selectively pulled into a production instance. Production is read-only for config edits but fully operational (run, activate/deactivate, view logs).
+
+**Environment mode**
+- A `environment` setting per instance: `dev` (default) or `prod`.
+- On `prod`: script editors and config forms are read-only; trigger configs cannot be modified. Activation/deactivation and manual runs remain available.
+- Git config stored in Settings: repository URL, branch, token, committer name/email.
+
+**Dev side — Commit UI**
+- A **"Commit"** button appears in the top bar whenever one or more objects have changed since the last git commit.
+- Clicking opens a panel listing all pending changes (new / modified / deleted) per object type, with a per-field diff for modified objects.
+- User selects which changes to include, writes an optional commit message, then pushes to the configured branch.
+- `is_active` is never versioned (operational state, not config).
+- Secrets are never written to git.
+
+**Git repository layout**
+```
+pylo-config/
+  manifest.json          ← pylo version, last commit date, instance id
+  settings.json          ← system settings (no secrets)
+  blueprints/
+    <name-slug>.json
+  pybooks/
+    <name-slug>.json
+  workflows/
+    <name-slug>.json     ← PyBooks referenced by name slug, not UUID
+```
+
+**Prod side — Sync UI**
+- A persistent **"Sync"** button in the top bar shows a badge when the remote branch is ahead.
+- Clicking opens a panel: new objects to create, modified objects with diff, objects deleted from git (shown as warnings, never auto-deleted).
+- Objects present in prod but absent from git are flagged as "local only" — user decides whether to keep or remove.
+- User selects what to apply and confirms; import uses name-based matching (same mechanism as 3a), with `is_active` left untouched on existing objects.
+
+**Object identity across instances**
+- Objects are matched by name slug, not UUID. A PyBook called "Scan URL" in dev will update the same-named PyBook in prod on sync.
+- UUIDs are regenerated on import; internal references (workflow → PyBook) are remapped automatically as in 3a.
+
+**Safety constraints**
+- Git operations are config-only: never `git pull` on application code, never rebuild containers.
+- Token stored encrypted in the database (same mechanism as secrets).
+- Prod mode only allows `git fetch` + read; it cannot push back to the repo.
+
+**Why:** Enables a safe, auditable promotion pipeline from development to production without requiring direct network access between instances or manual file transfers.
 
 ---
 
