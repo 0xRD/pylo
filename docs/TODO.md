@@ -83,7 +83,7 @@ Full snapshot of Pylo configuration exportable to a ZIP file, re-importable for 
 
 ---
 
-### 3c. Git-based dev → prod promotion
+### 3c. Git-based dev → prod promotion — implemented
 
 GitOps-style workflow: objects are authored in a dev instance, committed to a Git repository, and selectively pulled into a production instance. Production is read-only for config edits but fully operational (run, activate/deactivate, view logs).
 
