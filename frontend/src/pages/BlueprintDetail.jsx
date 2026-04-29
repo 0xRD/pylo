@@ -346,7 +346,7 @@ export default function BlueprintDetail() {
             <div className="flex items-center gap-2 shrink-0">
               {fetchResult && !fetchResult.error && (
                 <span className="text-xs text-green-400">
-                  +{fetchResult.created} created, {fetchResult.skipped} skipped
+                  +{fetchResult.created} created, {fetchResult.updated || 0} updated, {fetchResult.skipped} skipped
                 </span>
               )}
               {fetchResult?.error && (
