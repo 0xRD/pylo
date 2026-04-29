@@ -62,19 +62,22 @@ Export and import individual objects as JSON files directly from their detail pa
 
 ---
 
-### 3b. Full backup & restore — partially implemented
+### 3b. Full backup & restore — implemented
 
-Full snapshot of Pylo configuration exportable to a ZIP file, re-importable for disaster recovery. Manual ZIP export/import is implemented; remaining work is encrypted secret backup/restore and a scheduled auto-backup.
+Full snapshot of Pylo configuration exportable to a ZIP file, re-importable for disaster recovery.
 
 **Manual export/import:**
 - Settings page "Download backup" button. ✅
-- Secrets excluded from backup. ✅
-- Import ZIP with manifest validation. ✅
+- Optional encrypted secret inclusion with passphrase (PBKDF2-SHA256 + Fernet). ✅
+- Import ZIP with manifest validation and optional secret decryption. ✅
 - Blocking confirmation requiring the user to type `RESTORE`. ✅
 
-**Remaining:**
-- Scheduled auto-backup (cron) with configurable retention.
-- Optional encrypted secret inclusion with passphrase (avoid exposing decrypted values via API).
+**Scheduled auto-backup:**
+- Configurable cron schedule and retention count in Settings. ✅
+- APScheduler job saves ZIPs to `objects_storage/backups/` and prunes old files. ✅
+- `POST /api/backup/now` to trigger an immediate on-disk backup. ✅
+- `GET /api/backup/history` + download + delete endpoints. ✅
+- Settings page shows backup history list with download/delete per file. ✅
 
 **Why:** A single VM failure or bad import can destroy weeks of blueprints and PyBooks.
 
