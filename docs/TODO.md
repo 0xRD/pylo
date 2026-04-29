@@ -31,6 +31,39 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ## 3. Configuration backup & restore
 
+Two levels of export/import: granular (single object) and full snapshot.
+
+---
+
+### 3a. Granular export/import (per object)
+
+Export and import individual objects as JSON files directly from their detail page (Settings tab).
+
+**PyBook export** — `pybook_<name>.json`:
+- Full config (name, description, script, tags, trigger config, schedule).
+- Script content embedded as a string.
+
+**Blueprint export** — `blueprint_<name>.json`:
+- Full config (name, field mappings, source URL, headers, schedule, pagination, retention, mutable mode).
+- No entries by default for API-fetched blueprints.
+- For manual blueprints: prompt asking whether to include entries.
+
+**Workflow export** — `workflow_<name>.json`:
+- Full workflow config (DAG nodes, edges, trigger config).
+- All referenced PyBooks embedded under a `pybooks` key.
+
+**Import conflict resolution** — when an imported object's name or ID already exists:
+- User is prompted: **Overwrite**, **Create duplicate**, or **Cancel**.
+
+**UI:**
+- "Export" button in the Settings tab of each Blueprint / PyBook / Workflow detail page.
+- "Import" button on the Blueprint, PyBook, and Workflow list pages.
+- The global Settings page handles only the full backup/restore (see 3b).
+
+---
+
+### 3b. Full backup & restore
+
 Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery.
 
 **Backed up objects:**
