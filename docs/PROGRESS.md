@@ -130,7 +130,7 @@ All core features working end-to-end on `main` branch.
 | `/automations` | All active triggers in one view |
 | `/secrets` | Secret store |
 | `/activity` | Audit log |
-| `/settings` | System settings + self-update |
+| `/settings` | System settings + backup/restore |
 | `/users` | User management (admin) |
 
 **Pending / backlog items:**
@@ -177,7 +177,7 @@ All core features remain working end-to-end on `main`, with the frontend refresh
 | `/automations` | All active triggers in one view |
 | `/secrets` | Secret store |
 | `/activity` | Audit log |
-| `/settings` | System settings + self-update |
+| `/settings` | System settings + backup/restore |
 | `/users` | User management (admin) |
 
 **Pending / backlog items:**
@@ -281,3 +281,8 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **AI prompt and inline help**: updated the PyBook AI prompt and SDK reference to recommend `pylo.get_payload()` and explain input payloads vs output variables.
 - **Runs page**: PyBook run details now show the input payload alongside stdout/stderr and exported variables.
 - **Wiki page**: added `/wiki` with high-level concepts, usage guidance, and mini examples for Blueprints, Entries, PyBooks, payloads, Workflows, Runs, and security.
+
+
+### Safety update
+
+- Self-update system removed: `/api/system/*` endpoints, Settings update controls, and the `/app/repo` container mount were removed. Manual full backup/restore ZIP was added under Settings; secrets remain excluded.

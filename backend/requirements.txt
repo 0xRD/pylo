@@ -4,7 +4,6 @@ sqlmodel==0.0.22
 pydantic-settings==2.9.1
 docker==7.1.0
 apscheduler==3.11.0
-gitpython==3.1.44
 jsonpath-ng==1.7.0
 httpx==0.28.1
 cryptography==44.0.3

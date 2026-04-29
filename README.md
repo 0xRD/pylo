@@ -111,7 +111,7 @@ Every PyBook execution creates a Run record with full stdout/stderr, exit code, 
 | `/automations` | All active scheduled/triggered PyBooks and Workflows in one view |
 | `/secrets` | Encrypted secret management |
 | `/workflows` | Workflow list — visual DAG editor for multi-step automation |
-| `/settings` | System settings (max concurrent runs, session duration, self-update) |
+| `/settings` | System settings, backup export/import, max concurrent runs, and session duration |
 | `/users` | User management — admin only |
 
 ---
@@ -324,7 +324,7 @@ curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
                         │  ├─ /api/secrets     Encrypted store      │
                         │  ├─ /api/workflows    Workflow + DAG runs  │
                         │  ├─ /api/settings    System config        │
-                        │  ├─ /api/system      Self-update & info    │
+                        │  ├─ /api/export      Backup/export APIs    │
                         │  └─ /api/webhooks    Inbound triggers     │
                         │                                            │
                         │  APScheduler — cron + blueprint fetches   │

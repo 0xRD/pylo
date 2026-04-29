@@ -1,15 +1,19 @@
+import io
 import json
+import re
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from backend.activity.logger import log_activity
 from backend.core.auth import AuthUser, require_admin, verify_token
+from backend.core.settings_model import SystemSetting
 from backend.database import get_session
 from backend.objects.models import Blueprint, Entry
 from backend.pybooks.models import PyBook
@@ -44,6 +48,200 @@ def _pybook_fields_from_export(data: dict) -> dict:
         "required_secrets": data.get("required_secrets", "[]"),
         "tags": data.get("tags", "[]"),
     }
+
+
+def _safe_filename(value: str, fallback: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("_")
+    return slug or fallback
+
+
+def _blueprint_fields_from_export(data: dict) -> dict:
+    return {
+        "name": data.get("name", "").strip(),
+        "description": data.get("description"),
+        "source_url": data.get("source_url"),
+        "source_method": data.get("source_method", "GET"),
+        "source_headers": data.get("source_headers", "{}"),
+        "source_body": data.get("source_body", "{}"),
+        "field_mappings": data.get("field_mappings", "[]"),
+        "fetch_cron": data.get("fetch_cron"),
+        "fetch_is_active": data.get("fetch_is_active", False),
+        "is_manual": data.get("is_manual", False),
+        "pagination_type": data.get("pagination_type", "none"),
+        "pagination_param": data.get("pagination_param"),
+        "pagination_path": data.get("pagination_path"),
+        "pagination_items_path": data.get("pagination_items_path"),
+        "pagination_max_pages": data.get("pagination_max_pages", 50),
+        "max_entries": data.get("max_entries"),
+        "retention_days": data.get("retention_days"),
+        "retention_minutes": data.get("retention_minutes"),
+        "mutable_mode": data.get("mutable_mode", "none"),
+    }
+
+
+def _blueprint_export_data(session: Session, bp: Blueprint, include_entries: bool = False) -> dict:
+    data = {
+        "pylo_export": "blueprint",
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "id": bp.id,
+        "name": bp.name,
+        "description": bp.description,
+        "source_url": bp.source_url,
+        "source_method": bp.source_method,
+        "source_headers": bp.source_headers,
+        "source_body": bp.source_body,
+        "field_mappings": bp.field_mappings,
+        "fetch_cron": bp.fetch_cron,
+        "fetch_is_active": bp.fetch_is_active,
+        "is_manual": bp.is_manual,
+        "pagination_type": bp.pagination_type,
+        "pagination_param": bp.pagination_param,
+        "pagination_path": bp.pagination_path,
+        "pagination_items_path": bp.pagination_items_path,
+        "pagination_max_pages": bp.pagination_max_pages,
+        "max_entries": bp.max_entries,
+        "retention_days": bp.retention_days,
+        "retention_minutes": bp.retention_minutes,
+        "mutable_mode": bp.mutable_mode,
+    }
+    if include_entries:
+        entries = session.exec(select(Entry).where(Entry.blueprint_id == bp.id)).all()
+        data["entries"] = [
+            {"external_id": e.external_id, "data": e.data, "raw_data": e.raw_data}
+            for e in entries
+        ]
+    return data
+
+
+def _pybook_export_data(pb: PyBook) -> dict:
+    return {
+        "pylo_export": "pybook",
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "id": pb.id,
+        "name": pb.name,
+        **_pybook_fields_from_export({
+            "description": pb.description,
+            "script": pb.script,
+            "is_sub_pybook": pb.is_sub_pybook,
+            "dependencies": pb.dependencies,
+            "trigger_type": pb.trigger_type,
+            "trigger_config": pb.trigger_config,
+            "required_secrets": pb.required_secrets,
+            "tags": pb.tags,
+        }),
+    }
+
+
+def _workflow_export_data(session: Session, wf: Workflow, embed_pybooks: bool = True) -> dict:
+    embedded_pybooks = []
+    if embed_pybooks:
+        nodes = json.loads(wf.nodes or "[]")
+        pybook_ids = list({n["pybookId"] for n in nodes if n.get("pybookId")})
+        for pb_id in pybook_ids:
+            pb = session.get(PyBook, pb_id)
+            if pb:
+                embedded_pybooks.append({"original_id": pb.id, **_pybook_export_data(pb)})
+
+    return {
+        "pylo_export": "workflow",
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "id": wf.id,
+        "name": wf.name,
+        "description": wf.description,
+        "is_active": wf.is_active,
+        "trigger_type": wf.trigger_type,
+        "trigger_config": wf.trigger_config,
+        "nodes": wf.nodes,
+        "edges": wf.edges,
+        "pybooks": embedded_pybooks,
+    }
+
+
+def _get_by_id_or_name(session: Session, model_class, object_id: str | None, name: str | None):
+    existing = session.get(model_class, object_id) if object_id else None
+    return existing or (_find_by_name(session, model_class, name) if name else None)
+
+
+def _upsert_pybook(session: Session, data: dict, now: datetime) -> tuple[str | None, str | None]:
+    name = data.get("name", "").strip()
+    if not name:
+        return data.get("id"), None
+    fields = _pybook_fields_from_export(data)
+    original_id = data.get("id") or data.get("original_id")
+    existing = _get_by_id_or_name(session, PyBook, original_id, name)
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        existing.name = name
+        existing.updated_at = now
+        session.add(existing)
+        write_script(existing.id, existing.script)
+        return original_id, existing.id
+
+    new_id = original_id if original_id and not session.get(PyBook, original_id) else str(uuid.uuid4())
+    pb = PyBook(id=new_id, name=name, created_at=now, updated_at=now, **fields)
+    session.add(pb)
+    write_script(pb.id, pb.script)
+    return original_id, pb.id
+
+
+def _upsert_blueprint(session: Session, data: dict, now: datetime) -> tuple[str | None, str | None]:
+    fields = _blueprint_fields_from_export(data)
+    name = fields.get("name")
+    if not name:
+        return data.get("id"), None
+    original_id = data.get("id")
+    existing = _get_by_id_or_name(session, Blueprint, original_id, name)
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        session.add(existing)
+        if data.get("entries"):
+            _import_entries(session, existing.id, data["entries"])
+        return original_id, existing.id
+
+    new_id = original_id if original_id and not session.get(Blueprint, original_id) else str(uuid.uuid4())
+    bp = Blueprint(id=new_id, created_at=now, **fields)
+    session.add(bp)
+    if data.get("entries"):
+        _import_entries(session, bp.id, data["entries"])
+    return original_id, bp.id
+
+
+def _upsert_workflow(session: Session, data: dict, pybook_id_map: dict[str, str], now: datetime) -> tuple[str | None, str | None]:
+    name = data.get("name", "").strip()
+    if not name:
+        return data.get("id"), None
+    nodes = json.loads(data.get("nodes", "[]"))
+    for node in nodes:
+        old_id = node.get("pybookId")
+        if old_id in pybook_id_map:
+            node["pybookId"] = pybook_id_map[old_id]
+    fields = {
+        "name": name,
+        "description": data.get("description"),
+        "is_active": data.get("is_active", True),
+        "trigger_type": data.get("trigger_type", "manual"),
+        "trigger_config": data.get("trigger_config", "{}"),
+        "nodes": json.dumps(nodes),
+        "edges": data.get("edges", "[]"),
+    }
+    original_id = data.get("id")
+    existing = _get_by_id_or_name(session, Workflow, original_id, name)
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        existing.updated_at = now
+        session.add(existing)
+        return original_id, existing.id
+
+    new_id = original_id if original_id and not session.get(Workflow, original_id) else str(uuid.uuid4())
+    wf = Workflow(id=new_id, created_at=now, updated_at=now, **fields)
+    session.add(wf)
+    return original_id, wf.id
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
@@ -188,6 +386,156 @@ async def export_workflow(
         content=data,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/export/full")
+async def export_full_backup(
+    include_secrets: bool = False,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(require_admin),
+):
+    if include_secrets:
+        raise HTTPException(status_code=400, detail="Secret backup is not available yet; export secrets separately from Pylo.")
+
+    exported_at = datetime.now(timezone.utc)
+    blueprints = session.exec(select(Blueprint)).all()
+    pybooks = session.exec(select(PyBook)).all()
+    workflows = session.exec(select(Workflow)).all()
+    settings_rows = session.exec(select(SystemSetting)).all()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest = {
+            "pylo_export": "full_backup",
+            "version": 1,
+            "exported_at": exported_at.isoformat(),
+            "include_secrets": False,
+            "counts": {
+                "blueprints": len(blueprints),
+                "pybooks": len(pybooks),
+                "workflows": len(workflows),
+                "settings": len(settings_rows),
+            },
+        }
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+        zf.writestr("settings.json", json.dumps({r.key: r.value for r in settings_rows}, indent=2))
+        zf.writestr("secrets/README.txt", "Secrets are intentionally excluded from this backup.\n")
+
+        for bp in blueprints:
+            name = _safe_filename(bp.name, bp.id)
+            zf.writestr(f"blueprints/{name}.json", json.dumps(_blueprint_export_data(session, bp), indent=2))
+        for pb in pybooks:
+            name = _safe_filename(pb.name, pb.id)
+            zf.writestr(f"pybooks/{name}.json", json.dumps(_pybook_export_data(pb), indent=2))
+        for wf in workflows:
+            name = _safe_filename(wf.name, wf.id)
+            zf.writestr(f"workflows/{name}.json", json.dumps(_workflow_export_data(session, wf, embed_pybooks=False), indent=2))
+
+    log_activity(session, "backup.exported", actor=current_user.username,
+                 detail={"counts": manifest["counts"], "include_secrets": False})
+    session.commit()
+    buffer.seek(0)
+    filename = f"pylo_backup_{exported_at.strftime('%Y%m%d_%H%M%S')}.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import/full")
+async def import_full_backup(
+    confirm: str,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(require_admin),
+):
+    if confirm != "RESTORE":
+        raise HTTPException(status_code=400, detail="Type RESTORE to import a full backup")
+
+    blob = await request.body()
+    if not blob:
+        raise HTTPException(status_code=400, detail="Missing backup ZIP body")
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(blob))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Invalid backup ZIP")
+
+    with zf:
+        try:
+            manifest = json.loads(zf.read("manifest.json"))
+        except (KeyError, json.JSONDecodeError):
+            raise HTTPException(status_code=400, detail="Backup manifest is missing or invalid")
+
+        if manifest.get("pylo_export") != "full_backup" or manifest.get("version") != 1:
+            raise HTTPException(status_code=400, detail="Unsupported backup manifest")
+        if manifest.get("include_secrets"):
+            raise HTTPException(status_code=400, detail="This Pylo version cannot restore secret backups")
+
+        def read_folder(folder: str) -> list[dict]:
+            items = []
+            for name in sorted(zf.namelist()):
+                if not name.startswith(f"{folder}/") or not name.endswith(".json"):
+                    continue
+                try:
+                    items.append(json.loads(zf.read(name)))
+                except json.JSONDecodeError:
+                    raise HTTPException(status_code=400, detail=f"Invalid JSON in {name}")
+            return items
+
+        blueprints = read_folder("blueprints")
+        pybooks = read_folder("pybooks")
+        workflows = read_folder("workflows")
+        try:
+            imported_settings = json.loads(zf.read("settings.json"))
+        except KeyError:
+            imported_settings = {}
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid settings.json")
+
+    now = datetime.now(timezone.utc)
+    pybook_id_map: dict[str, str] = {}
+    for data in blueprints:
+        _upsert_blueprint(session, data, now)
+    for data in pybooks:
+        old_id, new_id = _upsert_pybook(session, data, now)
+        if old_id and new_id:
+            pybook_id_map[old_id] = new_id
+    for data in workflows:
+        _upsert_workflow(session, data, pybook_id_map, now)
+
+    for key, value in imported_settings.items():
+        if not isinstance(key, str):
+            continue
+        row = session.get(SystemSetting, key)
+        if row:
+            row.value = str(value)
+        else:
+            row = SystemSetting(key=key, value=str(value))
+        session.add(row)
+
+    session.commit()
+
+    if "max_concurrent_runs" in imported_settings:
+        from backend.core import queue_manager
+        try:
+            queue_manager.update_limit(int(imported_settings["max_concurrent_runs"]))
+        except (TypeError, ValueError):
+            pass
+
+    result = {
+        "ok": True,
+        "imported": {
+            "blueprints": len(blueprints),
+            "pybooks": len(pybooks),
+            "workflows": len(workflows),
+            "settings": len(imported_settings),
+        },
+    }
+    log_activity(session, "backup.imported", actor=current_user.username, detail=result["imported"])
+    session.commit()
+    return result
 
 
 # ── Import ────────────────────────────────────────────────────────────────────

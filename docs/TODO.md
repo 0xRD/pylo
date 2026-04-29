@@ -35,7 +35,7 @@ Two levels of export/import: granular (single object) and full snapshot.
 
 ---
 
-### 3a. Granular export/import (per object)
+### 3a. Granular export/import (per object) — implemented
 
 Export and import individual objects as JSON files directly from their detail page (Settings tab).
 
@@ -62,9 +62,9 @@ Export and import individual objects as JSON files directly from their detail pa
 
 ---
 
-### 3b. Full backup & restore
+### 3b. Full backup & restore — partially implemented
 
-Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery.
+Full snapshot of Pylo configuration exportable to a ZIP file or Git repository and re-importable for disaster recovery. Manual ZIP export/import is implemented; Git integration and encrypted secret backup remain pending.
 
 **Backed up objects:**
 - `blueprints/` — one JSON file per blueprint
@@ -74,10 +74,11 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - `manifest.json`
 
 **Manual export/import:**
-- Settings page "Download backup" button.
-- Optional include-secrets checkbox with warning.
-- Import ZIP with manifest validation.
-- Blocking confirmation requiring the user to type `RESTORE`.
+- Settings page "Download backup" button. ✅
+- Secrets excluded from backup. ✅
+- Optional encrypted secret backup with warning. Pending.
+- Import ZIP with manifest validation. ✅
+- Blocking confirmation requiring the user to type `RESTORE`. ✅
 
 **Git integration:**
 - Settings form for repository URL, branch, token, author.
@@ -140,3 +141,5 @@ Full snapshot of Pylo configuration exportable to a ZIP file or Git repository a
 - Dashboard / command center with operational metrics, charts, failures, automations, and activity.
 - Bulk PyBook dispatch from selected entries.
 - PyBook payload helper and development ergonomics (`pylo.get_payload()`, payload templates, prompt/help updates).
+- Granular export/import for blueprints, PyBooks, and workflows.
+- Manual full backup/restore ZIP for blueprints, PyBooks, workflows, and settings.

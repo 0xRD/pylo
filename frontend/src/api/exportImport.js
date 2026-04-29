@@ -79,3 +79,37 @@ export const importApi = {
     return _postImport('/api/workflows/import', { data, resolution, pybook_resolutions: pybookResolutions ?? {} })
   },
 }
+
+
+export const backupApi = {
+  async downloadFull() {
+    const res = await fetch('/api/export/full', { credentials: 'include' })
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      throw new Error(json.detail ?? 'Backup export failed')
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename="?([^";]+)"?/)
+    const filename = match?.[1] || `pylo_backup_${new Date().toISOString().slice(0, 10)}.zip`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+
+  async importFull(file, confirm) {
+    const body = await file.arrayBuffer()
+    const res = await fetch(`/api/import/full?confirm=${encodeURIComponent(confirm)}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/zip' },
+      body,
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.detail ?? `Backup import failed (${res.status})`)
+    return json
+  },
+}

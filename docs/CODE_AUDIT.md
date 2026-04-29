@@ -11,6 +11,13 @@ The highest-impact bug was the `pylo_sdk.search_entries()` contract drift: the b
 
 ## Fixed Issues
 
+### Self-update system removed
+
+- Files: `backend/main.py`, `backend/api/system.py`, `frontend/src/pages/Settings.jsx`, `docker-compose.yml`
+- Removed the high-privilege in-app update endpoints and Settings controls. The backend no longer mounts the whole repo at `/app/repo`.
+- Verification: grep shows no active frontend/backend references to `/api/system` or update routes.
+
+
 ### SDK search result compatibility
 
 - File: `pylo_sdk.py`
@@ -60,13 +67,6 @@ The highest-impact bug was the `pylo_sdk.search_entries()` contract drift: the b
 - Regression check: frontend build.
 
 ## Remaining Findings
-
-### Self-update system is high privilege
-
-- Files: `backend/api/system.py`, `docker-compose.yml`
-- Risk: the backend has Docker socket access and admin users can trigger `git pull` plus `docker compose up --build`.
-- Current mitigations: `update/apply` requires admin, commands are argument-list subprocess calls rather than shell strings.
-- Recommendation: require explicit opt-in for the self-update endpoints, record update activity events, and document that Docker socket access is equivalent to host root on typical Docker installations.
 
 ### CORS is permissive
 
