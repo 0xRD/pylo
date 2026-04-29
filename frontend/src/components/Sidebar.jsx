@@ -8,6 +8,8 @@ import {
   CircuitBoard,
   Database,
   GitBranch,
+  GitCommit,
+  GitPullRequest,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -18,6 +20,9 @@ import {
   Workflow,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useGitops } from '../context/GitopsContext'
+import CommitPanel from './CommitPanel'
+import SyncPanel from './SyncPanel'
 
 const links = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -110,8 +115,11 @@ function ChangePasswordModal({ onClose }) {
 
 export default function Sidebar() {
   const { user, isAdmin, logout } = useAuth()
+  const { isProd, isDev, configured, pendingCount, remoteAhead } = useGitops()
   const navigate = useNavigate()
   const [showChangePwd, setShowChangePwd] = useState(false)
+  const [showCommit, setShowCommit] = useState(false)
+  const [showSync, setShowSync] = useState(false)
 
   const handleLogout = async () => {
     await logout()
@@ -132,6 +140,15 @@ export default function Sidebar() {
             </span>
           </NavLink>
         </div>
+
+        {/* Prod environment banner */}
+        {isProd && (
+          <div className="mx-3 mt-3 px-3 py-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-semibold flex items-center gap-2">
+            <GitBranch size={12} />
+            Production — read-only
+          </div>
+        )}
+
         <nav className="flex-1 px-3 py-4 space-y-1">
           {links.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -164,7 +181,39 @@ export default function Sidebar() {
               Users
             </NavLink>
           )}
+
+          {/* GitOps actions — only shown when configured */}
+          {configured && isAdmin && isDev && (
+            <button
+              onClick={() => setShowCommit(true)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#bd93f9]"
+            >
+              <GitCommit size={17} />
+              <span className="flex-1 text-left">Commit</span>
+              {pendingCount > 0 && (
+                <span className="bg-[#bd93f9] text-[#282a36] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {configured && isAdmin && isProd && (
+            <button
+              onClick={() => setShowSync(true)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#50fa7b]"
+            >
+              <GitPullRequest size={17} />
+              <span className="flex-1 text-left">Sync</span>
+              {remoteAhead && (
+                <span className="bg-[#50fa7b] text-[#282a36] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  ↓
+                </span>
+              )}
+            </button>
+          )}
         </nav>
+
         <div className="px-3 py-3 border-t border-[#343746]">
           <div className="rounded-md bg-[#282a36] border border-[#343746] px-3 py-3 space-y-2">
             <div className="flex items-center justify-between">
@@ -192,6 +241,8 @@ export default function Sidebar() {
       </aside>
 
       {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} />}
+      {showCommit && <CommitPanel onClose={() => setShowCommit(false)} />}
+      {showSync && <SyncPanel onClose={() => setShowSync(false)} />}
     </>
   )
 }

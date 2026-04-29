@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { backupApi } from '../api/exportImport'
+import { getGitConfig, updateGitConfig } from '../api/gitops'
 import { useAuth } from '../context/AuthContext'
+import { useGitops } from '../context/GitopsContext'
 
 const settingsApi = {
   get: () => fetch('/api/settings', { credentials: 'include' }).then(r => r.json()),
@@ -33,6 +35,7 @@ function fmtDate(iso) {
 
 export default function Settings() {
   const { isAdmin } = useAuth()
+  const { refetch: refetchGitops } = useGitops()
   const [settings, setSettings] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(5)
   const [jwtHours, setJwtHours] = useState(24)
@@ -70,6 +73,18 @@ export default function Settings() {
   const [runNowBusy, setRunNowBusy] = useState(false)
   const [runNowMessage, setRunNowMessage] = useState('')
 
+  // ── GitOps state ─────────────────────────────────────────────────────────────
+  const [gitEnv, setGitEnv] = useState('dev')
+  const [gitRepoUrl, setGitRepoUrl] = useState('')
+  const [gitBranch, setGitBranch] = useState('main')
+  const [gitToken, setGitToken] = useState('')
+  const [gitTokenSet, setGitTokenSet] = useState(false)
+  const [gitCommitterName, setGitCommitterName] = useState('Pylo')
+  const [gitCommitterEmail, setGitCommitterEmail] = useState('pylo@localhost')
+  const [gitSaving, setGitSaving] = useState(false)
+  const [gitSaved, setGitSaved] = useState(false)
+  const [gitError, setGitError] = useState('')
+
   const loadHistory = async () => {
     setHistoryLoading(true)
     try {
@@ -89,6 +104,16 @@ export default function Settings() {
       setBackupRetention(s.backup_retention ?? 7)
     }).catch(() => {})
     if (isAdmin) loadHistory()
+    if (isAdmin) {
+      getGitConfig().then(gc => {
+        setGitEnv(gc.environment ?? 'dev')
+        setGitRepoUrl(gc.git_repo_url ?? '')
+        setGitBranch(gc.git_branch ?? 'main')
+        setGitTokenSet(gc.git_token_set ?? false)
+        setGitCommitterName(gc.git_committer_name ?? 'Pylo')
+        setGitCommitterEmail(gc.git_committer_email ?? 'pylo@localhost')
+      }).catch(() => {})
+    }
   }, [])
 
   const isDirty = maxConcurrent !== settings?.max_concurrent_runs || jwtHours !== (settings?.jwt_expire_hours ?? 24)
@@ -108,6 +133,26 @@ export default function Settings() {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally { setSaving(false) }
+  }
+
+  const handleSaveGitConfig = async () => {
+    setGitSaving(true); setGitError(''); setGitSaved(false)
+    try {
+      await updateGitConfig({
+        environment: gitEnv,
+        git_repo_url: gitRepoUrl,
+        git_branch: gitBranch || 'main',
+        git_token: gitToken || null,
+        git_committer_name: gitCommitterName,
+        git_committer_email: gitCommitterEmail,
+      })
+      if (gitToken) { setGitTokenSet(true); setGitToken('') }
+      setGitSaved(true)
+      setTimeout(() => setGitSaved(false), 2000)
+      await refetchGitops()
+    } catch (e) {
+      setGitError(e.message)
+    } finally { setGitSaving(false) }
   }
 
   const handleDownloadBackup = async () => {
@@ -534,6 +579,115 @@ export default function Settings() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── GitOps configuration ──────────────────────────────────────────── */}
+        {isAdmin && (
+          <div className="p-5 bg-gray-900 border border-gray-800 rounded-lg space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-200">Git configuration (GitOps)</h2>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Connect to a shared git repository to promote config objects between dev and prod instances.
+                In dev mode a <strong className="text-gray-300">Commit</strong> button appears in the sidebar;
+                in prod mode a <strong className="text-gray-300">Sync</strong> button shows remote changes.
+              </p>
+            </div>
+
+            {/* Environment toggle */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-2">Environment</label>
+              <div className="flex gap-3">
+                {['dev', 'prod'].map(e => (
+                  <label key={e} className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="git_env"
+                      value={e}
+                      checked={gitEnv === e}
+                      onChange={() => setGitEnv(e)}
+                      className="accent-indigo-500"
+                    />
+                    <span className="text-sm text-gray-200 capitalize">{e}</span>
+                    {e === 'prod' && <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">read-only config</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Repository URL</label>
+              <input
+                type="text"
+                value={gitRepoUrl}
+                onChange={e => setGitRepoUrl(e.target.value)}
+                placeholder="https://github.com/org/pylo-config"
+                className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Branch</label>
+                <input
+                  type="text"
+                  value={gitBranch}
+                  onChange={e => setGitBranch(e.target.value)}
+                  placeholder="main"
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Access token{' '}
+                  {gitTokenSet && !gitToken && (
+                    <span className="text-green-500">● set</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  value={gitToken}
+                  onChange={e => setGitToken(e.target.value)}
+                  placeholder={gitTokenSet ? 'Leave blank to keep current' : 'GitHub / GitLab token…'}
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Committer name</label>
+                <input
+                  type="text"
+                  value={gitCommitterName}
+                  onChange={e => setGitCommitterName(e.target.value)}
+                  placeholder="Pylo"
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Committer email</label>
+                <input
+                  type="email"
+                  value={gitCommitterEmail}
+                  onChange={e => setGitCommitterEmail(e.target.value)}
+                  placeholder="pylo@localhost"
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSaveGitConfig}
+                disabled={gitSaving}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs font-medium transition-colors"
+              >
+                {gitSaving ? 'Saving…' : 'Save git config'}
+              </button>
+              {gitSaved && <span className="text-xs text-green-400">Saved</span>}
+              {gitError && <span className="text-xs text-red-400">{gitError}</span>}
             </div>
           </div>
         )}

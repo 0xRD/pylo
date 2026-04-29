@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useGitops } from '../context/GitopsContext'
 import ScheduleBuilder from '../components/ScheduleBuilder'
 import { fmtShort } from '../utils/dates'
 import { exportApi } from '../api/exportImport'
@@ -790,6 +791,7 @@ function RunHistory({ workflowId }) {
 export default function WorkflowEditor() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { isProd } = useGitops()
 
   const [workflow, setWorkflow] = useState(null)
   const [pybooks, setPybooks] = useState([])
@@ -825,10 +827,11 @@ export default function WorkflowEditor() {
     })
   }, [id])
 
-  // Auto-save with 900ms debounce
+  // Auto-save with 900ms debounce (disabled in prod mode)
   useEffect(() => {
     if (!workflow || loading) return
     if (initialLoad.current) { initialLoad.current = false; return }
+    if (isProd) return  // production is read-only
     setSaved(false)
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
@@ -1020,7 +1023,13 @@ export default function WorkflowEditor() {
           </div>
 
           <div style={{ width: 1, height: 20, background: '#1f2937', flexShrink: 0 }} />
-          <SaveIndicator saved={saved} />
+          {isProd ? (
+            <span style={{ fontSize: 11, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 5, padding: '3px 8px' }}>
+              Production — read-only
+            </span>
+          ) : (
+            <SaveIndicator saved={saved} />
+          )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             <button onClick={() => exportApi.workflow(id).catch(() => {})} style={{
