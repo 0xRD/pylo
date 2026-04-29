@@ -583,7 +583,7 @@ def _update_entry_from_fetch(
         changed_fields=json.dumps(changed),
         old_values=json.dumps({k: old_data.get(k) for k in changed}),
         new_values=json.dumps(updates),
-        actor=actor,
+        actor="API",
         created_at=datetime.now(timezone.utc),
     )
     session.add(ev)

@@ -432,6 +432,7 @@ async def test_fetch_updates_existing_entry_for_mutable_blueprint(session, monke
     assert json.loads(entry.data)["enabled"] is True
     event = session.exec(select(EntryEvent).where(EntryEvent.entry_id == entry.id)).one()
     assert event.event_type == "updated"
+    assert event.actor == "API"
     assert json.loads(event.changed_fields) == ["enabled"]
 
 

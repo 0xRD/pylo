@@ -221,7 +221,7 @@ export default function EntryDetail() {
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                           ev.event_type === 'created' ? 'bg-green-900 text-green-300' : 'bg-blue-900 text-blue-300'
                         }`}>{ev.event_type}</span>
-                        <span className="text-gray-400 text-xs">by {ev.actor}</span>
+                        <span className="text-gray-400 text-xs">{ev.actor === 'API' ? 'via API' : `by ${ev.actor}`}</span>
                       </div>
                       <span className="text-xs text-gray-600">{fmtDateTime(ev.created_at)}</span>
                     </div>
