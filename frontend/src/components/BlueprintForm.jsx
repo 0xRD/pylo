@@ -141,13 +141,23 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
     }
   }
 
+  const buildFinalHeaders = () => {
+    try {
+      const h = JSON.parse(form.source_headers || '{}')
+      if (authType === 'bearer' && authSecret) h['Authorization'] = `Bearer {{secret:${authSecret}}}`
+      else if (authType === 'basic'  && authSecret) h['Authorization'] = `Basic {{secret:${authSecret}}}`
+      else if (authType === 'apikey' && authSecret) h[authKeyHeader] = `{{secret:${authSecret}}}`
+      return JSON.stringify(h)
+    } catch { return form.source_headers }
+  }
+
   const handlePreview = async () => {
     setPreviewing(true); setPreviewResult(null); setPreviewError(null)
     try {
       const result = await blueprintsApi.previewEndpoint({
         source_url: form.source_url,
         source_method: form.source_method,
-        source_headers: form.source_headers || '{}',
+        source_headers: buildFinalHeaders(),
         source_body: form.source_body || '{}',
         sample_limit: 1,
         pagination_type: form.pagination_type || 'none',
@@ -180,15 +190,6 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
     }
     setRowErrors({})
     try {
-      const buildFinalHeaders = () => {
-        try {
-          const h = JSON.parse(form.source_headers || '{}')
-          if (authType === 'bearer' && authSecret) h['Authorization'] = `Bearer {{secret:${authSecret}}}`
-          else if (authType === 'basic'  && authSecret) h['Authorization'] = `Basic {{secret:${authSecret}}}`
-          else if (authType === 'apikey' && authSecret) h[authKeyHeader] = `{{secret:${authSecret}}}`
-          return JSON.stringify(h)
-        } catch { return form.source_headers }
-      }
       await onSave({
         ...form,
         source_headers: buildFinalHeaders(),
