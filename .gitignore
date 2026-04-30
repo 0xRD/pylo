@@ -20,6 +20,9 @@ pybooks_storage/
 # Secrets
 .env
 
+# Claude Code context (contains internal paths and dev notes)
+CLAUDE.md
+
 # Alembic
 migrations/__pycache__/
 
