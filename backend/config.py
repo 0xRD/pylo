@@ -1,12 +1,18 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+INSECURE_DEFAULT = "change_me_in_production"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    PYLO_ENV: str = "production"
+    PYLO_ALLOW_INSECURE_DEFAULTS: bool = False
+
     DATABASE_URL: str = "sqlite:///./objects_storage/pylo.db"
-    SECRET_KEY: str = "change_me_in_production"
-    API_TOKEN: str = "change_me_in_production"
+    SECRET_KEY: str
+    API_TOKEN: str
 
     DOCKER_NETWORK: str = "pylo_pylo_default"
     PYLO_BASE_IMAGE: str = "pylo-runner-base:latest"
@@ -14,10 +20,16 @@ class Settings(BaseSettings):
     PYLO_MAX_CONCURRENT_RUNS: int = 5
     PYLO_MEM_LIMIT: str = "256m"
     PYLO_CPU_QUOTA: int = 50000
+    PYLO_RUN_TOKEN_TTL_SECONDS: int = 900
 
     # Host-side paths for Docker-out-of-Docker volume mounts (auto-detected at startup)
     PYBOOKS_HOST_PATH: str = "/app/pybooks_storage"
     PYLO_SDK_HOST_PATH: str = "/app/pylo_sdk.py"
+
+    PYLO_ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    PYLO_EXPOSE_DOCS: bool = False
+    PYLO_ALLOW_PRIVATE_FETCH: bool = False
+    PYLO_COOKIE_SECURE: bool = False
 
     GIT_REMOTE_URL: str = ""
     GIT_USERNAME: str = ""
@@ -28,5 +40,22 @@ class Settings(BaseSettings):
     MCP_ENABLED: bool = False
     MCP_AUTH_TOKEN: str = "change_me"
 
+    def validate_security(self) -> None:
+        if self.PYLO_ALLOW_INSECURE_DEFAULTS or self.PYLO_ENV.lower() in {"dev", "development", "test"}:
+            return
+        insecure = []
+        if self.SECRET_KEY == INSECURE_DEFAULT or len(self.SECRET_KEY) < 32:
+            insecure.append("SECRET_KEY")
+        if self.API_TOKEN == INSECURE_DEFAULT or len(self.API_TOKEN) < 32:
+            insecure.append("API_TOKEN")
+        if insecure:
+            names = ", ".join(insecure)
+            raise RuntimeError(f"Refusing to start with insecure production secret settings: {names}")
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.PYLO_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
 
 settings = Settings()
+settings.validate_security()

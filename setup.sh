@@ -57,8 +57,8 @@ else
     fi
 
     # Inject into .env
-    sed -i "s|SECRET_KEY=change_me_in_production|SECRET_KEY=${SECRET_KEY}|" .env
-    sed -i "s|API_TOKEN=change_me_in_production|API_TOKEN=${API_TOKEN}|" .env
+    sed -i "s|SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
+    sed -i "s|API_TOKEN=.*|API_TOKEN=${API_TOKEN}|" .env
 
     # Set PYBOOKS_HOST_PATH to the actual absolute path on this machine
     PYBOOKS_ABS="$(pwd)/pybooks_storage"
@@ -66,10 +66,10 @@ else
 
     info "Generated .env with fresh secrets."
     echo ""
-    echo "  SECRET_KEY = ${SECRET_KEY}"
     echo "  API_TOKEN  = ${API_TOKEN}"
     echo ""
     warn "Save your API_TOKEN — you'll need it for SDK / script access."
+    warn "SECRET_KEY was generated and stored in .env; it is not printed."
 fi
 
 # ── 5. Create storage directories ─────────────────────────────────────────────

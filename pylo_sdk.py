@@ -3,7 +3,8 @@ import os
 import requests
 
 _api_url = os.environ["PYLO_API_URL"]
-_headers = {"X-API-Token": os.environ["PYLO_API_TOKEN"]}
+_api_token = os.environ.get("PYLO_RUN_TOKEN") or os.environ["PYLO_API_TOKEN"]
+_headers = {"X-API-Token": _api_token}
 
 
 def get_payload(default: dict = None) -> dict:

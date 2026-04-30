@@ -9,6 +9,7 @@ import docker
 from docker.errors import ContainerError, ImageNotFound, APIError
 
 from backend.config import settings
+from backend.core.auth import create_run_token
 from backend.core.image_builder import ensure_image
 
 logger = logging.getLogger(__name__)
@@ -87,12 +88,14 @@ def _run_container_sync(
     host_script = str(Path(pybooks_path) / pybook_id / "main.py")
 
     secret_env = _collect_secrets(required_secrets)
+    run_token = create_run_token(run_id, pybook_id)
     environment = {
         "PYLO_RUN_ID": run_id,
         "PYLO_PYBOOK_ID": pybook_id,
         "TRIGGER_PAYLOAD": json.dumps(trigger_payload),
         "PYLO_API_URL": "http://backend:8000",
-        "PYLO_API_TOKEN": settings.API_TOKEN,
+        "PYLO_API_TOKEN": run_token,
+        "PYLO_RUN_TOKEN": run_token,
         **secret_env,
     }
 
@@ -110,6 +113,12 @@ def _run_container_sync(
             network=settings.DOCKER_NETWORK,
             mem_limit=settings.PYLO_MEM_LIMIT,
             cpu_quota=settings.PYLO_CPU_QUOTA,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+            pids_limit=128,
+            read_only=True,
+            tmpfs={"/tmp": "rw,nosuid,nodev,size=64m"},
+            user="1000:1000",
             detach=False,
             remove=True,
             stdout=True,

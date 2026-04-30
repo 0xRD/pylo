@@ -13,3 +13,5 @@ pytest-asyncio==0.26.0
 respx==0.23.1
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
+
+packaging==24.2

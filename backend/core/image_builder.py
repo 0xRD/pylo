@@ -2,10 +2,12 @@ import hashlib
 import io
 import json
 import logging
+import tarfile
 import threading
 
 import docker
 from docker.errors import BuildError, ImageNotFound
+from packaging.requirements import InvalidRequirement, Requirement
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,36 @@ def _get_build_lock(image_tag: str) -> threading.Lock:
         if image_tag not in _build_locks:
             _build_locks[image_tag] = threading.Lock()
         return _build_locks[image_tag]
+
+
+
+def _validate_dependency(dep: str) -> str:
+    dep = dep.strip()
+    if not dep or "\n" in dep or "\r" in dep:
+        raise ValueError("Invalid dependency specifier")
+    try:
+        parsed = Requirement(dep)
+    except InvalidRequirement as exc:
+        raise ValueError(f"Invalid dependency specifier: {dep}") from exc
+    if parsed.url:
+        raise ValueError("Direct URL dependencies are not allowed")
+    return dep
+
+
+def _build_context(dockerfile: str, requirements: str) -> io.BytesIO:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tf:
+        dockerfile_bytes = dockerfile.encode()
+        dockerfile_info = tarfile.TarInfo("Dockerfile")
+        dockerfile_info.size = len(dockerfile_bytes)
+        tf.addfile(dockerfile_info, io.BytesIO(dockerfile_bytes))
+
+        req_bytes = requirements.encode()
+        req_info = tarfile.TarInfo("requirements.txt")
+        req_info.size = len(req_bytes)
+        tf.addfile(req_info, io.BytesIO(req_bytes))
+    buffer.seek(0)
+    return buffer
 
 
 def get_deps_hash(dependencies: list[str]) -> str:
@@ -58,15 +90,18 @@ def ensure_image(pybook_id: str, dependencies: list[str]) -> str:
         except ImageNotFound:
             pass
 
-        pip_line = " ".join(dependencies) if dependencies else ""
+        validated_deps = [_validate_dependency(dep) for dep in dependencies]
+        requirements = "\n".join(validated_deps) + ("\n" if validated_deps else "")
         dockerfile = f"FROM {settings.PYLO_BASE_IMAGE}\n"
-        if pip_line:
-            dockerfile += f"RUN pip install --no-cache-dir {pip_line}\n"
+        if validated_deps:
+            dockerfile += "COPY requirements.txt /tmp/requirements.txt\n"
+            dockerfile += "RUN pip install --no-cache-dir -r /tmp/requirements.txt\n"
 
-        logger.info("Building image %s (deps: %s)", image_tag, pip_line or "none")
+        logger.info("Building image %s (deps: %s)", image_tag, ", ".join(validated_deps) or "none")
         try:
             client.images.build(
-                fileobj=io.BytesIO(dockerfile.encode()),
+                fileobj=_build_context(dockerfile, requirements),
+                custom_context=True,
                 tag=image_tag,
                 rm=True,
             )

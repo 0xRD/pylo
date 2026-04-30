@@ -56,7 +56,7 @@ def client(db_engine):
             yield s
 
     app_module.app.dependency_overrides[db_module.get_session] = override_session
-    return TestClient(app_module.app, headers={"X-API-Token": "change_me_in_production"})
+    return TestClient(app_module.app, headers={"X-API-Token": app_module.settings.API_TOKEN})
 
 
 # ── Parser unit tests ─────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import json
+import shutil
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -199,6 +200,7 @@ async def delete_pybook(
     runs = session.exec(select(PyBookRun).where(PyBookRun.pybook_id == pybook_id)).all()
     for run in runs:
         session.delete(run)
+    shutil.rmtree(get_script_path(pybook_id).parent, ignore_errors=True)
     session.delete(pb)
     log_activity(session, "pybook.deleted", actor=current_user.username,
                  resource_type="pybook", resource_id=pybook_id, resource_name=pb_name)
@@ -242,8 +244,11 @@ async def build_pybook_image(pybook_id: str, session: Session = Depends(get_sess
     if not pb:
         raise HTTPException(status_code=404, detail="PyBook not found")
     from backend.core.image_builder import ensure_image
-    deps = json.loads(pb.dependencies or "[]")
-    image_tag = ensure_image(pb.id, deps)
+    try:
+        deps = json.loads(pb.dependencies or "[]")
+        image_tag = ensure_image(pb.id, deps)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     pb.docker_image_tag = image_tag
     pb.updated_at = datetime.now(timezone.utc)
     session.add(pb)

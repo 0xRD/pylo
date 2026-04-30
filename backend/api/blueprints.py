@@ -1,8 +1,10 @@
 import asyncio
+import ipaddress
 import json
 import logging
 import re
 import uuid
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -14,6 +16,7 @@ from sqlmodel import Session, select
 from jsonpath_ng import parse as jsonpath_parse
 
 from backend.activity.logger import log_activity
+from backend.config import settings
 from backend.core.auth import AuthUser, verify_token
 from backend.database import get_session
 from backend.objects.indexer import index_entry, remove_from_index, search_fts
@@ -522,6 +525,32 @@ def _jsonpath_first(data, path: str):
     return matches[0].value if matches else None
 
 
+def _is_private_fetch_host(hostname: str) -> bool:
+    host = (hostname or "").strip().lower().rstrip(".")
+    if host in {"localhost", "ip6-localhost"} or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any([
+        ip.is_private,
+        ip.is_loopback,
+        ip.is_link_local,
+        ip.is_multicast,
+        ip.is_reserved,
+        ip.is_unspecified,
+    ])
+
+
+def _validate_fetch_url(url: str) -> None:
+    parsed = urlparse(url or "")
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Blueprint fetch URL must be http(s)")
+    if not settings.PYLO_ALLOW_PRIVATE_FETCH and _is_private_fetch_host(parsed.hostname):
+        raise HTTPException(status_code=400, detail="Private, local, and link-local fetch targets are blocked")
+
+
 def _extract_fetch_items(raw_data, items_path: Optional[str]) -> list:
     data = raw_data
     if items_path:
@@ -702,6 +731,7 @@ def _enforce_entry_retention(session: Session, bp: Blueprint) -> int:
 
 
 async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[list, int]:
+    _validate_fetch_url(bp.source_url)
     ptype = (bp.pagination_type or "none").lower()
     if ptype not in {"none", "page_number", "offset", "cursor"}:
         ptype = "none"
@@ -1018,6 +1048,7 @@ async def get_entry_history(
 @router.post("/preview")
 async def preview_endpoint(body: PreviewRequest):
     """Fire a URL and return the raw response for JSONPath exploration."""
+    _validate_fetch_url(body.source_url)
     try:
         from backend.core.crypto import decrypt, resolve_secret_templates
         from backend.secrets.models import Secret

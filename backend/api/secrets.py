@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backend.activity.logger import log_activity
-from backend.core.auth import AuthUser, verify_token
+from backend.core.auth import AuthUser, require_admin, verify_token
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -37,7 +37,7 @@ class SecretResponse(BaseModel):
 
 
 @router.get("", response_model=list[SecretResponse])
-async def list_secrets(session: Session = Depends(get_session)):
+async def list_secrets(session: Session = Depends(get_session), _: AuthUser = Depends(require_admin)):
     return session.exec(select(Secret)).all()
 
 
@@ -45,7 +45,7 @@ async def list_secrets(session: Session = Depends(get_session)):
 async def create_secret(
     body: SecretCreate,
     session: Session = Depends(get_session),
-    current_user: AuthUser = Depends(verify_token),
+    current_user: AuthUser = Depends(require_admin),
 ):
     existing = session.exec(select(Secret).where(Secret.name == body.name)).first()
     if existing:
@@ -69,7 +69,10 @@ async def create_secret(
 
 @router.put("/{secret_id}", response_model=SecretResponse)
 async def update_secret(
-    secret_id: str, body: SecretUpdate, session: Session = Depends(get_session)
+    secret_id: str,
+    body: SecretUpdate,
+    session: Session = Depends(get_session),
+    _: AuthUser = Depends(require_admin),
 ):
     secret = session.get(Secret, secret_id)
     if not secret:
@@ -91,7 +94,7 @@ async def update_secret(
 async def delete_secret(
     secret_id: str,
     session: Session = Depends(get_session),
-    current_user: AuthUser = Depends(verify_token),
+    current_user: AuthUser = Depends(require_admin),
 ):
     secret = session.get(Secret, secret_id)
     if not secret:

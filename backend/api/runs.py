@@ -48,15 +48,22 @@ async def get_run(run_id: str, session: Session = Depends(get_session)):
 
 @router.websocket("/{run_id}/ws")
 async def run_status_ws(run_id: str, websocket: WebSocket, token: Optional[str] = Query(None)):
-    from backend.core.auth import _decode_jwt
     from backend.config import settings
+    from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token
+
+    def _valid_run_token(value: str | None) -> bool:
+        runner = auth_user_from_run_token(value or "")
+        return bool(runner and runner.run_id == run_id)
 
     cookie = websocket.cookies.get("pylo_token")
     header_key = websocket.headers.get("x-api-token")
+    with Session(engine) as session:
+        cookie_user = auth_user_from_jwt(cookie, session) if cookie else None
     authorized = (
         (header_key and header_key == settings.API_TOKEN)
-        or (cookie and bool(_decode_jwt(cookie)))
-        or (token and (token == settings.API_TOKEN or bool(_decode_jwt(token))))
+        or _valid_run_token(header_key)
+        or bool(cookie_user)
+        or (token and (token == settings.API_TOKEN or _valid_run_token(token)))
     )
     if not authorized:
         await websocket.close(code=4001)

@@ -15,6 +15,7 @@ from backend.core.auth import (
     _get_jwt_expire_hours,
     _decode_jwt,
 )
+from backend.config import settings
 from backend.database import get_session
 from backend.users.models import User
 from backend.users.invitation import Invitation
@@ -22,7 +23,7 @@ from backend.users.invitation import Invitation
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 COOKIE_NAME = "pylo_token"
-COOKIE_KWARGS = dict(httponly=True, samesite="strict", secure=False)  # set secure=True behind HTTPS
+COOKIE_KWARGS = dict(httponly=True, samesite="strict", secure=settings.PYLO_COOKIE_SECURE)
 
 
 class LoginBody(BaseModel):

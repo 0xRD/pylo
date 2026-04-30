@@ -1,11 +1,12 @@
 import logging
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.database import init_db
+from backend.database import engine, init_db
 from backend.api.activity import router as activity_router
 from backend.api.dashboard import router as dashboard_router
 from backend.api.auth import router as auth_router
@@ -23,8 +24,9 @@ from backend.api.gitops import router as gitops_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
 from backend.core import queue_manager
-from backend.core.auth import _decode_jwt
+from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token
 from backend.config import settings
+from sqlmodel import Session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,6 +39,20 @@ _WRITE_ALLOWLIST = {
     "/api/auth/change-password",
     "/health",
 }
+
+_RUNNER_ALLOWLIST = (
+    ("GET", re.compile(r"^/api/blueprints/entries(?:/[^/]+)?$")),
+    ("GET", re.compile(r"^/api/runs/[^/]+$")),
+    ("POST", re.compile(r"^/api/runs/[^/]+/output$")),
+    ("POST", re.compile(r"^/api/pybooks/[^/]+/run$")),
+    ("POST", re.compile(r"^/api/blueprints/[^/]+/entries$")),
+    ("PATCH", re.compile(r"^/api/blueprints/[^/]+/entries/[^/]+$")),
+    ("DELETE", re.compile(r"^/api/blueprints/entries/[^/]+$")),
+)
+
+
+def _runner_can_access(method: str, path: str) -> bool:
+    return any(method == allowed_method and pattern.fullmatch(path) for allowed_method, pattern in _RUNNER_ALLOWLIST)
 
 
 @asynccontextmanager
@@ -57,11 +73,14 @@ app = FastAPI(
     description="Python automation orchestration platform",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if settings.PYLO_EXPOSE_DOCS else None,
+    redoc_url="/redoc" if settings.PYLO_EXPOSE_DOCS else None,
+    openapi_url="/openapi.json" if settings.PYLO_EXPOSE_DOCS else None,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,10 +90,15 @@ app.add_middleware(
 @app.middleware("http")
 async def enforce_viewer_readonly(request: Request, call_next):
     """Block write operations (non-GET) for viewer-role JWT sessions."""
+    path = request.url.path
+
     if request.method in ("GET", "HEAD", "OPTIONS"):
+        api_key = request.headers.get("X-API-Token")
+        if api_key and api_key != settings.API_TOKEN and auth_user_from_run_token(api_key):
+            if not _runner_can_access(request.method, path):
+                return JSONResponse(status_code=403, content={"detail": "Run token scope does not allow this operation"})
         return await call_next(request)
 
-    path = request.url.path
 
     # Invitation accept endpoints are public
     if path.startswith("/api/auth/invite/"):
@@ -84,18 +108,23 @@ async def enforce_viewer_readonly(request: Request, call_next):
     if path in _WRITE_ALLOWLIST:
         return await call_next(request)
 
-    # Master API_TOKEN always grants admin
     api_key = request.headers.get("X-API-Token")
-    if api_key and api_key == settings.API_TOKEN:
-        return await call_next(request)
+    if api_key:
+        if api_key == settings.API_TOKEN:
+            return await call_next(request)
+        runner = auth_user_from_run_token(api_key)
+        if runner:
+            if _runner_can_access(request.method, path):
+                return await call_next(request)
+            return JSONResponse(status_code=403, content={"detail": "Run token scope does not allow this operation"})
 
-    # Check JWT cookie role
     token = request.cookies.get("pylo_token")
     if token:
-        payload = _decode_jwt(token)
-        if payload and payload.get("role") == "admin":
+        with Session(engine) as session:
+            user = auth_user_from_jwt(token, session)
+        if user and user.is_admin:
             return await call_next(request)
-        if payload and payload.get("role") == "viewer":
+        if user and user.role == "viewer":
             return JSONResponse(status_code=403, content={"detail": "Viewers cannot perform write operations"})
 
     # No valid token at all — let the route's own auth dependency handle the 401
