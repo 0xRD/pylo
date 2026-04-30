@@ -46,7 +46,7 @@ function JsonTree({ data, onSelect }) {
   const root = Array.isArray(data) ? data[0] : data
   const label = Array.isArray(data) ? `[0] (of ${data.length})` : 'response'
   return (
-    <div className="font-mono text-xs overflow-auto max-h-[32rem] pr-1">
+    <div className="font-mono text-xs overflow-auto max-h-80 pr-2 overscroll-contain">
       <JsonNode label={label} data={root} path="$" onSelect={onSelect} depth={0} />
     </div>
   )
@@ -163,7 +163,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
         pagination_type: form.pagination_type || 'none',
         pagination_param: form.pagination_param || null,
         pagination_items_path: form.pagination_items_path || null,
-        auto_parse_items: autoParsePreview,
+        auto_parse_items: true,
       })
       setPreviewResult(result)
       if (autoParsePreview) applyPreviewSuggestions(result)
@@ -350,9 +350,9 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
               <span className="text-xs text-gray-400">{previewResult.is_list ? `List of ${previewResult.total} items - showing first item` : 'Single object response'}</span>
               <span className="text-xs text-gray-600 lg:ml-auto">{focusedRow !== null ? `Click a path to fill row ${focusedRow + 1}` : 'Click a path to add a new mapping'}</span>
             </div>
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <div className="min-w-0 rounded border border-gray-800 bg-gray-900/50 p-3">
-                <div className="text-xs text-gray-500 mb-2">Response sample</div>
+            <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 min-h-0 rounded border border-gray-800 bg-gray-900/50 p-3">
+                <div className="text-xs text-gray-500 mb-2 shrink-0">Response sample</div>
                 <JsonTree data={previewResult.sample} onSelect={handlePathSelect} />
               </div>
               <div className="rounded border border-gray-800 bg-gray-900/50 p-3 space-y-3">
