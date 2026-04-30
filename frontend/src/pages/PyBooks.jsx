@@ -932,6 +932,7 @@ export default function PyBooks() {
   const [showRuns, setShowRuns] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [selectedTags, setSelectedTags] = useState(null)
   const [showDocs, setShowDocs] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
@@ -950,7 +951,16 @@ export default function PyBooks() {
 
   const { isAdmin } = useAuth()
   const { isProd } = useGitops()
-  const load = () => pybooksApi.list().then(data => { setPybooks(data); setLoading(false) }).catch(console.error)
+  const load = () => {
+    setLoadError(null)
+    return pybooksApi.list()
+      .then(data => { setPybooks(data) })
+      .catch(err => {
+        console.error(err)
+        setLoadError(err.message || 'Failed to load PyBooks')
+      })
+      .finally(() => setLoading(false))
+  }
   useEffect(() => {
     load()
     blueprintsApi.listBlueprints().then(setBlueprints).catch(() => {})
@@ -1064,6 +1074,21 @@ export default function PyBooks() {
   })
 
   if (loading) return <div className="text-gray-500 text-sm">Loading...</div>
+
+  if (loadError) return (
+    <div className="flex h-full items-center justify-center bg-[#191a21] text-[#f8f8f2]">
+      <div className="max-w-md rounded border border-[#343746] bg-[#20222c] p-5">
+        <h1 className="text-sm font-semibold">PyBooks could not load</h1>
+        <p className="mt-2 break-words text-xs text-[#ff5555]">{loadError}</p>
+        <button
+          onClick={() => { setLoading(true); load() }}
+          className="mt-4 rounded bg-[#bd93f9] px-3 py-2 text-xs font-semibold text-[#191a21] hover:bg-[#caa9fa]"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  )
 
   if (showNew) return (
     <div className="max-w-3xl">
