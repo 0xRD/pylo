@@ -92,19 +92,20 @@ def _run_series(session: Session, model, days: int, since: datetime) -> list[dic
 
 
 def _entry_series(session: Session, days: int, since: datetime) -> list[dict]:
+    day_expr = func.date(Entry.created_at)
     rows = session.exec(
-        select(Entry.created_at, func.count(Entry.id))
+        select(day_expr, func.count(Entry.id))
         .where(Entry.created_at >= since)
-        .group_by(func.date(Entry.created_at))
-        .order_by(Entry.created_at)
+        .group_by(day_expr)
+        .order_by(day_expr)
     ).all()
 
     def value_factory(day: str) -> dict:
         return {"date": day, "count": 0}
 
     def merge_row(buckets: dict[str, dict], row) -> None:
-        created_at, count = row
-        day = created_at.date().isoformat()
+        created_day, count = row
+        day = created_day.isoformat() if hasattr(created_day, "isoformat") else str(created_day)
         if day in buckets:
             buckets[day]["count"] = count
 

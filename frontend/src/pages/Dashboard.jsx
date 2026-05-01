@@ -72,13 +72,22 @@ function Panel({ title, icon: Icon, action, children }) {
 
 function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
   const max = Math.max(1, ...data.map(item => item[valueKey] || 0))
+  const ticks = [max, Math.round(max / 2), 0]
   return (
     <div className="h-56">
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Bar chart">
-        <line x1="32" y1="180" x2="620" y2="180" stroke="#343746" />
+        {ticks.map(value => {
+          const y = 180 - (value / max) * 140
+          return (
+            <g key={value}>
+              <line x1="52" y1={y} x2="620" y2={y} stroke="#343746" strokeDasharray={value === 0 ? '' : '3 6'} />
+              <text x="46" y={y + 4} textAnchor="end" fill="#6272a4" fontSize="11">{numberFmt(value)}</text>
+            </g>
+          )
+        })}
         {data.map((item, index) => {
-          const width = 520 / Math.max(data.length, 1)
-          const x = 42 + index * (width + 4)
+          const width = 500 / Math.max(data.length, 1)
+          const x = 64 + index * (width + 4)
           const h = ((item[valueKey] || 0) / max) * 140
           return (
             <g key={item.date}>
@@ -97,13 +106,22 @@ function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
 function StackedRunChart({ data }) {
   const keys = ['success', 'error', 'timeout', 'running', 'queued', 'pending']
   const max = Math.max(1, ...data.map(item => item.total || 0))
+  const ticks = [max, Math.round(max / 2), 0]
   return (
     <div className="h-56">
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Runs by status chart">
-        <line x1="32" y1="180" x2="620" y2="180" stroke="#343746" />
+        {ticks.map(value => {
+          const y = 180 - (value / max) * 140
+          return (
+            <g key={value}>
+              <line x1="52" y1={y} x2="620" y2={y} stroke="#343746" strokeDasharray={value === 0 ? '' : '3 6'} />
+              <text x="46" y={y + 4} textAnchor="end" fill="#6272a4" fontSize="11">{numberFmt(value)}</text>
+            </g>
+          )
+        })}
         {data.map((item, index) => {
-          const width = 520 / Math.max(data.length, 1)
-          const x = 42 + index * (width + 4)
+          const width = 500 / Math.max(data.length, 1)
+          const x = 64 + index * (width + 4)
           let y = 180
           return (
             <g key={item.date}>
@@ -126,25 +144,30 @@ function StackedRunChart({ data }) {
 function LineChart({ data }) {
   const values = data.map(item => item.rate).filter(value => value != null)
   const points = data.map((item, index) => {
-    const x = 42 + index * (540 / Math.max(data.length - 1, 1))
+    const x = 64 + index * (520 / Math.max(data.length - 1, 1))
     const rate = item.rate == null ? 0 : item.rate
     const y = 180 - (rate / 100) * 140
-    return `${x},${y}`
+    return x + ',' + y
   }).join(' ')
   return (
     <div className="h-56">
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Success rate chart">
-        <line x1="32" y1="180" x2="620" y2="180" stroke="#343746" />
-        <line x1="32" y1="40" x2="620" y2="40" stroke="#343746" strokeDasharray="4 6" />
+        {[100, 50, 0].map(value => {
+          const y = 180 - (value / 100) * 140
+          return (
+            <g key={value}>
+              <line x1="52" y1={y} x2="620" y2={y} stroke="#343746" strokeDasharray={value === 0 ? '' : '3 6'} />
+              <text x="46" y={y + 4} textAnchor="end" fill="#6272a4" fontSize="11">{value}%</text>
+            </g>
+          )
+        })}
         <polyline fill="none" stroke="#50fa7b" strokeWidth="3" points={points} />
         {data.map((item, index) => {
           if (item.rate == null) return null
-          const x = 42 + index * (540 / Math.max(data.length - 1, 1))
+          const x = 64 + index * (520 / Math.max(data.length - 1, 1))
           const y = 180 - (item.rate / 100) * 140
           return <circle key={item.date} cx={x} cy={y} r="4" fill="#50fa7b" />
         })}
-        <text x="34" y="34" fill="#6272a4" fontSize="11">100%</text>
-        <text x="34" y="198" fill="#6272a4" fontSize="11">0%</text>
         {values.length === 0 && <text x="250" y="112" fill="#6272a4" fontSize="13">No completed runs yet</text>}
       </svg>
     </div>
