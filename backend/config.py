@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     def validate_database(self) -> None:
         if self.DATABASE_URL.startswith("sqlite") and not self.PYLO_ALLOW_DEPRECATED_SQLITE:
             raise RuntimeError("SQLite DATABASE_URL is deprecated. Use Postgres or set PYLO_ALLOW_DEPRECATED_SQLITE=true for temporary local recovery only.")
+        if self.PYLO_ENV.lower() not in {"dev", "development", "test"}:
+            weak_markers = ("pylo_change_me", "change_this_password")
+            if any(marker in self.DATABASE_URL for marker in weak_markers):
+                raise RuntimeError("Refusing to start with placeholder Postgres credentials in DATABASE_URL")
 
     @property
     def allowed_origins(self) -> list[str]:

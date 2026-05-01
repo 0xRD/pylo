@@ -14,7 +14,7 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pylo}:${POSTGRES_PASSWORD:-pylo_change_me}@postgres:5432/${POSTGRES_DB:-pylo}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pylo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-pylo}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pylo}
       POSTGRES_USER: ${POSTGRES_USER:-pylo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pylo_change_me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

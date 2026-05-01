@@ -67,6 +67,7 @@ else
     PYBOOKS_ABS="$(pwd)/pybooks_storage"
     sed -i "s|PYBOOKS_HOST_PATH=.*|PYBOOKS_HOST_PATH=${PYBOOKS_ABS}|" .env
 
+    chmod 600 .env
     info "Generated .env with fresh secrets."
     echo ""
     echo "  API_TOKEN  = ${API_TOKEN}"
@@ -74,6 +75,8 @@ else
     warn "Save your API_TOKEN — you'll need it for SDK / script access."
     warn "SECRET_KEY was generated and stored in .env; it is not printed."
 fi
+
+chmod 600 .env
 
 # ── 5. Create storage directories ─────────────────────────────────────────────
 mkdir -p pybooks_storage

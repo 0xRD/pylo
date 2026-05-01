@@ -323,3 +323,4 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Runtime DB selection**: Compose now injects a Postgres `DATABASE_URL` for the backend, preventing stale SQLite `.env` values from serving old data.
 - **Setup path**: `setup.sh` now generates a Postgres password, writes a Postgres `DATABASE_URL`, and treats SQLite runtime storage as deprecated.
 - **Docs**: README, TODO, and spec references now describe Postgres as the supported runtime database.
+- **Credential hardening**: Compose now requires `POSTGRES_PASSWORD`, setup locks `.env` to `0600`, and production startup rejects placeholder Postgres credentials.

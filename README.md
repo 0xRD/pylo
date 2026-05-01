@@ -62,7 +62,9 @@ POSTGRES_PASSWORD=change_this_password
 DATABASE_URL=postgresql+psycopg://pylo:change_this_password@postgres:5432/pylo
 ```
 
-`setup.sh` generates `POSTGRES_PASSWORD`, `SECRET_KEY`, and `API_TOKEN` automatically. SQLite is deprecated for runtime use; old `objects_storage/pylo.db` files are ignored by the Docker stack. A direct local SQLite start now requires `PYLO_ALLOW_DEPRECATED_SQLITE=true` as a temporary recovery escape hatch.
+`setup.sh` generates `POSTGRES_PASSWORD`, `SECRET_KEY`, and `API_TOKEN` automatically, writes them to `.env`, and sets `.env` permissions to owner-only (`0600`). SQLite is deprecated for runtime use; old `objects_storage/pylo.db` files are ignored by the Docker stack. A direct local SQLite start now requires `PYLO_ALLOW_DEPRECATED_SQLITE=true` as a temporary recovery escape hatch.
+
+Postgres is not published to the host by default; it is reachable only inside the Docker Compose network. Anyone with shell access to the project directory or Docker-admin access can still read runtime secrets, so protect the VM account and Docker socket like privileged infrastructure.
 
 The backend uses a Postgres `fts_entries` table with `to_tsvector` search indexes and JSONB field extraction for Entry filters.
 
