@@ -40,3 +40,96 @@ def test_blueprint_fetch_blocks_local_targets(url):
         _validate_fetch_url(url)
 
     assert exc.value.status_code == 400
+
+
+
+def test_blueprint_fetch_blocks_dns_resolution_to_private_ip(monkeypatch):
+    import socket
+
+    def fake_getaddrinfo(*args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.10", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+    with pytest.raises(HTTPException) as exc:
+        _validate_fetch_url("https://public.example.com/api")
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_blueprint_fetch_blocks_redirect_to_private_target():
+    import httpx
+    import respx
+    from backend.api.blueprints import _request_with_ssrf_guard
+
+    with respx.mock:
+        respx.get("https://public.example.test/start").respond(
+            status_code=302,
+            headers={"Location": "http://127.0.0.1:8000/metadata"},
+        )
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(HTTPException) as exc:
+                await _request_with_ssrf_guard(client, "GET", "https://public.example.test/start")
+
+    assert exc.value.status_code == 400
+
+
+def test_scoped_api_key_authenticates_and_updates_last_used(tmp_path):
+    from sqlmodel import Session, SQLModel, create_engine
+    from backend.core.auth import auth_user_from_scoped_api_key, create_api_key_token, hash_api_key
+    from backend.users.models import ApiKey
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'keys.db'}")
+    SQLModel.metadata.create_all(engine)
+    token = create_api_key_token()
+    with Session(engine) as session:
+        session.add(ApiKey(name="siem", key_hash=hash_api_key(token), scopes='["entries:read"]'))
+        session.commit()
+
+    with Session(engine) as session:
+        user = auth_user_from_scoped_api_key(token, session)
+        key = session.get(ApiKey, user.api_key_id)
+
+    assert user.username == "api_key:siem"
+    assert user.has_scope("entries:read")
+    assert not user.has_scope("entries:write")
+    assert key.last_used_at is not None
+
+
+def test_scoped_api_key_gate_allows_only_matching_scope():
+    from backend.core.auth import AuthUser
+    from backend.main import _scoped_can_access
+
+    user = AuthUser(username="api_key:read", role="api_key", scopes={"entries:read"})
+
+    assert _scoped_can_access(user, "GET", "/api/blueprints/entries")
+    assert not _scoped_can_access(user, "DELETE", "/api/blueprints/entries/e-1")
+
+
+def test_secret_access_activity_logs_names_not_values(tmp_path, monkeypatch):
+    import json
+    from sqlmodel import Session, SQLModel, create_engine, select
+    from backend.activity.models import ActivityEvent
+    from backend.core.crypto import encrypt
+    from backend.core.runner import _collect_secrets
+    from backend.secrets.models import Secret
+    import backend.database as database
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'secrets.db'}")
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(database, "engine", engine)
+
+    with Session(engine) as session:
+        session.add(Secret(id="sec-1", name="vt", encrypted_value=encrypt("super-secret-value")))
+        session.commit()
+
+    env = _collect_secrets("pb-1", "run-1", ["vt"])
+
+    with Session(engine) as session:
+        event = session.exec(select(ActivityEvent).where(ActivityEvent.event_type == "secret.accessed")).one()
+
+    assert env["SECRET_vt"] == "super-secret-value"
+    detail = json.loads(event.detail)
+    assert detail == {"secret_names": ["vt"]}
+    assert "super-secret-value" not in event.detail

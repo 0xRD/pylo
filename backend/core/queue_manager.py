@@ -2,8 +2,8 @@
 Persistent PyBook execution queue.
 
 Runs are persisted as status='queued' before any worker picks them up.
-A single asyncio worker drains the queue, gated by a semaphore equal to
-PYLO_MAX_CONCURRENT_RUNS. On startup, any runs left in 'queued' or
+A single asyncio worker drains the queue, gated by the live
+PYLO_MAX_CONCURRENT_RUNS setting. On startup, any runs left in 'queued' or
 'pending' state are automatically re-enqueued.
 """
 import asyncio
@@ -13,10 +13,10 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _queue: Optional[asyncio.Queue] = None
-_semaphore: Optional[asyncio.Semaphore] = None
+_limit_condition: Optional[asyncio.Condition] = None
 _worker_task: Optional[asyncio.Task] = None
 _running_count: int = 0
-_current_limit: int = 0  # tracks the live semaphore capacity
+_current_limit: int = 0
 
 
 def _get_max() -> int:
@@ -33,17 +33,35 @@ def get_stats() -> dict:
 
 
 def update_limit(new_limit: int) -> None:
-    """Resize the concurrency limit. Takes effect for future semaphore acquisitions."""
-    global _semaphore, _current_limit
-    if _semaphore is None:
+    """Resize the concurrency limit. Takes effect before starting new runs."""
+    global _current_limit
+    _current_limit = max(1, new_limit)
+    if _limit_condition is None:
         return
-    # Add permits if increasing; decreases are enforced passively —
-    # no new tasks start until running count drops below new_limit.
-    diff = new_limit - _current_limit
-    if diff > 0:
-        for _ in range(diff):
-            _semaphore.release()
-    _current_limit = new_limit
+
+    async def _wake_waiters() -> None:
+        async with _limit_condition:
+            _limit_condition.notify_all()
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_wake_waiters())
+
+
+async def _reserve_slot() -> None:
+    global _running_count
+    async with _limit_condition:
+        await _limit_condition.wait_for(lambda: _running_count < _current_limit)
+        _running_count += 1
+
+
+async def _release_slot() -> None:
+    global _running_count
+    async with _limit_condition:
+        _running_count -= 1
+        _limit_condition.notify_all()
 
 
 def enqueue(pybook_id: str, run_id: str) -> None:
@@ -54,17 +72,27 @@ def enqueue(pybook_id: str, run_id: str) -> None:
     logger.debug("Enqueued run %s (queue depth now %d)", run_id, _queue.qsize())
 
 
+def _mark_pending(run_id: str) -> None:
+    from sqlmodel import Session
+    from backend.database import engine
+    from backend.pybooks.models import PyBookRun
+
+    with Session(engine) as session:
+        run = session.get(PyBookRun, run_id)
+        if run and run.status == "queued":
+            run.status = "pending"
+            session.add(run)
+            session.commit()
+
+
 async def _execute_with_semaphore(pybook_id: str, run_id: str) -> None:
-    global _running_count
     from backend.api.pybooks import _execute_run
-    _running_count += 1
     try:
         await _execute_run(pybook_id, run_id)
     except Exception as exc:
         logger.exception("Unhandled error executing run %s: %s", run_id, exc)
     finally:
-        _running_count -= 1
-        _semaphore.release()
+        await _release_slot()
 
 
 async def _worker() -> None:
@@ -72,7 +100,8 @@ async def _worker() -> None:
     while True:
         try:
             pybook_id, run_id = await _queue.get()
-            await _semaphore.acquire()
+            _mark_pending(run_id)
+            await _reserve_slot()
             asyncio.create_task(_execute_with_semaphore(pybook_id, run_id))
             _queue.task_done()
         except asyncio.CancelledError:
@@ -83,7 +112,7 @@ async def _worker() -> None:
 
 
 async def start() -> None:
-    global _queue, _semaphore, _worker_task, _current_limit
+    global _queue, _limit_condition, _worker_task, _current_limit
     from sqlmodel import Session, select
     from backend.database import engine
     from backend.pybooks.models import PyBookRun
@@ -119,7 +148,7 @@ async def start() -> None:
 
     _current_limit = max_concurrent
     _queue = asyncio.Queue()
-    _semaphore = asyncio.Semaphore(max_concurrent)
+    _limit_condition = asyncio.Condition()
     _worker_task = asyncio.create_task(_worker())
 
     # Recover runs stuck in queued/pending state from before last restart

@@ -4,14 +4,17 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 1. Scoped API keys
+## 1. V1 production hardening follow-ups
 
-- Per-key permissions: `blueprints:read`, `entries:read`, `entries:write`, `pybooks:trigger`, `runs:read`.
-- Keys stored hashed; raw value shown only at creation.
-- Settings page: create/revoke keys, name, scopes, last-used timestamp.
-- Middleware should accept scoped keys separately from the master `API_TOKEN`.
+- Replace raw Docker socket exposure with a Docker socket proxy or dedicated runner service.
+- Add per-PyBook runner network policy (`default`, `none`, allowlisted hosts).
+- Move queue state to a durable worker-claim table with retries, cancellation, and dead-letter handling.
+- Add Postgres deployment profile and CI migration validation against both fresh and existing databases.
+- Add dependency allowlist / trusted package index policy for PyBook image builds.
+- Add workflow DAG validation before save/run: cycles, missing PyBooks, broken mappings, inactive nodes.
+- Add minimal Cases Lite: status, severity, assignee, linked entries/runs, comments, timeline.
 
-**Why:** Enables SIEM/script integrations without handing out the master token.
+**Why:** The current pass adds scoped keys, safer fetches, fixed live concurrency limits, and secret access auditing. These remaining items harden the runtime and operations layer for trusted team production.
 
 ---
 
@@ -146,6 +149,10 @@ pylo-config/
 
 ## Completed
 
+- Scoped API keys with hashed storage, one-time raw token display, scopes, last-used timestamp, revoke UI, and middleware enforcement.
+- Live queue concurrency shrinking fixed with a tracked limiter instead of stale semaphore permits.
+- Blueprint fetch SSRF hardening now validates DNS results and redirect targets.
+- Secret injection now writes activity events containing only secret names and run context, never decrypted values.
 - Entry deduplication, mutable fields, and entry history.
 - Cross-blueprint field query language.
 - PyBook search/type/tag filtering.

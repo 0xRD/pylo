@@ -14,6 +14,21 @@ const settingsApi = {
   }).then(r => r.json()),
 }
 
+const apiKeysApi = {
+  list: () => fetch('/api/api-keys', { credentials: 'include' }).then(r => r.ok ? r.json() : Promise.reject(new Error('Could not load API keys'))),
+  create: (data) => fetch('/api/api-keys', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).then(async r => r.ok ? r.json() : Promise.reject(new Error((await r.text()) || 'Could not create API key'))),
+  revoke: (id) => fetch(`/api/api-keys/${id}`, { method: 'DELETE', credentials: 'include' }).then(r => {
+    if (!r.ok) throw new Error('Could not revoke API key')
+  }),
+}
+
+const API_KEY_SCOPES = ['blueprints:read', 'entries:read', 'entries:write', 'pybooks:trigger', 'runs:read']
+
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -61,6 +76,14 @@ export default function Settings() {
   const [runNowBusy, setRunNowBusy] = useState(false)
   const [runNowMessage, setRunNowMessage] = useState('')
 
+  // ── API key state ────────────────────────────────────────────────────────────
+  const [apiKeys, setApiKeys] = useState([])
+  const [apiKeyName, setApiKeyName] = useState('')
+  const [apiKeyScopes, setApiKeyScopes] = useState(['blueprints:read', 'entries:read'])
+  const [createdApiKey, setCreatedApiKey] = useState('')
+  const [apiKeyBusy, setApiKeyBusy] = useState(false)
+  const [apiKeyError, setApiKeyError] = useState('')
+
   // ── GitOps state ─────────────────────────────────────────────────────────────
   const [gitEnv, setGitEnv] = useState('dev')
   const [gitRepoUrl, setGitRepoUrl] = useState('')
@@ -82,6 +105,13 @@ export default function Settings() {
     finally { setHistoryLoading(false) }
   }
 
+  const loadApiKeys = async () => {
+    try {
+      const keys = await apiKeysApi.list()
+      setApiKeys(keys)
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     settingsApi.get().then(s => {
       setSettings(s)
@@ -91,6 +121,7 @@ export default function Settings() {
       setBackupRetention(s.backup_retention ?? 7)
     }).catch(() => {})
     if (isAdmin) loadHistory()
+    if (isAdmin) loadApiKeys()
     if (isAdmin) {
       getGitConfig().then(gc => {
         setGitEnv(gc.environment ?? 'dev')
@@ -222,6 +253,33 @@ export default function Settings() {
     }
   }
 
+  const toggleApiKeyScope = (scope) => {
+    setApiKeyScopes(scopes => scopes.includes(scope) ? scopes.filter(s => s !== scope) : [...scopes, scope])
+  }
+
+  const handleCreateApiKey = async () => {
+    setApiKeyBusy(true); setApiKeyError(''); setCreatedApiKey('')
+    try {
+      const created = await apiKeysApi.create({ name: apiKeyName, scopes: apiKeyScopes })
+      setCreatedApiKey(created.token)
+      setApiKeyName('')
+      setApiKeyScopes(['blueprints:read', 'entries:read'])
+      await loadApiKeys()
+    } catch (e) {
+      setApiKeyError(e.message)
+    } finally { setApiKeyBusy(false) }
+  }
+
+  const handleRevokeApiKey = async (id) => {
+    if (!confirm('Revoke this API key?')) return
+    try {
+      await apiKeysApi.revoke(id)
+      await loadApiKeys()
+    } catch (e) {
+      setApiKeyError(e.message)
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       <h1 className="text-xl font-semibold text-gray-100 mb-6">Settings</h1>
@@ -290,6 +348,80 @@ export default function Settings() {
             </div>
           </div>
         </div>
+
+
+
+        {/* ── Scoped API keys ───────────────────────────────────────────────── */}
+        {isAdmin && (
+          <div className="p-5 bg-gray-900 border border-gray-800 rounded-lg space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-200">Scoped API keys</h2>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Create least-privilege tokens for scripts and SIEM integrations. The raw token is shown once.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                value={apiKeyName}
+                onChange={e => setApiKeyName(e.target.value)}
+                placeholder="Integration name"
+                className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {API_KEY_SCOPES.map(scope => (
+                  <label key={scope} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={apiKeyScopes.includes(scope)}
+                      onChange={() => toggleApiKeyScope(scope)}
+                      className="accent-indigo-500"
+                    />
+                    <span className="font-mono">{scope}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={handleCreateApiKey}
+                disabled={apiKeyBusy || !apiKeyName.trim() || apiKeyScopes.length === 0}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                {apiKeyBusy ? 'Creating…' : 'Create API key'}
+              </button>
+              {createdApiKey && (
+                <div className="bg-green-950/40 border border-green-900 rounded px-3 py-2">
+                  <p className="text-xs text-green-300 mb-1">Copy this token now. It will not be shown again.</p>
+                  <code className="block break-all text-xs text-green-100 font-mono">{createdApiKey}</code>
+                </div>
+              )}
+              {apiKeyError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded px-3 py-2">{apiKeyError}</p>}
+            </div>
+
+            <div className="border-t border-gray-800 pt-4 space-y-2">
+              {apiKeys.length === 0 ? (
+                <p className="text-xs text-gray-600">No scoped API keys yet.</p>
+              ) : apiKeys.map(key => (
+                <div key={key.id} className="flex items-center gap-3 bg-gray-950 border border-gray-800 rounded px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-200 truncate">{key.name}</span>
+                      {!key.is_active && <span className="text-[10px] text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded">revoked</span>}
+                    </div>
+                    <div className="text-[10px] text-gray-600 mt-1">
+                      {key.scopes.join(', ')} · last used {key.last_used_at ? fmtDate(key.last_used_at) : 'never'}
+                    </div>
+                  </div>
+                  {key.is_active && (
+                    <button
+                      onClick={() => handleRevokeApiKey(key.id)}
+                      className="text-xs text-gray-600 hover:text-red-400 shrink-0 transition-colors">
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isAdmin && (
           <div className="flex items-center gap-3">

@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import json
+import secrets
 
 from fastapi import Cookie, Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
@@ -16,6 +18,13 @@ ALGORITHM = "HS256"
 VALID_ROLES = frozenset({"admin", "viewer"})
 MIN_PASSWORD_LEN = 8
 _RUN_TOKEN_TYPE = "pylo_run"
+VALID_API_KEY_SCOPES = frozenset({
+    "blueprints:read",
+    "entries:read",
+    "entries:write",
+    "pybooks:trigger",
+    "runs:read",
+})
 
 
 def hash_password(password: str) -> str:
@@ -24,6 +33,14 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
+
+
+def create_api_key_token() -> str:
+    return f"pylok_{secrets.token_urlsafe(32)}"
+
+
+def hash_api_key(token: str) -> str:
+    return hash_password(token)
 
 
 def create_access_token(username: str, role: str, expire_hours: int) -> str:
@@ -71,11 +88,21 @@ def _get_jwt_expire_hours(session: Session) -> int:
 
 
 class AuthUser:
-    def __init__(self, username: str, role: str, run_id: str | None = None, pybook_id: str | None = None):
+    def __init__(
+        self,
+        username: str,
+        role: str,
+        run_id: str | None = None,
+        pybook_id: str | None = None,
+        api_key_id: int | None = None,
+        scopes: set[str] | None = None,
+    ):
         self.username = username
         self.role = role
         self.run_id = run_id
         self.pybook_id = pybook_id
+        self.api_key_id = api_key_id
+        self.scopes = scopes or set()
 
     @property
     def is_admin(self) -> bool:
@@ -84,6 +111,13 @@ class AuthUser:
     @property
     def is_runner(self) -> bool:
         return self.role == "runner"
+
+    @property
+    def is_api_key(self) -> bool:
+        return self.role == "api_key"
+
+    def has_scope(self, scope: str) -> bool:
+        return self.is_admin or scope in self.scopes
 
 
 def auth_user_from_jwt(token: str, session: Session) -> AuthUser | None:
@@ -116,6 +150,28 @@ def auth_user_from_run_token(token: str) -> AuthUser | None:
     )
 
 
+def auth_user_from_scoped_api_key(token: str, session: Session) -> AuthUser | None:
+    if not token or not token.startswith("pylok_"):
+        return None
+    from backend.users.models import ApiKey
+    for api_key in session.exec(select(ApiKey).where(ApiKey.is_active == True)).all():
+        if verify_password(token, api_key.key_hash):
+            try:
+                scopes = set(json.loads(api_key.scopes or "[]"))
+            except json.JSONDecodeError:
+                scopes = set()
+            api_key.last_used_at = datetime.now(timezone.utc)
+            session.add(api_key)
+            session.commit()
+            return AuthUser(
+                username=f"api_key:{api_key.name}",
+                role="api_key",
+                api_key_id=api_key.id,
+                scopes=scopes & VALID_API_KEY_SCOPES,
+            )
+    return None
+
+
 def verify_token(
     api_key: str = Security(_api_key_header),
     pylo_token: Optional[str] = Cookie(default=None),
@@ -128,6 +184,9 @@ def verify_token(
         runner = auth_user_from_run_token(api_key)
         if runner:
             return runner
+        scoped_user = auth_user_from_scoped_api_key(api_key, session)
+        if scoped_user:
+            return scoped_user
 
     # JWT cookie; role and active state are always read from the database.
     if pylo_token:

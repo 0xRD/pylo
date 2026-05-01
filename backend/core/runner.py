@@ -53,22 +53,36 @@ def init_host_paths() -> None:
     _host_pybooks_path, _host_pylo_sdk_path = _detect_host_paths()
 
 
-def _collect_secrets(required_secrets: list[str]) -> dict[str, str]:
+def _collect_secrets(pybook_id: str, run_id: str, required_secrets: list[str]) -> dict[str, str]:
     if not required_secrets:
         return {}
+    from backend.activity.logger import log_activity
     from backend.core.crypto import decrypt
     from backend.database import engine
     from backend.secrets.models import Secret
     from sqlmodel import Session, select
 
     env = {}
+    injected_names = []
     with Session(engine) as session:
         for name in required_secrets:
             secret = session.exec(select(Secret).where(Secret.name == name)).first()
             if secret:
                 env[f"SECRET_{name}"] = decrypt(secret.encrypted_value)
+                injected_names.append(name)
             else:
                 logger.warning("Secret '%s' not found — skipping injection", name)
+        if injected_names:
+            log_activity(
+                session,
+                "secret.accessed",
+                actor=f"pybook:{pybook_id}",
+                resource_type="pybook_run",
+                resource_id=run_id,
+                resource_name=pybook_id,
+                detail={"secret_names": injected_names},
+            )
+            session.commit()
     return env
 
 
@@ -87,7 +101,7 @@ def _run_container_sync(
 
     host_script = str(Path(pybooks_path) / pybook_id / "main.py")
 
-    secret_env = _collect_secrets(required_secrets)
+    secret_env = _collect_secrets(pybook_id, run_id, required_secrets)
     run_token = create_run_token(run_id, pybook_id)
     environment = {
         "PYLO_RUN_ID": run_id,

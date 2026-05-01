@@ -90,7 +90,10 @@ severity = "critical" AND status != "closed"
 Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=` — AND-chained. Applied server-side via SQLite `json_extract` for correct pagination.
 
 ### Secrets
-Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables.
+Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables. Secret injection records an activity event with the PyBook/run and secret names only; decrypted values are never logged.
+
+### Scoped API keys
+Admins can create least-privilege API keys from Settings. Keys are stored hashed, the raw token is shown only once, and each key tracks its last-used timestamp. Available scopes are `blueprints:read`, `entries:read`, `entries:write`, `pybooks:trigger`, and `runs:read`. The master `API_TOKEN` remains available for bootstrap/admin automation, but integrations should use scoped keys.
 
 ### Runs
 Every PyBook execution creates a Run record with full stdout/stderr, exit code, duration, and trigger source. Live log streaming via WebSocket. The **execution queue** (default: 20 concurrent runs) ensures no run is lost even under heavy load — backed by a persistent asyncio queue that survives restarts and recovers orphaned runs.
@@ -204,7 +207,8 @@ The generated cron expression is shown as a read-only preview.
 
 ## Paginated API Fetching
 
-Blueprint API sources can fetch multiple pages before parsing entries:
+Blueprint API sources can fetch multiple pages before parsing entries. Fetch and preview requests validate targets before outbound HTTP calls: private, loopback, link-local, reserved, multicast, and metadata-style hosts are blocked by default, including DNS results and redirect targets. Set `PYLO_ALLOW_PRIVATE_FETCH=true` only for trusted lab deployments that must reach private APIs.
+
 
 - **Page number** — sends `pagination_param=1`, then `2`, `3`, etc.
 - **Offset** — sends `pagination_param=0`, then increments by the number of returned items.

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from backend.database import engine, init_db
 from backend.api.activity import router as activity_router
+from backend.api.api_keys import router as api_keys_router
 from backend.api.dashboard import router as dashboard_router
 from backend.api.auth import router as auth_router
 from backend.api.invitations import router as invitations_router
@@ -24,7 +25,7 @@ from backend.api.gitops import router as gitops_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
 from backend.core import queue_manager
-from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token
+from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token, auth_user_from_scoped_api_key
 from backend.config import settings
 from sqlmodel import Session
 
@@ -49,6 +50,23 @@ _RUNNER_ALLOWLIST = (
     ("PATCH", re.compile(r"^/api/blueprints/[^/]+/entries/[^/]+$")),
     ("DELETE", re.compile(r"^/api/blueprints/entries/[^/]+$")),
 )
+
+_SCOPE_RULES = (
+    ("GET", re.compile(r"^/api/blueprints/entries(?:/[^/]+)?$"), "entries:read"),
+    ("POST", re.compile(r"^/api/blueprints/[^/]+/entries$"), "entries:write"),
+    ("PATCH", re.compile(r"^/api/blueprints/[^/]+/entries/[^/]+$"), "entries:write"),
+    ("DELETE", re.compile(r"^/api/blueprints/entries/[^/]+$"), "entries:write"),
+    ("GET", re.compile(r"^/api/blueprints(?:/[^/]+)?$"), "blueprints:read"),
+    ("POST", re.compile(r"^/api/pybooks/[^/]+/run$"), "pybooks:trigger"),
+    ("POST", re.compile(r"^/api/webhooks/[^/]+$"), "pybooks:trigger"),
+    ("GET", re.compile(r"^/api/runs(?:/[^/]+)?$"), "runs:read"),
+    ("GET", re.compile(r"^/api/runs/queue$"), "runs:read"),
+)
+
+
+def _scoped_can_access(user, method: str, path: str) -> bool:
+    return any(method == allowed_method and pattern.fullmatch(path) and user.has_scope(scope)
+               for allowed_method, pattern, scope in _SCOPE_RULES)
 
 
 def _runner_can_access(method: str, path: str) -> bool:
@@ -94,9 +112,15 @@ async def enforce_viewer_readonly(request: Request, call_next):
 
     if request.method in ("GET", "HEAD", "OPTIONS"):
         api_key = request.headers.get("X-API-Token")
-        if api_key and api_key != settings.API_TOKEN and auth_user_from_run_token(api_key):
-            if not _runner_can_access(request.method, path):
+        if api_key and api_key != settings.API_TOKEN:
+            runner = auth_user_from_run_token(api_key)
+            if runner and not _runner_can_access(request.method, path):
                 return JSONResponse(status_code=403, content={"detail": "Run token scope does not allow this operation"})
+            if not runner:
+                with Session(engine) as session:
+                    scoped_user = auth_user_from_scoped_api_key(api_key, session)
+                if scoped_user and not _scoped_can_access(scoped_user, request.method, path):
+                    return JSONResponse(status_code=403, content={"detail": "API key scope does not allow this operation"})
         return await call_next(request)
 
 
@@ -117,6 +141,12 @@ async def enforce_viewer_readonly(request: Request, call_next):
             if _runner_can_access(request.method, path):
                 return await call_next(request)
             return JSONResponse(status_code=403, content={"detail": "Run token scope does not allow this operation"})
+        with Session(engine) as session:
+            scoped_user = auth_user_from_scoped_api_key(api_key, session)
+        if scoped_user:
+            if _scoped_can_access(scoped_user, request.method, path):
+                return await call_next(request)
+            return JSONResponse(status_code=403, content={"detail": "API key scope does not allow this operation"})
 
     token = request.cookies.get("pylo_token")
     if token:
@@ -132,6 +162,7 @@ async def enforce_viewer_readonly(request: Request, call_next):
 
 
 app.include_router(activity_router)
+app.include_router(api_keys_router)
 app.include_router(dashboard_router)
 app.include_router(auth_router)
 app.include_router(invitations_router)

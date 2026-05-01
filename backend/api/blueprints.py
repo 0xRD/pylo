@@ -3,8 +3,9 @@ import ipaddress
 import json
 import logging
 import re
+import socket
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -525,14 +526,8 @@ def _jsonpath_first(data, path: str):
     return matches[0].value if matches else None
 
 
-def _is_private_fetch_host(hostname: str) -> bool:
-    host = (hostname or "").strip().lower().rstrip(".")
-    if host in {"localhost", "ip6-localhost"} or host.endswith(".localhost"):
-        return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return False
+def _is_blocked_fetch_ip(value: str) -> bool:
+    ip = ipaddress.ip_address(value)
     return any([
         ip.is_private,
         ip.is_loopback,
@@ -543,12 +538,57 @@ def _is_private_fetch_host(hostname: str) -> bool:
     ])
 
 
+def _is_private_fetch_host(hostname: str) -> bool:
+    host = (hostname or "").strip().lower().rstrip(".")
+    if host in {"localhost", "ip6-localhost"} or host.endswith(".localhost"):
+        return True
+    try:
+        return _is_blocked_fetch_ip(host)
+    except ValueError:
+        return False
+
+
+def _resolved_private_fetch_host(hostname: str, port: int | None) -> bool:
+    try:
+        infos = socket.getaddrinfo(hostname, port or 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    for family, _, _, _, sockaddr in infos:
+        address = sockaddr[0]
+        try:
+            if _is_blocked_fetch_ip(address):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _validate_fetch_url(url: str) -> None:
     parsed = urlparse(url or "")
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise HTTPException(status_code=400, detail="Blueprint fetch URL must be http(s)")
-    if not settings.PYLO_ALLOW_PRIVATE_FETCH and _is_private_fetch_host(parsed.hostname):
+    if settings.PYLO_ALLOW_PRIVATE_FETCH:
+        return
+    if _is_private_fetch_host(parsed.hostname) or _resolved_private_fetch_host(parsed.hostname, parsed.port):
         raise HTTPException(status_code=400, detail="Private, local, and link-local fetch targets are blocked")
+
+
+async def _request_with_ssrf_guard(client: httpx.AsyncClient, method: str, url: str, **kwargs) -> httpx.Response:
+    current_url = url
+    current_method = method.upper()
+    for _ in range(4):
+        _validate_fetch_url(current_url)
+        response = await client.request(current_method, current_url, follow_redirects=False, **kwargs)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            return response
+        current_url = urljoin(str(response.url), location)
+        if response.status_code == 303 or (response.status_code in {301, 302} and current_method != "GET"):
+            current_method = "GET"
+            kwargs.pop("json", None)
+    raise HTTPException(status_code=400, detail="Too many redirects while fetching Blueprint source")
 
 
 def _extract_fetch_items(raw_data, items_path: Optional[str]) -> list:
@@ -756,9 +796,9 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
                     params[param] = page_value
 
             if bp.source_method.upper() == "POST":
-                response = await client.post(bp.source_url, headers=headers, json=page_body, params=params or None)
+                response = await _request_with_ssrf_guard(client, "POST", bp.source_url, headers=headers, json=page_body, params=params or None)
             else:
-                response = await client.get(bp.source_url, headers=headers, params=params or None)
+                response = await _request_with_ssrf_guard(client, "GET", bp.source_url, headers=headers, params=params or None)
             response.raise_for_status()
             raw_data = response.json()
             items = _extract_fetch_items(raw_data, bp.pagination_items_path)
@@ -1077,9 +1117,9 @@ async def preview_endpoint(body: PreviewRequest):
                 params[body.pagination_param] = value
         async with httpx.AsyncClient(timeout=15) as client:
             if body.source_method.upper() == "POST":
-                response = await client.post(body.source_url, headers=req_headers, json=preview_body, params=params or None)
+                response = await _request_with_ssrf_guard(client, "POST", body.source_url, headers=req_headers, json=preview_body, params=params or None)
             else:
-                response = await client.get(body.source_url, headers=req_headers, params=params or None)
+                response = await _request_with_ssrf_guard(client, "GET", body.source_url, headers=req_headers, params=params or None)
         response.raise_for_status()
         raw = response.json()
     except httpx.HTTPError as exc:

@@ -294,3 +294,12 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - Blueprint triggers now honor `trigger_event` for PyBook subscribers too: `on_create` sees only new entries, while `on_create_or_update` also receives mutable fetch updates with `event_type` in the payload.
 - Mounted `pylo_sdk.py` now includes `create_entry`, `update_entry`, and `delete_entry` helpers for PyBooks.
 - Remaining 3b work is documented in `docs/TODO.md`: encrypted secret backup/restore and Git-based backup automation, kept separate from the removed self-update system.
+
+## Session 21 — V1 production-readiness hardening
+- **Pulled latest main**: fast-forwarded from `5de3221` to `dd47308`, including the Runs multi-status filter changes.
+- **Queue limiter fix**: replaced the live concurrency semaphore shrink behavior with a tracked condition-based limiter, so lowering `max_concurrent_runs` blocks new starts until running count is below the new limit. Runs now move `queued → pending → running` as the worker claims and starts them.
+- **Scoped API keys**: added hashed `api_key` storage, one-time raw token creation, scopes (`blueprints:read`, `entries:read`, `entries:write`, `pybooks:trigger`, `runs:read`), last-used tracking, revoke endpoint, middleware scope enforcement, and Settings UI.
+- **Blueprint SSRF hardening**: fetch/preview now reject private/local/link-local/reserved/multicast/unspecified targets after literal host checks, DNS resolution, and each redirect target.
+- **Secret access auditing**: PyBook secret injection writes `secret.accessed` activity events with PyBook/run context and secret names only. Decrypted values are still never logged or returned.
+- **Regression coverage**: added focused tests for live concurrency resizing, scoped API key auth/scope gates, DNS/redirect SSRF blocking, and secret access audit metadata.
+- **Docs**: README, TODO, and PROGRESS updated for the V1 hardening pass and remaining production-readiness work.
