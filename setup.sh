@@ -52,6 +52,7 @@ else
     if command -v python3 &>/dev/null; then
         SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
         API_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+        POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
     else
         die "python3 is required to generate secrets."
     fi
@@ -59,6 +60,8 @@ else
     # Inject into .env
     sed -i "s|SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
     sed -i "s|API_TOKEN=.*|API_TOKEN=${API_TOKEN}|" .env
+    sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
+    sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://pylo:${POSTGRES_PASSWORD}@postgres:5432/pylo|" .env
 
     # Set PYBOOKS_HOST_PATH to the actual absolute path on this machine
     PYBOOKS_ABS="$(pwd)/pybooks_storage"
@@ -73,7 +76,7 @@ else
 fi
 
 # ── 5. Create storage directories ─────────────────────────────────────────────
-mkdir -p objects_storage pybooks_storage
+mkdir -p pybooks_storage
 info "Storage directories ready."
 
 # ── 6. Build the PyBook runner base image ─────────────────────────────────────

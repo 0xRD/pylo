@@ -317,3 +317,9 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Smoke coverage**: confirmed frontend `200`, API token queue stats, Blueprint list on a fresh database, manual Blueprint/Entry create/search/filter/delete, and a PyBook run that completed as `success`.
 - **Fresh DB behavior**: verified the Postgres instance reports setup required until the first admin user is created.
 - **Docs**: README now explains SQLite vs Postgres tradeoffs, recommends Postgres for trusted team production, and includes a Postgres architecture diagram. TODO now tracks CI smoke coverage for the Postgres profile.
+
+## Session 24 — Postgres-only Docker runtime
+- **Default Postgres stack**: removed the optional Compose profile so `docker compose up` always starts Postgres and the backend waits for it before starting.
+- **Runtime DB selection**: Compose now injects a Postgres `DATABASE_URL` for the backend, preventing stale SQLite `.env` values from serving old data.
+- **Setup path**: `setup.sh` now generates a Postgres password, writes a Postgres `DATABASE_URL`, and treats SQLite runtime storage as deprecated.
+- **Docs**: README, TODO, and spec references now describe Postgres as the supported runtime database.

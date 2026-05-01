@@ -6,7 +6,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./pybooks_storage:/app/pybooks_storage
-      - ./objects_storage:/app/objects_storage
       - ./pylo_sdk.py:/app/pylo_sdk.py:ro
       - ./tests:/app/tests:ro
       - ./migrations:/app/migrations
@@ -14,6 +13,11 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pylo}:${POSTGRES_PASSWORD:-pylo_change_me}@postgres:5432/${POSTGRES_DB:-pylo}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - pylo_default
@@ -38,7 +42,6 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    profiles: ["postgres"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pylo}
       POSTGRES_USER: ${POSTGRES_USER:-pylo}

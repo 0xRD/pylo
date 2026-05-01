@@ -19,11 +19,11 @@ Pylo is a Python automation orchestration platform targeting SOAR (Security Orch
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.13, FastAPI, SQLModel, SQLite, Alembic, APScheduler, httpx, asyncio |
+| Backend | Python 3.13, FastAPI, SQLModel, Postgres, Alembic, APScheduler, httpx, asyncio |
 | Frontend | React 18, Vite, Tailwind CSS v3, React Router v6, Monaco Editor |
 | Runtime | Docker (sibling containers via DooD), Docker Compose |
 | Crypto | Fernet (AES-128-CBC) via `cryptography` library |
-| Full-text search | SQLite FTS5 |
+| Full-text search | Postgres full-text search index |
 
 ---
 
@@ -106,7 +106,7 @@ pylo/
 
 ## 4. Data Models
 
-All tables live in `objects_storage/pylo.db` (SQLite). IDs are `uuid4` strings.
+All runtime tables live in the Postgres `pylo` database. IDs are `uuid4` strings.
 
 ### 4.1 Blueprint
 
@@ -242,7 +242,7 @@ All endpoints require `X-API-Token: <API_TOKEN>` header.
 field_name OPERATOR "value" [AND field_name OPERATOR "value" ...]
 ```
 Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=`
-Applied server-side via SQLite `json_extract(data, '$.field_name')`.
+Applied server-side via Postgres JSONB field extraction.
 
 ### 5.2 PyBooks — `/api/pybooks`
 
@@ -435,7 +435,7 @@ API_TOKEN=<required — all API requests need X-API-Token: this value>
 SECRET_KEY=<required — 32+ chars — Fernet key for secret encryption>
 
 # Optional overrides
-DATABASE_URL=sqlite:///./objects_storage/pylo.db
+DATABASE_URL=postgresql+psycopg://pylo:<password>@postgres:5432/pylo
 DOCKER_NETWORK=pylo_pylo_default
 PYLO_BASE_IMAGE=pylo-runner-base:latest
 PYLO_TIMEOUT_SECONDS=300

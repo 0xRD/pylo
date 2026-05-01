@@ -51,28 +51,20 @@ docker compose up -d --build
 
 ---
 
-## Production Database Profile
+## Database Runtime
 
-SQLite remains the default for local development and simple single-node installs. For trusted team production, Pylo can run against Postgres by enabling the optional Compose profile and setting `DATABASE_URL`:
+Postgres is the supported runtime database. `docker compose up -d --build` starts a `postgres:16-alpine` service automatically and the backend connects to it through the internal Compose hostname `postgres`.
 
-```bash
-# .env
-DATABASE_URL=postgresql+psycopg://pylo:change_this_password@postgres:5432/pylo
+```env
 POSTGRES_DB=pylo
 POSTGRES_USER=pylo
 POSTGRES_PASSWORD=change_this_password
-
-docker compose --profile postgres up -d --build
+DATABASE_URL=postgresql+psycopg://pylo:change_this_password@postgres:5432/pylo
 ```
 
-The backend detects the database dialect automatically. SQLite keeps FTS5 and SQLite JSON extraction; Postgres uses SQLAlchemy pooling with pre-ping, a Postgres `fts_entries` table with `to_tsvector` search indexes, and JSONB field extraction for Entry filters.
+`setup.sh` generates `POSTGRES_PASSWORD`, `SECRET_KEY`, and `API_TOKEN` automatically. SQLite is deprecated for runtime use; old `objects_storage/pylo.db` files are ignored by the Docker stack. A direct local SQLite start now requires `PYLO_ALLOW_DEPRECATED_SQLITE=true` as a temporary recovery escape hatch.
 
-Supporting both databases means every database-facing feature, migration, search path, and JSON field filter must keep working on both dialects. A Postgres-only product would be simpler to operate and test, especially for production. Pylo keeps both because SQLite is still the fastest path for local development, demos, and single-node labs, while Postgres is the recommended profile for trusted team deployments.
-
-| Database | Upside | Downside | Recommended use |
-|---|---|---|---|
-| SQLite | Zero extra service, easy setup, portable file backup, excellent for development and small single-node installs | Lower write concurrency ceiling, fewer operational/HA options, dialect-specific FTS/JSON behavior | Default local/dev profile |
-| Postgres | Better concurrency, durability, pooling, backups/PITR, managed DB support, stronger JSON/search primitives | More services, credentials, backups, monitoring, and startup dependency handling | Production/team profile |
+The backend uses a Postgres `fts_entries` table with `to_tsvector` search indexes and JSONB field extraction for Entry filters.
 
 ```mermaid
 flowchart LR
@@ -376,7 +368,7 @@ curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
                         │                                            │
                         │  APScheduler — cron + blueprint fetches   │
                         │  asyncio queue — persistent run queue     │
-                        │  SQLite + FTS5 — persistence + search     │
+                        │  Postgres + FTS — persistence + search          │
                         │  Alembic — schema migrations              │
                         └──────────────────┬────────────────────────┘
                                            │ Docker socket (DooD)

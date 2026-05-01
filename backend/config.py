@@ -9,8 +9,9 @@ class Settings(BaseSettings):
 
     PYLO_ENV: str = "production"
     PYLO_ALLOW_INSECURE_DEFAULTS: bool = False
+    PYLO_ALLOW_DEPRECATED_SQLITE: bool = False
 
-    DATABASE_URL: str = "sqlite:///./objects_storage/pylo.db"
+    DATABASE_URL: str = "postgresql+psycopg://pylo:pylo_change_me@postgres:5432/pylo"
     SECRET_KEY: str
     API_TOKEN: str
 
@@ -52,10 +53,15 @@ class Settings(BaseSettings):
             names = ", ".join(insecure)
             raise RuntimeError(f"Refusing to start with insecure production secret settings: {names}")
 
+    def validate_database(self) -> None:
+        if self.DATABASE_URL.startswith("sqlite") and not self.PYLO_ALLOW_DEPRECATED_SQLITE:
+            raise RuntimeError("SQLite DATABASE_URL is deprecated. Use Postgres or set PYLO_ALLOW_DEPRECATED_SQLITE=true for temporary local recovery only.")
+
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.PYLO_ALLOWED_ORIGINS.split(",") if origin.strip()]
 
 
 settings = Settings()
+settings.validate_database()
 settings.validate_security()
