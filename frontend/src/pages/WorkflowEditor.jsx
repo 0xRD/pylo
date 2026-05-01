@@ -232,7 +232,7 @@ function EdgeLayer({ edges, nodes, selectedEdgeId, onSelectEdge, pendingEdge }) 
 }
 
 // ── PyBookNode ────────────────────────────────────────────────────────────────
-function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge, pybooks }) {
+function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge, pybooks, hasError }) {
   const sc = STATUS_COLORS[node.status] || STATUS_COLORS.idle
   const pbColor = pybook ? pybookColor(pybook, 0) : '#818cf8'
 
@@ -267,11 +267,13 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
       {/* Card */}
       <div style={{
         width: '100%', height: '100%',
-        background: selected ? 'rgba(99,102,241,0.06)' : '#111118',
-        border: `1px solid ${selected ? '#6366f1' : '#1f2937'}`,
+        background: selected ? 'rgba(99,102,241,0.06)' : hasError ? 'rgba(239,68,68,0.04)' : '#111118',
+        border: `1px solid ${selected ? '#6366f1' : hasError ? '#ef4444' : '#1f2937'}`,
         borderRadius: 10,
         boxShadow: selected
           ? '0 0 0 3px rgba(99,102,241,0.2), 0 4px 24px rgba(0,0,0,0.5)'
+          : hasError
+          ? '0 0 0 2px rgba(239,68,68,0.2), 0 2px 12px rgba(0,0,0,0.4)'
           : '0 2px 12px rgba(0,0,0,0.4)',
         cursor: 'grab', overflow: 'hidden',
         transition: 'border-color 0.15s, box-shadow 0.15s',
@@ -338,7 +340,7 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
 }
 
 // ── WorkflowCanvas ────────────────────────────────────────────────────────────
-function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelectEdge, onSelectCanvas, onAddNode, onDragNode, onAddEdge }) {
+function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelectEdge, onSelectCanvas, onAddNode, onDragNode, onAddEdge, errorNodeIds = [] }) {
   const dropRef = useRef(null)
   const [pendingEdge, setPendingEdge] = useState(null)
 
@@ -420,6 +422,7 @@ function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelec
             onSelect={n => onSelectNode(n)}
             onDragNode={onDragNode}
             onStartEdge={handleStartEdge}
+            hasError={errorNodeIds.includes(node.id)}
           />
         )
       })}
@@ -800,11 +803,23 @@ export default function WorkflowEditor() {
   const [selectedItem, setSelectedItem] = useState(null)
   const [activeTab, setActiveTab] = useState('canvas')
   const [saved, setSaved] = useState(true)
+  const [validationErrors, setValidationErrors] = useState([])
   const [runState, setRunState] = useState({ active: false, done: 0, total: 0, runId: null })
   const nodeCounter = useRef(100)
   const edgeCounter = useRef(100)
   const saveTimer = useRef(null)
   const initialLoad = useRef(true)
+
+  // Fetch validation results from backend
+  const fetchValidation = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/workflows/${id}/validate`, { credentials: 'include' })
+      if (r.ok) {
+        const data = await r.json()
+        setValidationErrors(data.errors || [])
+      }
+    } catch (e) { /* validation errors are non-critical */ }
+  }, [id])
 
   // Load workflow + pybooks
   useEffect(() => {
@@ -821,11 +836,12 @@ export default function WorkflowEditor() {
       setPybooks(Array.isArray(pbs) ? pbs : [])
       setBlueprints(Array.isArray(bpData) ? bpData : [])
       setLoading(false)
+      fetchValidation()
     }).catch(err => {
       console.error('Failed to load workflow', err)
       setLoading(false)
     })
-  }, [id])
+  }, [id, fetchValidation])
 
   // Auto-save with 900ms debounce (disabled in prod mode)
   useEffect(() => {
@@ -851,6 +867,7 @@ export default function WorkflowEditor() {
           }),
         })
         setSaved(true)
+        fetchValidation()
       } catch (e) { console.error('Save failed', e) }
     }, 900)
     return () => clearTimeout(saveTimer.current)
@@ -950,6 +967,11 @@ export default function WorkflowEditor() {
     } catch (e) { console.error('Run failed', e) }
   }
 
+  const errorNodeIds = useMemo(
+    () => validationErrors.filter(e => e.node_id).map(e => e.node_id),
+    [validationErrors]
+  )
+
   const syncedSelected = useMemo(() => {
     if (!selectedItem || !workflow) return null
     if (selectedItem.type === 'node') {
@@ -1041,15 +1063,16 @@ export default function WorkflowEditor() {
             onMouseLeave={e => { e.currentTarget.style.background = '#1f2937'; e.currentTarget.style.color = '#9ca3af' }}>
               Export
             </button>
-            <button onClick={handleRun} disabled={runState.active || workflow.nodes.length === 0} style={{
+            <button onClick={handleRun} disabled={runState.active || workflow.nodes.length === 0 || validationErrors.length > 0} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
-              background: runState.active ? '#1f2937' : '#4f46e5', border: 'none',
-              borderRadius: 7, color: runState.active ? '#4b5563' : '#fff',
-              fontSize: 12.5, fontWeight: 600, cursor: runState.active ? 'not-allowed' : 'pointer',
+              background: runState.active || validationErrors.length > 0 ? '#1f2937' : '#4f46e5', border: 'none',
+              borderRadius: 7, color: runState.active || validationErrors.length > 0 ? '#4b5563' : '#fff',
+              fontSize: 12.5, fontWeight: 600, cursor: runState.active || validationErrors.length > 0 ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s', fontFamily: 'inherit',
+              title: validationErrors.length > 0 ? 'Fix validation errors before running' : undefined,
             }}
-            onMouseEnter={e => { if (!runState.active) e.currentTarget.style.background = '#4338ca' }}
-            onMouseLeave={e => { if (!runState.active) e.currentTarget.style.background = '#4f46e5' }}>
+            onMouseEnter={e => { if (!runState.active && !validationErrors.length) e.currentTarget.style.background = '#4338ca' }}
+            onMouseLeave={e => { if (!runState.active && !validationErrors.length) e.currentTarget.style.background = runState.active || validationErrors.length > 0 ? '#1f2937' : '#4f46e5' }}>
               <svg width="11" height="11" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M3 2l11 6-11 6V2z" />
               </svg>
@@ -1057,6 +1080,30 @@ export default function WorkflowEditor() {
             </button>
           </div>
         </div>
+
+        {/* Validation errors panel */}
+        {validationErrors.length > 0 && (
+          <div style={{
+            flexShrink: 0, padding: '5px 14px',
+            background: 'rgba(239,68,68,0.06)',
+            borderBottom: '1px solid rgba(239,68,68,0.2)',
+            display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center',
+          }}>
+            <svg width="12" height="12" fill="none" stroke="#ef4444" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            {validationErrors.map((err, i) => (
+              <span key={i} style={{
+                fontSize: 11, color: '#fca5a5',
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.2)',
+                borderRadius: 5, padding: '2px 8px',
+              }}>
+                {err.message}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Body */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -1090,6 +1137,7 @@ export default function WorkflowEditor() {
                   onAddNode={addNode}
                   onDragNode={dragNode}
                   onAddEdge={addEdge}
+                  errorNodeIds={errorNodeIds}
                 />
               </div>
             ) : (
