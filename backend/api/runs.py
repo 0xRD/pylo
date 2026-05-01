@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
@@ -18,7 +18,7 @@ TERMINAL = {"success", "error", "timeout"}
 @router.get("", dependencies=[Depends(verify_token)])
 async def list_runs(
     pybook_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
+    status: List[str] = Query(default=[]),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
@@ -27,7 +27,7 @@ async def list_runs(
     if pybook_id:
         stmt = stmt.where(PyBookRun.pybook_id == pybook_id)
     if status:
-        stmt = stmt.where(PyBookRun.status == status)
+        stmt = stmt.where(PyBookRun.status.in_(status))
     stmt = stmt.order_by(PyBookRun.started_at.desc()).offset(offset).limit(limit)
     return session.exec(stmt).all()
 

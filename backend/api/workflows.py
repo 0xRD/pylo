@@ -2,9 +2,9 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -65,7 +65,7 @@ async def create_workflow(
 @router.get("/runs")
 async def list_all_workflow_runs(
     workflow_id: Optional[str] = None,
-    status: Optional[str] = None,
+    status: List[str] = Query(default=[]),
     limit: int = 100,
     offset: int = 0,
     session: Session = Depends(get_session),
@@ -74,7 +74,7 @@ async def list_all_workflow_runs(
     if workflow_id:
         stmt = stmt.where(WorkflowRun.workflow_id == workflow_id)
     if status:
-        stmt = stmt.where(WorkflowRun.status == status)
+        stmt = stmt.where(WorkflowRun.status.in_(status))
     stmt = stmt.offset(offset).limit(limit)
     return session.exec(stmt).all()
 

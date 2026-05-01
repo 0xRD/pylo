@@ -8,18 +8,18 @@ const workflowRunsApi = {
   list: ({ workflowId, status, limit = 100, offset = 0 } = {}) => {
     const p = new URLSearchParams()
     if (workflowId) p.set('workflow_id', workflowId)
-    if (status) p.set('status', status)
+    if (status && status.length) status.forEach(s => p.append('status', s))
     p.set('limit', limit)
     p.set('offset', offset)
     return fetch(`/api/workflows/runs?${p}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : [])
-      .catch(() => [])
-  },
+       .then(r => r.ok ? r.json() : [])
+       .catch(() => [])
+   },
   getDetail: (workflowId, runId) =>
     fetch(`/api/workflows/${workflowId}/runs/${runId}`, { credentials: 'include' }).then(r => r.json()),
 }
 
-const STATUSES = ['', 'queued', 'running', 'success', 'error', 'timeout', 'pending']
+const FILTER_STATUSES = ['queued', 'pending', 'running', 'success', 'error', 'timeout']
 const TYPES = ['all', 'pybook', 'workflow']
 
 function formatJson(value) {
@@ -148,28 +148,29 @@ export default function Runs() {
   const [pyRuns, setPyRuns] = useState([])
   const [wfRuns, setWfRuns] = useState([])
   const [stats, setStats] = useState(null)
-  const [status, setStatus] = useState('')
+  const [selectedStatuses, setSelectedStatuses] = useState([])
   const [runType, setRunType] = useState(initWorkflowId ? 'workflow' : initPybookId ? 'pybook' : 'all')
   const [scopePybookId, setScopePybookId] = useState(initPybookId)
   const [scopeWorkflowId, setScopeWorkflowId] = useState(initWorkflowId)
-  const [names, setNames] = useState({})  // id -> name lookup
+  const [names, setNames] = useState({})
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const loadRuns = useCallback((s = status, t = runType, pbId = scopePybookId, wfId = scopeWorkflowId) => {
+  const loadRuns = useCallback(() => {
     const promises = []
-    if (t !== 'workflow') promises.push(runsApi.list({ pybookId: pbId || undefined, status: s || undefined, limit: 100 }).then(setPyRuns).catch(() => setPyRuns([])))
+    const st = selectedStatuses.length ? selectedStatuses : undefined
+    if (runType !== 'workflow') promises.push(runsApi.list({ pybookId: scopePybookId || undefined, status: st, limit: 100 }).then(setPyRuns).catch(() => setPyRuns([])))
     else promises.push(Promise.resolve())
-    if (t !== 'pybook') promises.push(workflowRunsApi.list({ workflowId: wfId || undefined, status: s || undefined }).then(setWfRuns).catch(() => setWfRuns([])))
+    if (runType !== 'pybook') promises.push(workflowRunsApi.list({ workflowId: scopeWorkflowId || undefined, status: st }).then(setWfRuns).catch(() => setWfRuns([])))
     else promises.push(Promise.resolve())
     Promise.all(promises).finally(() => setLoading(false))
-  }, [status, runType, scopePybookId, scopeWorkflowId])
+  }, [selectedStatuses, runType, scopePybookId, scopeWorkflowId])
 
   const loadStats = () => runsApi.queueStats().then(setStats).catch(() => {})
 
   useEffect(() => {
-    loadRuns(); loadStats()
-    // Fetch names for display
+    loadRuns()
+    loadStats()
     Promise.all([
       fetch('/api/pybooks', { credentials: 'include' }).then(r => r.json()).catch(() => []),
       fetch('/api/workflows', { credentials: 'include' }).then(r => r.json()).catch(() => []),
@@ -179,32 +180,33 @@ export default function Runs() {
       ;(Array.isArray(wfs) ? wfs : []).forEach(wf => { n[wf.id] = wf.name })
       setNames(n)
     })
-    const t1 = setInterval(() => loadRuns(), 5000)
+    const t1 = setInterval(loadRuns, 5000)
     const t2 = setInterval(loadStats, 2000)
     return () => { clearInterval(t1); clearInterval(t2) }
-  }, [])
+  }, [loadRuns])
 
-  const handleStatusChange = (s) => { setStatus(s); loadRuns(s, runType) }
+  const toggleStatus = (s) => {
+    setSelectedStatuses(prev => prev.includes(s) ? prev.filter(st => st !== s) : [...prev, s])
+  }
   const handleTypeChange = (t) => {
     setRunType(t)
-    // Clear scope filter when switching type manually
     const newPbId = t === 'workflow' ? '' : scopePybookId
     const newWfId = t === 'pybook' ? '' : scopeWorkflowId
-    loadRuns(status, t, newPbId, newWfId)
+    setScopePybookId(newPbId)
+    setScopeWorkflowId(newWfId)
   }
   const clearScope = () => {
-    setScopePybookId(''); setScopeWorkflowId('')
+    setScopePybookId('')
+    setScopeWorkflowId('')
     setSearchParams({})
-    loadRuns(status, runType, '', '')
   }
 
-  // Merge and sort runs by started_at
   const allRuns = [
     ...(runType !== 'workflow' ? pyRuns.map(r => ({ ...r, _type: 'pybook' })) : []),
     ...(runType !== 'pybook' ? wfRuns.map(r => ({ ...r, _type: 'workflow' })) : []),
   ].sort((a, b) => parseUTC(b.started_at) - parseUTC(a.started_at))
 
-  if (loading) return <div className="text-gray-500 text-sm">Loading…</div>
+  if (loading) return <div className="text-gray-500 text-sm">Loading...</div>
 
   return (
     <div className="flex gap-6 h-full">
@@ -232,12 +234,12 @@ export default function Runs() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Scope clear */}
             {(scopePybookId || scopeWorkflowId) && (
               <button onClick={clearScope}
                 className="text-xs px-2 py-1 rounded border border-indigo-700 text-indigo-400 hover:text-indigo-200 hover:border-indigo-500 transition-colors bg-transparent cursor-pointer">
-                ✕ {scopePybookId ? names[scopePybookId] || 'PyBook' : names[scopeWorkflowId] || 'Workflow'}
+                Clear scope
               </button>
             )}
             {/* Type filter */}
@@ -249,11 +251,28 @@ export default function Runs() {
                 </button>
               ))}
             </div>
-            {/* Status filter */}
-            <select value={status} onChange={e => handleStatusChange(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm focus:outline-none">
-              {STATUSES.map(s => <option key={s} value={s}>{s || 'All statuses'}</option>)}
-            </select>
+            {/* Status multi-filter */}
+            <div className="flex gap-1">
+              {FILTER_STATUSES.map(s => {
+                const active = selectedStatuses.includes(s)
+                return (
+                  <button
+                    key={s}
+                    onClick={() => toggleStatus(s)}
+                    className={`text-xs px-2 py-1 rounded border transition-colors ${
+                      active
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'bg-gray-900 text-gray-400 border-gray-700 hover:text-gray-200 hover:border-gray-600'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <RunStatusBadge status={s} />
+                      <span className="capitalize">{s}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 

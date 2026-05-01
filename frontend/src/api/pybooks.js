@@ -34,7 +34,7 @@ export const runsApi = {
   list: ({ pybookId, status, limit = 50, offset = 0 } = {}) => {
     const p = new URLSearchParams()
     if (pybookId) p.set("pybook_id", pybookId)
-    if (status) p.set("status", status)
+    if (status && status.length) status.forEach(s => p.append("status", s))
     p.set("limit", limit)
     p.set("offset", offset)
     return req("GET", `/runs?${p}`)
