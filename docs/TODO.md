@@ -10,6 +10,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 - Add per-PyBook runner network policy (`default`, `none`, allowlisted hosts).
 - Move queue state to a durable worker-claim table with retries, cancellation, and dead-letter handling.
 - Add CI migration validation against both fresh and existing SQLite/Postgres databases.
+- Add CI smoke coverage that boots the Postgres Compose profile and exercises setup, Blueprint/Entry search, and a PyBook run.
 - Add dependency allowlist / trusted package index policy for PyBook image builds.
 - Add workflow DAG validation before save/run: cycles, missing PyBooks, broken mappings, inactive nodes.
 - Add minimal Cases Lite: status, severity, assignee, linked entries/runs, comments, timeline.

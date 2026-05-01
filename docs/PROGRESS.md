@@ -311,3 +311,9 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Search/index support**: SQLite keeps FTS5; Postgres gets an `fts_entries` table plus `to_tsvector` GIN index and dialect-aware FTS queries.
 - **Field filters**: Entry JSON field extraction now uses SQLite `json_extract` or Postgres JSONB extraction depending on the active dialect.
 - **Dependencies/docs/tests**: added `psycopg[binary]`, `.env.example` Postgres settings, README production DB section, TODO cleanup, and focused DB profile tests.
+
+## Session 23 — Postgres full-stack smoke and docs
+- **Full Postgres instance**: started the stack with the optional Postgres profile and a runtime override for `DATABASE_URL`, then verified the backend dialect was `postgresql` while the frontend served `/blueprints` at `http://pylo-dev-test.orb.local:3000/blueprints`.
+- **Smoke coverage**: confirmed frontend `200`, API token queue stats, Blueprint list on a fresh database, manual Blueprint/Entry create/search/filter/delete, and a PyBook run that completed as `success`.
+- **Fresh DB behavior**: verified the Postgres instance reports setup required until the first admin user is created.
+- **Docs**: README now explains SQLite vs Postgres tradeoffs, recommends Postgres for trusted team production, and includes a Postgres architecture diagram. TODO now tracks CI smoke coverage for the Postgres profile.

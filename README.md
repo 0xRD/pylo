@@ -67,6 +67,30 @@ docker compose --profile postgres up -d --build
 
 The backend detects the database dialect automatically. SQLite keeps FTS5 and SQLite JSON extraction; Postgres uses SQLAlchemy pooling with pre-ping, a Postgres `fts_entries` table with `to_tsvector` search indexes, and JSONB field extraction for Entry filters.
 
+Supporting both databases means every database-facing feature, migration, search path, and JSON field filter must keep working on both dialects. A Postgres-only product would be simpler to operate and test, especially for production. Pylo keeps both because SQLite is still the fastest path for local development, demos, and single-node labs, while Postgres is the recommended profile for trusted team deployments.
+
+| Database | Upside | Downside | Recommended use |
+|---|---|---|---|
+| SQLite | Zero extra service, easy setup, portable file backup, excellent for development and small single-node installs | Lower write concurrency ceiling, fewer operational/HA options, dialect-specific FTS/JSON behavior | Default local/dev profile |
+| Postgres | Better concurrency, durability, pooling, backups/PITR, managed DB support, stronger JSON/search primitives | More services, credentials, backups, monitoring, and startup dependency handling | Production/team profile |
+
+```mermaid
+flowchart LR
+  User["Browser / API client"] --> Frontend["React + Nginx frontend :3000"]
+  Frontend --> Backend["FastAPI backend :8000"]
+  ApiClient["SDK / automation client"] --> Backend
+  Backend --> Auth["Auth + scoped API keys"]
+  Backend --> PG["Postgres service\npylo database"]
+  Backend --> FTS["fts_entries\nPostgres full-text index"]
+  PG --> FTS
+  Backend --> Queue["In-process run queue"]
+  Queue --> Runner["Ephemeral PyBook containers"]
+  Backend --> Docker["Docker daemon"]
+  Docker --> Runner
+  Runner --> Backend
+  Backend --> Storage["pybooks_storage / backups"]
+```
+
 ## Core Concepts
 
 ### PyBooks
@@ -103,7 +127,7 @@ score > 7.5
 severity = "critical" AND status != "closed"
 ```
 
-Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=` — AND-chained. Applied server-side via SQLite `json_extract` for correct pagination.
+Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=` — AND-chained. Applied server-side via SQLite `json_extract` or Postgres JSONB extraction for correct pagination.
 
 ### Secrets
 Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables. Secret injection records an activity event with the PyBook/run and secret names only; decrypted values are never logged.
