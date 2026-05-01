@@ -12,6 +12,7 @@ from backend.activity.logger import log_activity
 from backend.core.auth import AuthUser, verify_token
 from backend.database import get_session, engine
 from backend.workflows.models import Workflow, WorkflowRun, WorkflowNodeRun
+from backend.workflows.validator import validate_dag
 
 router = APIRouter(
     prefix="/api/workflows",
@@ -131,6 +132,20 @@ async def delete_workflow(
     session.commit()
 
 
+@router.get("/{workflow_id}/validate")
+async def validate_workflow(
+    workflow_id: str,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
+    """Validate a workflow's DAG — checks cycles, missing/inactive PyBooks, broken edges."""
+    wf = session.get(Workflow, workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    errors = validate_dag(wf.nodes, wf.edges, session)
+    return {"valid": len(errors) == 0, "errors": errors}
+
+
 @router.post("/{workflow_id}/run")
 async def trigger_workflow_run(
     workflow_id: str,
@@ -140,6 +155,14 @@ async def trigger_workflow_run(
     wf = session.get(Workflow, workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # Block run if DAG is invalid
+    errors = validate_dag(wf.nodes, wf.edges, session)
+    if errors:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Workflow has validation errors", "errors": errors},
+        )
 
     now = datetime.now(timezone.utc)
     wf_run = WorkflowRun(
