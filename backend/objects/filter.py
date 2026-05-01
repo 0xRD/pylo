@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from sqlalchemy import func, cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Float as SAFloat
 from sqlmodel import select
 
@@ -35,10 +36,16 @@ def _parse_conditions(filter_expr: str) -> list[tuple[str, str, str]]:
     ]
 
 
-def apply_field_filter(stmt, filter_expr: str, data_column):
-    """Add WHERE clauses to a SQLModel select statement using SQLite json_extract."""
+def json_field_text(data_column, field: str, dialect_name: str = "sqlite"):
+    if dialect_name == "postgresql":
+        return cast(data_column, JSONB)[field].astext
+    return func.json_extract(data_column, f'$.{field}')
+
+
+def apply_field_filter(stmt, filter_expr: str, data_column, dialect_name: str = "sqlite"):
+    """Add WHERE clauses to a SQLModel select statement using JSON field extraction."""
     for field, op, value in _parse_conditions(filter_expr):
-        extracted = func.json_extract(data_column, f'$.{field}')
+        extracted = json_field_text(data_column, field, dialect_name)
         if op == '=':
             stmt = stmt.where(func.lower(extracted) == value.lower())
         elif op == '!=':

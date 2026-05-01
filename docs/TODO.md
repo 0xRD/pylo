@@ -9,7 +9,7 @@ Items are ordered by priority. This file tracks remaining product work only; com
 - Replace raw Docker socket exposure with a Docker socket proxy or dedicated runner service.
 - Add per-PyBook runner network policy (`default`, `none`, allowlisted hosts).
 - Move queue state to a durable worker-claim table with retries, cancellation, and dead-letter handling.
-- Add Postgres deployment profile and CI migration validation against both fresh and existing databases.
+- Add CI migration validation against both fresh and existing SQLite/Postgres databases.
 - Add dependency allowlist / trusted package index policy for PyBook image builds.
 - Add workflow DAG validation before save/run: cycles, missing PyBooks, broken mappings, inactive nodes.
 - Add minimal Cases Lite: status, severity, assignee, linked entries/runs, comments, timeline.
@@ -149,6 +149,7 @@ pylo-config/
 
 ## Completed
 
+- Postgres production profile with dialect-aware engine setup, bootstrap detection, FTS/search helpers, JSON field extraction, and optional Compose service.
 - Scoped API keys with hashed storage, one-time raw token display, scopes, last-used timestamp, revoke UI, and middleware enforcement.
 - Live queue concurrency shrinking fixed with a tracked limiter instead of stale semaphore permits.
 - Blueprint fetch SSRF hardening now validates DNS results and redirect targets.

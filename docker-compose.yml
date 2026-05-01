@@ -36,6 +36,27 @@ services:
     networks:
       - pylo_default
 
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pylo}
+      POSTGRES_USER: ${POSTGRES_USER:-pylo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pylo_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - pylo_default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-pylo} -d $${POSTGRES_DB:-pylo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   pylo_default:
     driver: bridge
+
+volumes:
+  postgres_data:

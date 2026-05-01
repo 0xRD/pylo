@@ -303,3 +303,11 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Secret access auditing**: PyBook secret injection writes `secret.accessed` activity events with PyBook/run context and secret names only. Decrypted values are still never logged or returned.
 - **Regression coverage**: added focused tests for live concurrency resizing, scoped API key auth/scope gates, DNS/redirect SSRF blocking, and secret access audit metadata.
 - **Docs**: README, TODO, and PROGRESS updated for the V1 hardening pass and remaining production-readiness work.
+
+## Session 22 — Postgres production profile
+- **Postgres profile**: added optional `postgres` Compose profile using `postgres:16-alpine` with persistent `postgres_data` volume and healthcheck.
+- **DB engine setup**: made engine construction dialect-aware; SQLite keeps `NullPool` and `check_same_thread=False`, while Postgres uses normal pooling with `pool_pre_ping`.
+- **Bootstrap flow**: replaced raw SQLite fresh-DB detection in `entrypoint.sh` with SQLAlchemy inspection, so fresh SQLite and Postgres databases can initialise and stamp Alembic head.
+- **Search/index support**: SQLite keeps FTS5; Postgres gets an `fts_entries` table plus `to_tsvector` GIN index and dialect-aware FTS queries.
+- **Field filters**: Entry JSON field extraction now uses SQLite `json_extract` or Postgres JSONB extraction depending on the active dialect.
+- **Dependencies/docs/tests**: added `psycopg[binary]`, `.env.example` Postgres settings, README production DB section, TODO cleanup, and focused DB profile tests.

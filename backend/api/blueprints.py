@@ -20,7 +20,8 @@ from backend.activity.logger import log_activity
 from backend.config import settings
 from backend.core.auth import AuthUser, verify_token
 from backend.database import get_session
-from backend.objects.indexer import index_entry, remove_from_index, search_fts
+from backend.objects.filter import json_field_text
+from backend.objects.indexer import count_fts, index_entry, remove_from_index, search_fts
 from backend.objects.models import Entry, Blueprint, EntryEvent
 from backend.objects.parser import extract_text_content, parse_instance
 
@@ -158,13 +159,12 @@ def _parse_query(raw: str) -> tuple[list[tuple], str]:
     return filters, ' '.join(fts_parts).strip()
 
 
-def _field_clause(field: str, op: str, value: str):
+def _field_clause(field: str, op: str, value: str, dialect_name: str):
     """Return a SQLAlchemy WHERE clause for one field filter."""
-    from sqlalchemy import func as sqf
     if field == 'external_id':
         col = Entry.external_id
     else:
-        col = cast(sqf.json_extract(Entry.data, f'$.{field}'), SAString)
+        col = cast(json_field_text(Entry.data, field, dialect_name), SAString)
 
     if op == '=':
         return col == value
@@ -175,7 +175,7 @@ def _field_clause(field: str, op: str, value: str):
     return col == value
 
 
-def _build_filter_clause(filters: list[tuple]):
+def _build_filter_clause(filters: list[tuple], dialect_name: str):
     """Combine field filters into one WHERE clause with AND > OR precedence.
 
     Splits at OR boundaries, ANDs within each group, ORs across groups.
@@ -188,7 +188,7 @@ def _build_filter_clause(filters: list[tuple]):
     for field, op, value, connective in filters:
         if connective == 'or':
             groups.append([])
-        groups[-1].append(_field_clause(field, op, value))
+        groups[-1].append(_field_clause(field, op, value, dialect_name))
 
     and_groups = [and_(*g) if len(g) > 1 else g[0] for g in groups if g]
     return or_(*and_groups) if len(and_groups) > 1 else and_groups[0]
@@ -202,10 +202,9 @@ async def list_entries(
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
-    from sqlalchemy import text as sa_text
-
+    dialect_name = session.get_bind().dialect.name
     field_filters, fts_text = _parse_query(q or '')
-    filter_clause = _build_filter_clause(field_filters)
+    filter_clause = _build_filter_clause(field_filters, dialect_name)
 
     # ── Base statement ────────────────────────────────────────────────────────
     stmt = select(Entry)
@@ -225,16 +224,7 @@ async def list_entries(
             stmt = stmt.where(Entry.id.in_(fts_ids))
         else:
             # Pure FTS: fast SQL count, BM25 ordering
-            if blueprint_id:
-                count_sql = sa_text(
-                    "SELECT count(*) FROM fts_entries "
-                    "WHERE fts_entries MATCH :q AND blueprint_id = :bp"
-                )
-                total = session.exec(count_sql, params={"q": fts_text, "bp": blueprint_id}).fetchone()[0]
-            else:
-                count_sql = sa_text("SELECT count(*) FROM fts_entries WHERE fts_entries MATCH :q")
-                total = session.exec(count_sql, params={"q": fts_text}).fetchone()[0]
-
+            total = count_fts(session, fts_text, blueprint_id=blueprint_id)
             ids = search_fts(session, fts_text, blueprint_id=blueprint_id, limit=limit, offset=offset)
             if not ids:
                 return {"items": [], "total": total}

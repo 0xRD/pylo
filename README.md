@@ -51,6 +51,22 @@ docker compose up -d --build
 
 ---
 
+## Production Database Profile
+
+SQLite remains the default for local development and simple single-node installs. For trusted team production, Pylo can run against Postgres by enabling the optional Compose profile and setting `DATABASE_URL`:
+
+```bash
+# .env
+DATABASE_URL=postgresql+psycopg://pylo:change_this_password@postgres:5432/pylo
+POSTGRES_DB=pylo
+POSTGRES_USER=pylo
+POSTGRES_PASSWORD=change_this_password
+
+docker compose --profile postgres up -d --build
+```
+
+The backend detects the database dialect automatically. SQLite keeps FTS5 and SQLite JSON extraction; Postgres uses SQLAlchemy pooling with pre-ping, a Postgres `fts_entries` table with `to_tsvector` search indexes, and JSONB field extraction for Entry filters.
+
 ## Core Concepts
 
 ### PyBooks

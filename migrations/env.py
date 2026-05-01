@@ -2,6 +2,7 @@ import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
+from sqlalchemy.engine import make_url
 from sqlmodel import SQLModel
 
 from alembic import context
@@ -10,6 +11,11 @@ from alembic import context
 import backend.objects.models  # noqa
 import backend.pybooks.models  # noqa
 import backend.secrets.models  # noqa
+import backend.users.models  # noqa
+import backend.users.invitation  # noqa
+import backend.activity.models  # noqa
+import backend.workflows.models  # noqa
+import backend.core.settings_model  # noqa
 
 config = context.config
 
@@ -38,22 +44,28 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
-            include_object=include_object,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
+def _engine_kwargs(url: str) -> dict:
+    if make_url(url).get_backend_name() == "sqlite":
+        return {"connect_args": {"check_same_thread": False}, "poolclass": pool.NullPool}
+    return {"pool_pre_ping": True}
+
+
 def run_migrations_online() -> None:
     from sqlalchemy import create_engine
     url = config.get_main_option("sqlalchemy.url")
-    connectable = create_engine(url, connect_args={"check_same_thread": False}, poolclass=pool.NullPool)
+    connectable = create_engine(url, **_engine_kwargs(url))
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             render_as_batch=True,
-            include_object=include_object,
+        include_object=include_object,
         )
         with context.begin_transaction():
             context.run_migrations()
