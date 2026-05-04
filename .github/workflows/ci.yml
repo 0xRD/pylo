@@ -117,6 +117,7 @@ jobs:
           PYLO_ALLOW_INSECURE_DEFAULTS: "true"
           # Docker is not available in tests; docker-dependent tests are skipped
           DOCKER_HOST: ""
+          PYBOOKS_STORAGE_PATH: /tmp/pybooks_storage
         run: python -m pytest tests/ -v --tb=short
 
   # ── Job 3: Smoke test (full Compose stack) ─────────────────────────────────
@@ -183,7 +184,7 @@ jobs:
       - name: Smoke — entry search
         run: |
           curl -sf -H "X-API-Token: smoke_test_api_token_abc123def456ghi" \
-            "http://localhost:8000/api/blueprints/entries/search?q=test"
+            "http://localhost:8000/api/blueprints/entries?q=test"
           echo "Entry search OK"
 
       - name: Dump logs on failure

@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from backend.pybooks.models import PyBook, PyBookRun
 
-STORAGE_ROOT = Path("/app/pybooks_storage")
+STORAGE_ROOT = Path(os.environ.get("PYBOOKS_STORAGE_PATH", "/app/pybooks_storage"))
 
 
 def get_script_path(pybook_id: str) -> Path:
