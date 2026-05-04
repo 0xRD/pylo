@@ -12,8 +12,8 @@ Items are ordered by priority. This file tracks remaining product work only; com
 - Add CI migration validation against fresh and existing Postgres databases.
 - Add CI smoke coverage that boots the default Postgres Compose stack and exercises setup, Blueprint/Entry search, and a PyBook run.
 - Add dependency allowlist / trusted package index policy for PyBook image builds.
-- Add workflow DAG validation before save/run: cycles, missing PyBooks, broken mappings, inactive nodes.
-- Add minimal Cases Lite: status, severity, assignee, linked entries/runs, comments, timeline.
+- Workflow DAG validation (cycles, missing/inactive PyBooks, broken edges): GET validate endpoint, 422 guard on run, inline error panel + red node border in editor. ✅
+- Cases Lite: status, severity, assignee, linked entries/runs, comments — Cases list page + detail page with Overview / Linked Items / Comments tabs. ✅
 
 **Why:** The current pass adds scoped keys, safer fetches, fixed live concurrency limits, and secret access auditing. These remaining items harden the runtime and operations layer for trusted team production.
 
@@ -184,3 +184,8 @@ pylo-config/
 - Granular export/import for blueprints, PyBooks, and workflows.
 - Manual full backup/restore ZIP for blueprints, PyBooks, workflows, and settings.
 - Mounted `pylo_sdk` entry helpers: `create_entry`, `update_entry`, and `delete_entry`.
+- Workflow DAG validation: `validator.py` (Kahn cycle detection + PyBook checks), GET validate endpoint, 422 run guard, WorkflowEditor error panel and red node highlights.
+- Cases Lite: Case / CaseComment / CaseLink models, full REST API, Cases list page and CaseDetail page (Overview / Linked Items / Comments tabs), sidebar nav entry.
+- GitOps dev→prod promotion: git commit/push from dev, git pull/apply on prod, field-level diffs, per-object selection, pybookSlug portability, Settings git config, sidebar Commit/Sync buttons.
+- Multi-status filter on Runs page (toggle buttons, multi-value URL params).
+- Trigger conditions for workflow blueprint triggers (evaluated in `_fire_blueprint_triggers`, configurable in WorkflowEditor PropertiesPanel).

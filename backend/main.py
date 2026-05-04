@@ -20,6 +20,7 @@ from backend.api.settings import router as settings_router
 from backend.api.users import router as users_router
 from backend.api.webhooks import router as webhooks_router
 from backend.api.workflows import router as workflows_router
+from backend.api.cases import router as cases_router
 from backend.api.export_import import router as export_import_router
 from backend.api.gitops import router as gitops_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
@@ -174,6 +175,7 @@ app.include_router(settings_router)
 app.include_router(users_router)
 app.include_router(webhooks_router)
 app.include_router(workflows_router)
+app.include_router(cases_router)
 app.include_router(export_import_router)
 app.include_router(gitops_router)
 
