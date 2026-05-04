@@ -12,7 +12,7 @@ from backend.pybooks.models import PyBookRun
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
-TERMINAL = {"success", "error", "timeout"}
+TERMINAL = {"success", "error", "timeout", "cancelled", "dead_letter"}
 
 
 @router.get("", dependencies=[Depends(verify_token)])
@@ -110,3 +110,20 @@ async def set_run_output(run_id: str, body: dict, session: Session = Depends(get
     session.add(run)
     session.commit()
     return {"ok": True}
+
+@router.delete("/{run_id}", dependencies=[Depends(verify_token)])
+async def cancel_run(run_id: str, session: Session = Depends(get_session)):
+    """Cancel a queued or pending run. Has no effect on running/terminal runs."""
+    run = session.get(PyBookRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status not in ("queued", "pending"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel run in status '{run.status}' — only queued/pending runs can be cancelled",
+        )
+    run.status = "cancelled"
+    run.ended_at = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    session.add(run)
+    session.commit()
+    return {"ok": True, "run_id": run_id, "status": "cancelled"}

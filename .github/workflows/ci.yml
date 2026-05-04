@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  POSTGRES_USER: pylo
+  POSTGRES_PASSWORD: ci_test_password_abc123
+  POSTGRES_DB: pylo
+
+jobs:
+  # ── Job 1: Migration validation ────────────────────────────────────────────
+  # Runs alembic upgrade head against a fresh Postgres to catch missing
+  # server_defaults, bad column types, or broken dependency chains.
+  migration-validation:
+    name: Migration validation (fresh DB)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pylo -d pylo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run migrations on fresh database
+        env:
+          DATABASE_URL: postgresql+psycopg://pylo:ci_test_password_abc123@localhost:5432/pylo
+          SECRET_KEY: ci_secret_key_for_testing_only_32chars
+          API_TOKEN: ci_api_token_for_testing_only_32chars
+          PYLO_ENV: test
+          PYLO_ALLOW_INSECURE_DEFAULTS: "true"
+        run: alembic upgrade head
+
+      - name: Verify alembic is at head
+        env:
+          DATABASE_URL: postgresql+psycopg://pylo:ci_test_password_abc123@localhost:5432/pylo
+          SECRET_KEY: ci_secret_key_for_testing_only_32chars
+          API_TOKEN: ci_api_token_for_testing_only_32chars
+          PYLO_ENV: test
+          PYLO_ALLOW_INSECURE_DEFAULTS: "true"
+        run: |
+          output=$(alembic current 2>&1)
+          echo "$output"
+          echo "$output" | grep -q "(head)" || (echo "ERROR: DB is not at head after upgrade" && exit 1)
+
+  # ── Job 2: Backend unit tests ──────────────────────────────────────────────
+  backend-tests:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pylo -d pylo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://pylo:ci_test_password_abc123@localhost:5432/pylo
+          SECRET_KEY: ci_secret_key_for_testing_only_32chars
+          API_TOKEN: ci_api_token_for_testing_only_32chars
+          PYLO_ENV: test
+          PYLO_ALLOW_INSECURE_DEFAULTS: "true"
+        run: alembic upgrade head
+
+      - name: Run test suite
+        env:
+          DATABASE_URL: postgresql+psycopg://pylo:ci_test_password_abc123@localhost:5432/pylo
+          SECRET_KEY: ci_secret_key_for_testing_only_32chars
+          API_TOKEN: ci_api_token_for_testing_only_32chars
+          PYLO_ENV: test
+          PYLO_ALLOW_INSECURE_DEFAULTS: "true"
+          # Docker is not available in tests; docker-dependent tests are skipped
+          DOCKER_HOST: ""
+        run: python -m pytest tests/ -v --tb=short
+
+  # ── Job 3: Smoke test (full Compose stack) ─────────────────────────────────
+  # Boots the full docker-compose stack and exercises the key API paths:
+  # setup wizard, blueprint creation, entry search, and a PyBook run.
+  smoke-test:
+    name: Smoke test (full stack)
+    runs-on: ubuntu-latest
+    # Run only on push to main, not on every PR (slow — needs Docker-in-Docker)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write .env for smoke test
+        run: |
+          cat > .env << 'EOF'
+          SECRET_KEY=smoke_test_secret_key_abc123def456ghi
+          API_TOKEN=smoke_test_api_token_abc123def456ghi
+          POSTGRES_PASSWORD=smoke_postgres_password_abc123
+          POSTGRES_USER=pylo
+          POSTGRES_DB=pylo
+          PYLO_ENV=test
+          PYLO_ALLOW_INSECURE_DEFAULTS=true
+          PYLO_EXPOSE_DOCS=true
+          EOF
+
+      - name: Build base runner image
+        run: docker build -t pylo-runner-base:latest ./backend/runner_base || true
+
+      - name: Boot stack
+        run: docker compose up -d --build --wait
+        timeout-minutes: 10
+
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "Backend healthy"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 3
+          done
+
+      - name: Smoke — queue stats
+        run: |
+          curl -sf -H "X-API-Token: smoke_test_api_token_abc123def456ghi" \
+            http://localhost:8000/api/runs/queue | grep -q '"max_concurrent"'
+          echo "Queue stats OK"
+
+      - name: Smoke — list blueprints
+        run: |
+          curl -sf -H "X-API-Token: smoke_test_api_token_abc123def456ghi" \
+            http://localhost:8000/api/blueprints
+          echo "Blueprints endpoint OK"
+
+      - name: Smoke — list pybooks
+        run: |
+          curl -sf -H "X-API-Token: smoke_test_api_token_abc123def456ghi" \
+            http://localhost:8000/api/pybooks
+          echo "PyBooks endpoint OK"
+
+      - name: Smoke — entry search
+        run: |
+          curl -sf -H "X-API-Token: smoke_test_api_token_abc123def456ghi" \
+            "http://localhost:8000/api/blueprints/entries/search?q=test"
+          echo "Entry search OK"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail=100

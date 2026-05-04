@@ -24,7 +24,6 @@ def _get_build_lock(image_tag: str) -> threading.Lock:
         return _build_locks[image_tag]
 
 
-
 def _validate_dependency(dep: str) -> str:
     dep = dep.strip()
     if not dep or "\n" in dep or "\r" in dep:
@@ -35,6 +34,15 @@ def _validate_dependency(dep: str) -> str:
         raise ValueError(f"Invalid dependency specifier: {dep}") from exc
     if parsed.url:
         raise ValueError("Direct URL dependencies are not allowed")
+    # Allowlist check: if PYLO_ALLOWED_PACKAGES is set, only those packages are permitted
+    from backend.config import settings
+    if settings.PYLO_ALLOWED_PACKAGES:
+        allowed = {p.strip().lower() for p in settings.PYLO_ALLOWED_PACKAGES.split(",") if p.strip()}
+        if parsed.name.lower() not in allowed:
+            raise ValueError(
+                f"Package '{parsed.name}' is not in the allowed packages list. "
+                f"Contact your administrator to add it."
+            )
     return dep
 
 
@@ -92,10 +100,15 @@ def ensure_image(pybook_id: str, dependencies: list[str]) -> str:
 
         validated_deps = [_validate_dependency(dep) for dep in dependencies]
         requirements = "\n".join(validated_deps) + ("\n" if validated_deps else "")
+
+        pip_flags = "--no-cache-dir"
+        if settings.PYLO_PIP_INDEX_URL:
+            pip_flags += f" --index-url {settings.PYLO_PIP_INDEX_URL} --trusted-host {settings.PYLO_PIP_INDEX_URL.split('/')[2]}"
+
         dockerfile = f"FROM {settings.PYLO_BASE_IMAGE}\n"
         if validated_deps:
             dockerfile += "COPY requirements.txt /tmp/requirements.txt\n"
-            dockerfile += "RUN pip install --no-cache-dir -r /tmp/requirements.txt\n"
+            dockerfile += f"RUN pip install {pip_flags} -r /tmp/requirements.txt\n"
 
         logger.info("Building image %s (deps: %s)", image_tag, ", ".join(validated_deps) or "none")
         try:

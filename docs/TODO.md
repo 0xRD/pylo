@@ -4,14 +4,14 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 1. V1 production hardening follow-ups
+## 1. V1 production hardening follow-ups ✅
 
-- Replace raw Docker socket exposure with a Docker socket proxy or dedicated runner service.
-- Add per-PyBook runner network policy (`default`, `none`, allowlisted hosts).
-- Move queue state to a durable worker-claim table with retries, cancellation, and dead-letter handling.
-- Add CI migration validation against fresh and existing Postgres databases.
-- Add CI smoke coverage that boots the default Postgres Compose stack and exercises setup, Blueprint/Entry search, and a PyBook run.
-- Add dependency allowlist / trusted package index policy for PyBook image builds.
+- Docker socket proxy: replaced raw `/var/run/docker.sock` mount with `tecnativa/docker-socket-proxy` on an internal-only network; backend exposes only the container/image/build API surface. ✅
+- Per-PyBook runner network policy (`default`, `none`, `allowlisted`): model fields, Alembic migration, runner enforcement, ConfigPanel selector. ✅
+- Durable queue — retries, cancellation, dead-letter: `retry_count`/`max_retries` on `PyBookRun`, auto-retry on error/timeout, `dead_letter` after exhaustion, `cancelled` status, `DELETE /api/runs/{run_id}` endpoint. ✅
+- Dependency allowlist / trusted package index: `PYLO_ALLOWED_PACKAGES` and `PYLO_PIP_INDEX_URL` env vars enforced in `image_builder.py` at build time. ✅
+- CI migration validation: GitHub Actions job that runs `alembic upgrade head` against a fresh Postgres on every push/PR. ✅
+- CI smoke coverage: GitHub Actions job that boots the full Compose stack and exercises queue, blueprints, PyBooks, and entry search endpoints on push to main. ✅
 - Workflow DAG validation (cycles, missing/inactive PyBooks, broken edges): GET validate endpoint, 422 guard on run, inline error panel + red node border in editor. ✅
 - Cases Lite: status, severity, assignee, linked entries/runs, comments — Cases list page + detail page with Overview / Linked Items / Comments tabs. ✅
 
@@ -189,3 +189,8 @@ pylo-config/
 - GitOps dev→prod promotion: git commit/push from dev, git pull/apply on prod, field-level diffs, per-object selection, pybookSlug portability, Settings git config, sidebar Commit/Sync buttons.
 - Multi-status filter on Runs page (toggle buttons, multi-value URL params).
 - Trigger conditions for workflow blueprint triggers (evaluated in `_fire_blueprint_triggers`, configurable in WorkflowEditor PropertiesPanel).
+- Docker socket proxy: `tecnativa/docker-socket-proxy` on internal `socket_proxy` network; backend no longer has raw socket access.
+- Per-PyBook network policy: `default` / `none` / `allowlisted` field on PyBook, enforced in runner, configurable in ConfigPanel.
+- Dependency allowlist + trusted pip index: `PYLO_ALLOWED_PACKAGES` and `PYLO_PIP_INDEX_URL` checked in `image_builder.py`.
+- Durable queue hardening: `retry_count` / `max_retries` auto-retry, `dead_letter` status after exhaustion, `cancelled` status with `DELETE /api/runs/{run_id}`.
+- CI: migration validation job (fresh Postgres + alembic head check) + smoke test job (full Compose stack, key endpoints) in `.github/workflows/ci.yml`.

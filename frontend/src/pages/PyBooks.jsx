@@ -692,13 +692,15 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false }) {
     dependencies: pybook.dependencies || '[]',
     required_secrets: pybook.required_secrets || '[]',
     is_sub_pybook: !!pybook.is_sub_pybook,
+    network_policy: pybook.network_policy || 'default',
+    allowed_hosts: pybook.allowed_hosts || '[]',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const handleSave = async () => {
-    for (const field of ['dependencies', 'required_secrets']) {
+    for (const field of ['dependencies', 'required_secrets', 'allowed_hosts']) {
       try { JSON.parse(form[field] || '[]') }
       catch { setError(`Invalid JSON in ${field}`); return }
     }
@@ -746,6 +748,23 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false }) {
             placeholder='["virustotal_api_key"]'
             className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
           <p className="text-xs text-gray-600 mt-1">Injected as SECRET_&lt;name&gt; env vars</p>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Network policy</label>
+          <select value={form.network_policy} onChange={e => set('network_policy', e.target.value)} disabled={!isAdmin}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50">
+            <option value="default">Default (shared network)</option>
+            <option value="none">None (no network access)</option>
+            <option value="allowlisted">Allowlisted hosts only</option>
+          </select>
+          {form.network_policy === 'allowlisted' && (
+            <div className="mt-2">
+              <label className="block text-xs text-gray-400 mb-1">Allowed hosts <span className="text-gray-600">(JSON array)</span></label>
+              <input value={form.allowed_hosts} onChange={e => set('allowed_hosts', e.target.value)} disabled={!isAdmin}
+                placeholder='["api.example.com"]'
+                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <input type="checkbox" id="cfg_is_sub" checked={form.is_sub_pybook}

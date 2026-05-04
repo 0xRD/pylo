@@ -38,6 +38,11 @@ class Settings(BaseSettings):
 
     JWT_EXPIRE_HOURS: int = 24
 
+    # Dependency allowlist: comma-separated package names (empty = allow all)
+    PYLO_ALLOWED_PACKAGES: str = ""
+    # Optional trusted pip index URL (empty = use default PyPI)
+    PYLO_PIP_INDEX_URL: str = ""
+
     MCP_ENABLED: bool = False
     MCP_AUTH_TOKEN: str = "change_me"
 

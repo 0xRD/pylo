@@ -21,8 +21,10 @@ class PyBook(SQLModel, table=True):
     trigger_config: str = "{}"
     is_active: bool = True
     docker_image_tag: Optional[str] = None
-    required_secrets: str = "[]"         # JSON list of secret names to inject as env vars
-    tags: str = "[]"                         # JSON list of tag strings
+    required_secrets: str = "[]"      # JSON list of secret names to inject as env vars
+    tags: str = "[]"                  # JSON list of tag strings
+    network_policy: str = "default"   # "default" | "none" | "allowlisted"
+    allowed_hosts: str = "[]"         # JSON list of hostnames for allowlisted policy
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -32,7 +34,8 @@ class PyBookRun(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     pybook_id: str = Field(index=True)
-    status: str = "pending"           # "pending" | "running" | "success" | "error" | "timeout"
+    # statuses: queued | pending | running | success | error | timeout | cancelled | dead_letter
+    status: str = "pending"
     trigger_source: str               # "manual" | "cron" | "webhook" | "object_event" | "sub_pybook"
     trigger_payload: str = "{}"
     stdout: str = ""
@@ -41,8 +44,6 @@ class PyBookRun(SQLModel, table=True):
     started_at: datetime = Field(default_factory=_now)
     ended_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
-    output_vars: str = "{}"     # JSON dict populated by pylo.set_output()
-
-
-# Add required_secrets to PyBook — must be added after initial migration
-# Contains a JSON list of secret names, e.g. ["virustotal_api_key"]
+    output_vars: str = "{}"           # JSON dict populated by pylo.set_output()
+    retry_count: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
+    max_retries: int = Field(default=0, sa_column_kwargs={"server_default": "0"})

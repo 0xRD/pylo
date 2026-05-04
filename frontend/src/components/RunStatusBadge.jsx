@@ -1,10 +1,12 @@
 const STATUS_STYLES = {
-  queued:   'bg-gray-800 text-gray-400',
-  pending:  'bg-yellow-900 text-yellow-300',
-  running:  'bg-blue-900 text-blue-300 animate-pulse',
-  success:  'bg-green-900 text-green-300',
-  error:    'bg-red-900 text-red-300',
-  timeout:  'bg-orange-900 text-orange-300',
+  queued:      'bg-gray-800 text-gray-400',
+  pending:     'bg-yellow-900 text-yellow-300',
+  running:     'bg-blue-900 text-blue-300 animate-pulse',
+  success:     'bg-green-900 text-green-300',
+  error:       'bg-red-900 text-red-300',
+  timeout:     'bg-orange-900 text-orange-300',
+  cancelled:   'bg-gray-700 text-gray-400',
+  dead_letter: 'bg-red-950 text-red-400',
 }
 
 export default function RunStatusBadge({ status }) {

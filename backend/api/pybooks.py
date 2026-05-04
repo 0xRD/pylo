@@ -30,6 +30,8 @@ class PyBookCreate(BaseModel):
     trigger_config: str = "{}"
     required_secrets: str = "[]"
     tags: str = "[]"
+    network_policy: str = "default"
+    allowed_hosts: str = "[]"
 
 
 class PyBookUpdate(BaseModel):
@@ -43,24 +45,34 @@ class PyBookUpdate(BaseModel):
     is_active: Optional[bool] = None
     required_secrets: Optional[str] = None
     tags: Optional[str] = None
+    network_policy: Optional[str] = None
+    allowed_hosts: Optional[str] = None
 
 
 class RunTrigger(BaseModel):
     trigger_source: str = "manual"
     trigger_payload: dict = {}
+    max_retries: int = 0
+
+
+_TERMINAL_STATUSES = {"success", "error", "timeout", "cancelled", "dead_letter"}
 
 
 async def _execute_run(pybook_id: str, run_id: str):
     """Executes a run inside its own DB session, called by the queue worker."""
     from backend.core.runner import run_pybook
 
-    # Session 1: read config, mark running, then release the connection before
-    # the long Docker execution so the pool isn't held during the run.
+    # Session 1: read config, check not cancelled, mark running, release connection
     with Session(engine) as session:
         pb = session.get(PyBook, pybook_id)
         run = session.get(PyBookRun, run_id)
         if not pb or not run:
             logger.error("PyBook or Run not found: %s / %s", pybook_id, run_id)
+            return
+
+        # Skip runs that were cancelled while waiting in the queue
+        if run.status == "cancelled":
+            logger.info("Run %s was cancelled before execution — skipping", run_id)
             return
 
         run.status = "running"
@@ -78,10 +90,18 @@ async def _execute_run(pybook_id: str, run_id: str):
         except (json.JSONDecodeError, ValueError):
             logger.warning("PyBook %s has invalid required_secrets JSON: %s", pb.id, pb.required_secrets)
             secrets = []
+        try:
+            hosts = json.loads(pb.allowed_hosts or "[]")
+        except (json.JSONDecodeError, ValueError):
+            hosts = []
+
         payload = json.loads(run.trigger_payload or "{}")
         pb_id = pb.id
         pb_name = pb.name
         trigger_source = run.trigger_source
+        network_policy = pb.network_policy or "default"
+        retry_count = run.retry_count
+        max_retries = run.max_retries
     # connection returned to pool here — Docker run happens outside the session
 
     started = datetime.now(timezone.utc)
@@ -96,6 +116,8 @@ async def _execute_run(pybook_id: str, run_id: str):
             dependencies=deps,
             required_secrets=secrets,
             trigger_payload=payload,
+            network_policy=network_policy,
+            allowed_hosts=hosts,
         )
         final_status = "success" if exit_code == 0 else "error"
     except TimeoutError as exc:
@@ -110,6 +132,28 @@ async def _execute_run(pybook_id: str, run_id: str):
 
     ended = datetime.now(timezone.utc)
     duration_ms = int((ended - started).total_seconds() * 1000)
+
+    # Retry logic: on error/timeout, re-enqueue if retries remain
+    if final_status in ("error", "timeout") and retry_count < max_retries:
+        with Session(engine) as session:
+            run = session.get(PyBookRun, run_id)
+            if run:
+                run.stdout = stdout
+                run.stderr = stderr + f"\n[Retry {retry_count + 1}/{max_retries} scheduled]"
+                run.exit_code = exit_code
+                run.status = "queued"
+                run.retry_count = retry_count + 1
+                run.ended_at = None
+                run.duration_ms = None
+                session.add(run)
+                session.commit()
+        logger.info("Re-enqueuing run %s (retry %d/%d)", run_id, retry_count + 1, max_retries)
+        queue_manager.enqueue(pb_id, run_id)
+        return
+
+    # Mark permanently failed after all retries exhausted
+    if final_status in ("error", "timeout") and retry_count >= max_retries and max_retries > 0:
+        final_status = "dead_letter"
 
     # Session 2: write results
     with Session(engine) as session:
@@ -229,6 +273,7 @@ async def run_pybook_endpoint(
         trigger_source=trigger_source,
         trigger_payload=json.dumps(body.trigger_payload),
         started_at=now,
+        max_retries=body.max_retries,
     )
     session.add(run)
     session.commit()

@@ -92,6 +92,8 @@ def _run_container_sync(
     dependencies: list[str],
     required_secrets: list[str],
     trigger_payload: dict,
+    network_policy: str = "default",
+    allowed_hosts: list[str] | None = None,
 ) -> tuple[str, str, int]:
     client = docker.from_env()
     image_tag = ensure_image(pybook_id, dependencies)
@@ -118,26 +120,38 @@ def _run_container_sync(
         sdk_path: {"bind": "/pybook/pylo_sdk.py", "mode": "ro"},
     }
 
+    # Network configuration based on policy
+    run_kwargs: dict = dict(
+        image=image_tag,
+        command=["python", "/pybook/main.py"],
+        volumes=volumes,
+        environment=environment,
+        mem_limit=settings.PYLO_MEM_LIMIT,
+        cpu_quota=settings.PYLO_CPU_QUOTA,
+        cap_drop=["ALL"],
+        security_opt=["no-new-privileges:true"],
+        pids_limit=128,
+        read_only=True,
+        tmpfs={"/tmp": "rw,nosuid,nodev,size=64m"},
+        user="1000:1000",
+        detach=False,
+        remove=True,
+        stdout=True,
+        stderr=True,
+    )
+
+    if network_policy == "none":
+        run_kwargs["network_mode"] = "none"
+    elif network_policy == "allowlisted":
+        run_kwargs["network"] = settings.DOCKER_NETWORK
+        if allowed_hosts:
+            # Map each allowed hostname to the host gateway so DNS resolves inside the container
+            run_kwargs["extra_hosts"] = {h: "host-gateway" for h in allowed_hosts}
+    else:
+        run_kwargs["network"] = settings.DOCKER_NETWORK
+
     try:
-        output = client.containers.run(
-            image=image_tag,
-            command=["python", "/pybook/main.py"],
-            volumes=volumes,
-            environment=environment,
-            network=settings.DOCKER_NETWORK,
-            mem_limit=settings.PYLO_MEM_LIMIT,
-            cpu_quota=settings.PYLO_CPU_QUOTA,
-            cap_drop=["ALL"],
-            security_opt=["no-new-privileges:true"],
-            pids_limit=128,
-            read_only=True,
-            tmpfs={"/tmp": "rw,nosuid,nodev,size=64m"},
-            user="1000:1000",
-            detach=False,
-            remove=True,
-            stdout=True,
-            stderr=True,
-        )
+        output = client.containers.run(**run_kwargs)
         return output.decode("utf-8", errors="replace"), "", 0
     except ContainerError as exc:
         stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
@@ -154,6 +168,8 @@ async def run_pybook(
     dependencies: list[str],
     required_secrets: list[str],
     trigger_payload: dict,
+    network_policy: str = "default",
+    allowed_hosts: list[str] | None = None,
 ) -> tuple[str, str, int]:
     import asyncio
     loop = asyncio.get_running_loop()
@@ -164,6 +180,7 @@ async def run_pybook(
                 _run_container_sync,
                 pybook_id, run_id,
                 dependencies, required_secrets, trigger_payload,
+                network_policy, allowed_hosts,
             ),
             timeout=settings.PYLO_TIMEOUT_SECONDS,
         )
