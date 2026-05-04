@@ -19,7 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     with op.batch_alter_table('object_type', schema=None) as batch_op:
         batch_op.add_column(sa.Column('fetch_cron', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('fetch_is_active', sa.Boolean(), nullable=False, server_default='0'))
+        batch_op.add_column(sa.Column('fetch_is_active', sa.Boolean(), nullable=False, server_default=sa.false()))
 
 
 def downgrade() -> None:

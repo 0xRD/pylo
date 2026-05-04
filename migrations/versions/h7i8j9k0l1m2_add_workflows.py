@@ -24,7 +24,7 @@ def upgrade():
         sa.Column("id", sa.String(), primary_key=True),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("description", sa.String(), nullable=True),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default="1"),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("trigger_type", sa.String(), nullable=False, server_default="manual"),
         sa.Column("nodes", sa.String(), nullable=False, server_default="[]"),
         sa.Column("edges", sa.String(), nullable=False, server_default="[]"),
