@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import CodeEditor from "../components/CodeEditor"
 import RunStatusBadge from "../components/RunStatusBadge"
 import { pybooksApi } from "../api/pybooks"
+import { secretsApi } from "../api/secrets"
 import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
 import { useAuth } from "../context/AuthContext"
@@ -43,6 +44,50 @@ print("Hello from Pylo!", payload)
 
 const TRIGGER_TYPES = ["manual", "cron", "webhook", "blueprint"]
 const TERMINAL = new Set(["success", "error", "timeout"])
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]")
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function RequiredSecretsSelect({ value, onChange, secrets = [], disabled = false, compact = false }) {
+  const selected = parseJsonArray(value)
+  const update = (e) => {
+    const names = Array.from(e.target.selectedOptions, option => option.value)
+    onChange(JSON.stringify(names))
+  }
+
+  return (
+    <div>
+      <label className="block text-xs text-gray-400 mb-1">
+        Required API keys / secrets <span className="text-gray-600">(stored secrets)</span>
+      </label>
+      <select
+        multiple
+        value={selected}
+        onChange={update}
+        disabled={disabled || secrets.length === 0}
+        size={compact ? 4 : 5}
+        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+      >
+        {secrets.map(secret => (
+          <option key={secret.id} value={secret.name}>
+            {secret.name}{secret.description ? ` · ${secret.description}` : ''}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-gray-600 mt-1">
+        {secrets.length === 0
+          ? 'No stored secrets yet. Add API keys in Secrets first.'
+          : 'Selected names are injected as SECRET_<name> environment variables.'}
+      </p>
+    </div>
+  )
+}
 
 const TRIGGER_OPERATORS = [
   { value: 'eq', label: 'equals' },
@@ -177,7 +222,7 @@ function TagInput({ tags, onChange }) {
 
 // ── New PyBook form ───────────────────────────────────────────────────────────
 
-function NewPyBookForm({ onSave, onCancel, blueprints = [] }) {
+function NewPyBookForm({ onSave, onCancel, blueprints = [], secrets = [] }) {
   const [form, setForm] = useState({
     name: "", description: "", script: DEFAULT_SCRIPT,
     is_sub_pybook: false, dependencies: "[]",
@@ -249,10 +294,11 @@ function NewPyBookForm({ onSave, onCancel, blueprints = [] }) {
             className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Required secrets (JSON array)</label>
-          <input value={form.required_secrets} onChange={e => set("required_secrets", e.target.value)}
-            placeholder='["virustotal_api_key"]'
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+          <RequiredSecretsSelect
+            value={form.required_secrets}
+            onChange={value => set("required_secrets", value)}
+            secrets={secrets}
+          />
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -605,7 +651,7 @@ pylo.export_vars(locals())`} />
         </DocSection>
 
         <DocSection title="Accessing secrets">
-          <p>Secrets declared in <em>Required secrets</em> are injected as env vars:</p>
+          <p>Select stored secrets in <em>Required API keys / secrets</em>; they are injected as env vars:</p>
           <CodeSnippet code={`import os
 
 api_key = os.environ["SECRET_virustotal_api_key"]
@@ -685,7 +731,7 @@ print(f"Score: {score}")`} />
 
 // ── Config Panel ──────────────────────────────────────────────────────────────
 
-function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false }) {
+function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secrets = [] }) {
   const [form, setForm] = useState({
     name: pybook.name || '',
     description: pybook.description || '',
@@ -741,13 +787,13 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false }) {
           <p className="text-xs text-gray-600 mt-1">requests, httpx, pydantic are always available</p>
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">
-            Required secrets <span className="text-gray-600">(JSON array of secret names)</span>
-          </label>
-          <input value={form.required_secrets} onChange={e => set('required_secrets', e.target.value)} disabled={!isAdmin}
-            placeholder='["virustotal_api_key"]'
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
-          <p className="text-xs text-gray-600 mt-1">Injected as SECRET_&lt;name&gt; env vars</p>
+          <RequiredSecretsSelect
+            value={form.required_secrets}
+            onChange={value => set('required_secrets', value)}
+            secrets={secrets}
+            disabled={!isAdmin}
+            compact
+          />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Network policy</label>
@@ -816,7 +862,7 @@ Pylo is a workflow automation platform where scripts called PyBooks run in isola
 - PYLO_RUN_ID: UUID of the current run
 - PYLO_PYBOOK_ID: UUID of this PyBook
 - PYLO_API_URL: Backend base URL (http://backend:8000 inside containers)
-- SECRET_<name>: Injected secret values (declared in the required_secrets field)
+- SECRET_<name>: Injected secret values selected in Required API keys / secrets
 
 ## pylo_sdk functions (auto-mounted, import as: import pylo_sdk as pylo)
 
@@ -850,7 +896,7 @@ import pylo_sdk as pylo
 # Read trigger payload (input from manual run, Entry selection, webhook, or workflow)
 payload = pylo.get_payload()
 
-# Access a secret (declared in required_secrets)
+# Access a selected API key / secret
 api_key = os.environ["SECRET_my_api_key"]
 
 # Do work
@@ -945,6 +991,7 @@ function AIPromptModal({ onClose }) {
 export default function PyBooks() {
   const [pybooks, setPybooks] = useState([])
   const [blueprints, setBlueprints] = useState([])
+  const [secrets, setSecrets] = useState([])
   const [selected, setSelected] = useState(null)
   const [script, setScript] = useState("")
   const [showNew, setShowNew] = useState(false)
@@ -983,6 +1030,7 @@ export default function PyBooks() {
   useEffect(() => {
     load()
     blueprintsApi.listBlueprints().then(setBlueprints).catch(() => {})
+    secretsApi.list().then(setSecrets).catch(() => {})
   }, [])
 
   const scriptChanged = selected && script !== (selected.script || "")
@@ -1112,7 +1160,7 @@ export default function PyBooks() {
   if (showNew) return (
     <div className="max-w-3xl">
       <h1 className="text-xl font-semibold mb-6">New PyBook</h1>
-      <NewPyBookForm onSave={handleCreate} onCancel={() => setShowNew(false)} blueprints={blueprints} />
+      <NewPyBookForm onSave={handleCreate} onCancel={() => setShowNew(false)} blueprints={blueprints} secrets={secrets} />
     </div>
   )
 
@@ -1372,6 +1420,7 @@ export default function PyBooks() {
               onSaved={handleSaveConfig}
               isAdmin={isAdmin}
               isProd={isProd}
+              secrets={secrets}
             />
           )}
         </div>

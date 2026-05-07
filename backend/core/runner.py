@@ -13,7 +13,9 @@ from backend.core.auth import create_run_token
 from backend.core.image_builder import ensure_image
 
 logger = logging.getLogger(__name__)
-_executor = ThreadPoolExecutor(max_workers=settings.PYLO_MAX_CONCURRENT_RUNS)
+# Queue manager enforces the live concurrency limit. Keep the executor wide
+# enough for the settings API cap so it does not become a hidden lower limit.
+_executor = ThreadPoolExecutor(max_workers=max(settings.PYLO_MAX_CONCURRENT_RUNS, 50))
 
 # Resolved once at startup — derived from the container's own mounts (DooD)
 _host_pybooks_path: str | None = None

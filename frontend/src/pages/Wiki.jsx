@@ -63,7 +63,7 @@ export default function Wiki() {
 
       <Section id="pybooks" title="PyBooks" icon={Braces}>
         <p><strong className="text-[#f8f8f2]">PyBooks</strong> are Python scripts that run in isolated Docker containers. They can be run manually, scheduled, triggered by a webhook, triggered by Blueprint entries, or called as Sub-PyBooks.</p>
-        <p>Declare extra pip packages in the PyBook dependencies field when the base runner image does not already provide them. Secrets declared in Required secrets are injected as environment variables named <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">SECRET_name</code>.</p>
+        <p>Declare extra pip packages in the PyBook dependencies field when the base runner image does not already provide them. Secrets selected in Required API keys / secrets are injected as environment variables named <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">SECRET_name</code>.</p>
         <Code>{`import os
 import pylo_sdk as pylo
 

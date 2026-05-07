@@ -19,7 +19,28 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 2. `pylo_sdk` standalone library
+## 2. Workflow control-flow upgrade
+
+- Add conditional blocks for `if` / `else` style branching based on payload, entry data, or prior PyBook outputs.
+- Add loop blocks for iterating over lists from payloads, entries, or PyBook outputs.
+- Allow multiple outgoing connections from one block with explicit branch labels and validation.
+- Add node-level retry / on-fail routing so workflows can recover or notify without marking the whole run failed immediately.
+
+**Why:** Workflows need first-class control flow to model real automation playbooks without packing orchestration logic into one large PyBook.
+
+---
+
+## 3. Blueprint fetch controls
+
+- Add a per-Blueprint limit for the number of entries pulled in one fetch, separate from retained-entry limits.
+- Add fetch retry settings and on-fail behavior for transient upstream API failures.
+- Surface fetch limits and retry settings in the Blueprint form near pagination.
+
+**Why:** Large or unreliable APIs should not make the whole platform feel unavailable, and limited-quota APIs need guardrails.
+
+---
+
+## 4. `pylo_sdk` standalone library
 
 - Package `pylo_sdk` as a pip-installable library.
 - Add a `PyloClient` class for external scripts:
@@ -33,13 +54,13 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 3. Configuration backup & restore
+## 5. Configuration backup & restore
 
 Two levels of export/import: granular (single object) and full snapshot.
 
 ---
 
-### 3a. Granular export/import (per object) — implemented
+### 5a. Granular export/import (per object) — implemented
 
 Export and import individual objects as JSON files directly from their detail page (Settings tab).
 
@@ -66,7 +87,7 @@ Export and import individual objects as JSON files directly from their detail pa
 
 ---
 
-### 3b. Full backup & restore — implemented
+### 5b. Full backup & restore — implemented
 
 Full snapshot of Pylo configuration exportable to a ZIP file, re-importable for disaster recovery.
 
@@ -87,7 +108,7 @@ Full snapshot of Pylo configuration exportable to a ZIP file, re-importable for 
 
 ---
 
-### 3c. Git-based dev → prod promotion — implemented
+### 5c. Git-based dev → prod promotion — implemented
 
 GitOps-style workflow: objects are authored in a dev instance, committed to a Git repository, and selectively pulled into a production instance. Production is read-only for config edits but fully operational (run, activate/deactivate, view logs).
 
@@ -135,7 +156,7 @@ pylo-config/
 
 ---
 
-## 4. Dashboard and dense views ergonomics
+## 6. Dashboard and dense views ergonomics
 
 - Rework the dashboard layout to feel less compressed on desktop.
 - Add more breathing room, larger chart panels, and clearer visual hierarchy for high-priority metrics.

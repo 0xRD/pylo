@@ -60,3 +60,9 @@ async def test_decrease_while_active_waits_until_running_drops_below_limit():
     await queue_manager._release_slot()
     await asyncio.wait_for(queue_manager._reserve_slot(), timeout=0.05)
     assert queue_manager.get_stats()["running"] == 1
+
+
+def test_runner_executor_matches_live_settings_cap():
+    from backend.core.runner import _executor
+
+    assert _executor._max_workers >= 50

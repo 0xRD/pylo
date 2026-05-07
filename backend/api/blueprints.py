@@ -415,6 +415,8 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
     if not created_entries:
         return
 
+    blueprint_id = bp if isinstance(bp, str) else bp.id
+
     try:
         with Session(_engine) as _ts:
             # PyBook subscribers
@@ -422,7 +424,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                 pb for pb in _ts.exec(
                     select(PyBook).where(PyBook.trigger_type == "blueprint", PyBook.is_active == True)
                 ).all()
-                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == bp.id
+                if json.loads(pb.trigger_config or "{}").get("blueprint_id") == blueprint_id
             ]
             for sub in subscribers:
                 cfg = json.loads(sub.trigger_config or "{}")
@@ -443,7 +445,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                         status="queued",
                         trigger_source="blueprint",
                         trigger_payload=json.dumps({
-                            "blueprint_id": bp.id,
+                            "blueprint_id": blueprint_id,
                             "entry_id": entry_info["entry_id"],
                             "entry_data": entry_info["parsed"],
                             "event_type": entry_info.get("event_type", "created"),
@@ -461,7 +463,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                 wf for wf in _ts.exec(
                     select(Workflow).where(Workflow.trigger_type == "blueprint", Workflow.is_active == True)
                 ).all()
-                if json.loads(wf.trigger_config or "{}").get("blueprint_id") == bp.id
+                if json.loads(wf.trigger_config or "{}").get("blueprint_id") == blueprint_id
             ]
             import asyncio as _asyncio
             for wf in wf_subscribers:
@@ -484,7 +486,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                         status="pending",
                         trigger_source="blueprint",
                         trigger_payload=json.dumps({
-                            "blueprint_id": bp.id,
+                            "blueprint_id": blueprint_id,
                             "entry_id": entry_info["entry_id"],
                             "entry_data": entry_info["parsed"],
                             "event_type": entry_info.get("event_type", "created"),
@@ -815,6 +817,80 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
     return all_items, max_pages
 
 
+def _persist_fetch_items(blueprint_id: str, items: list, pages_fetched: int, actor: str, bind=None) -> tuple[dict, list[dict]]:
+    if bind is None:
+        from backend.database import engine as bind
+
+    with Session(bind) as session:
+        bp = session.get(Blueprint, blueprint_id)
+        if not bp:
+            raise ValueError(f"Blueprint {blueprint_id} not found")
+
+        field_mappings = json.loads(bp.field_mappings or "[]")
+        key_field = next(
+            (m["field_name"] for m in field_mappings if m.get("is_key")),
+            "external_id",
+        )
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        trigger_entries: list[dict] = []
+        mutable_fields = _mutable_fetch_fields(bp, field_mappings, {})
+
+        for item in items:
+            parsed = parse_instance(item, field_mappings)
+            if (getattr(bp, "mutable_mode", "none") or "none").lower() == "all":
+                mutable_fields = _mutable_fetch_fields(bp, field_mappings, parsed)
+            external_id = parsed.get(key_field)
+
+            if external_id:
+                existing = session.exec(
+                    select(Entry).where(
+                        Entry.blueprint_id == blueprint_id,
+                        Entry.external_id == str(external_id),
+                    )
+                ).first()
+                if existing:
+                    changed = _update_entry_from_fetch(session, bp, existing, parsed, item, mutable_fields, actor)
+                    if changed:
+                        updated_count += 1
+                        trigger_entries.append({"entry_id": existing.id, "parsed": json.loads(existing.data or "{}"), "event_type": "updated"})
+                    else:
+                        skipped_count += 1
+                    continue
+
+            now = datetime.now(timezone.utc)
+            entry = Entry(
+                id=str(uuid.uuid4()),
+                blueprint_id=blueprint_id,
+                external_id=str(external_id) if external_id else None,
+                data=json.dumps(parsed),
+                raw_data=json.dumps(item),
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(entry)
+            session.flush()
+            index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
+            created_count += 1
+            trigger_entries.append({"entry_id": entry.id, "parsed": parsed, "event_type": "created"})
+
+        retention_deleted = _enforce_entry_retention(session, bp)
+        result = {
+            "created": created_count,
+            "updated": updated_count,
+            "skipped": skipped_count,
+            "total": len(items),
+            "pages_fetched": pages_fetched,
+            "retention_deleted": retention_deleted,
+        }
+        log_activity(session, "blueprint.fetch", actor=actor,
+                     resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
+                     detail=result)
+        session.commit()
+        return result, trigger_entries
+
+
 async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler") -> dict:
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
@@ -822,7 +898,6 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
     if not bp.source_url:
         raise ValueError("Blueprint has no source_url configured")
 
-    field_mappings = json.loads(bp.field_mappings or "[]")
     req_headers = json.loads(bp.source_headers or "{}")
     req_body = json.loads(bp.source_body or "{}")
 
@@ -843,64 +918,12 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Upstream fetch failed: {exc}")
 
-    key_field = next(
-        (m["field_name"] for m in field_mappings if m.get("is_key")),
-        "external_id",
+    result, trigger_entries = await asyncio.to_thread(
+        _persist_fetch_items, blueprint_id, items, pages_fetched, actor, session.get_bind()
     )
-    created_count = 0
-    updated_count = 0
-    skipped_count = 0
-    trigger_entries: list[dict] = []
-    mutable_fields = _mutable_fetch_fields(bp, field_mappings, {})
-
-    for item in items:
-        parsed = parse_instance(item, field_mappings)
-        if (getattr(bp, "mutable_mode", "none") or "none").lower() == "all":
-            mutable_fields = _mutable_fetch_fields(bp, field_mappings, parsed)
-        external_id = parsed.get(key_field)
-
-        if external_id:
-            existing = session.exec(
-                select(Entry).where(
-                    Entry.blueprint_id == blueprint_id,
-                    Entry.external_id == str(external_id),
-                )
-            ).first()
-            if existing:
-                changed = _update_entry_from_fetch(session, bp, existing, parsed, item, mutable_fields, actor)
-                if changed:
-                    updated_count += 1
-                    trigger_entries.append({"entry_id": existing.id, "parsed": json.loads(existing.data or "{}"), "event_type": "updated"})
-                else:
-                    skipped_count += 1
-                continue
-
-        now = datetime.now(timezone.utc)
-        entry = Entry(
-            id=str(uuid.uuid4()),
-            blueprint_id=blueprint_id,
-            external_id=str(external_id) if external_id else None,
-            data=json.dumps(parsed),
-            raw_data=json.dumps(item),
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(entry)
-        session.flush()
-        index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
-        created_count += 1
-        trigger_entries.append({"entry_id": entry.id, "parsed": parsed, "event_type": "created"})
-
-    retention_deleted = _enforce_entry_retention(session, bp)
-    log_activity(session, "blueprint.fetch", actor=actor,
-                 resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
-                 detail={"created": created_count, "updated": updated_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted})
-    session.commit()
-
     if trigger_entries:
-        _fire_blueprint_triggers(bp, trigger_entries)
-
-    return {"created": created_count, "updated": updated_count, "skipped": skipped_count, "total": len(items), "pages_fetched": pages_fetched, "retention_deleted": retention_deleted}
+        _fire_blueprint_triggers(blueprint_id, trigger_entries)
+    return result
 
 
 @router.post("/{blueprint_id}/fetch")

@@ -409,7 +409,7 @@ The Authentication section in BlueprintForm generates these templates transparen
 
 ## 9. PyBook SDK (`pylo_sdk.py`)
 
-Mounted read-only into every container as `/app/pylo_sdk.py`. Injected env vars: `PYLO_API_URL`, `PYLO_API_TOKEN`, `SECRET_<name>` for each required secret, `TRIGGER_PAYLOAD`.
+Mounted read-only into every PyBook container as `/pybook/pylo_sdk.py`. Injected env vars: `PYLO_API_URL`, `PYLO_API_TOKEN`, `SECRET_<name>` for each secret selected in the PyBook Required API keys / secrets field, and `TRIGGER_PAYLOAD`.
 
 ```python
 from pylo_sdk import call_sub_pybook, search_entries, get_entry
