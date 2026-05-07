@@ -31,6 +31,10 @@ class Blueprint(SQLModel, table=True):
     pagination_path: Optional[str] = None
     pagination_items_path: Optional[str] = None
     pagination_max_pages: int = Field(default=50)
+    fetch_entry_limit: Optional[int] = None
+    fetch_retry_count: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
+    fetch_retry_delay_seconds: int = Field(default=2, sa_column_kwargs={"server_default": "2"})
+    fetch_on_fail_pybook_id: Optional[str] = None
     max_entries: Optional[int] = None
     retention_days: Optional[int] = None
     retention_minutes: Optional[int] = None

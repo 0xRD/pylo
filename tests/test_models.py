@@ -89,7 +89,9 @@ def test_blueprint_columns(engine):
     cols = {c["name"] for c in inspector.get_columns("blueprint")}
     expected = {"id", "name", "description", "source_url", "source_method",
                 "source_headers", "source_body", "field_mappings",
-                "trigger_pybook_id", "polling_interval_seconds", "created_at"}
+                "trigger_pybook_id", "polling_interval_seconds", "fetch_entry_limit",
+                "fetch_retry_count", "fetch_retry_delay_seconds", "fetch_on_fail_pybook_id",
+                "created_at"}
     assert expected <= cols
 
 

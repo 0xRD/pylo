@@ -88,3 +88,28 @@ async def test_fetch_raw_pages_with_cursor():
     assert pages == 2
     assert "cursor" not in route.calls[0].request.url.params
     assert route.calls[1].request.url.params["cursor"] == "two"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_raw_pages_stops_at_entry_limit():
+    route = respx.get(url__regex=r"https://api\.example\.test/limited.*").mock(side_effect=[
+        httpx.Response(200, json={"items": [{"id": "a"}, {"id": "b"}]}),
+        httpx.Response(200, json={"items": [{"id": "c"}, {"id": "d"}]}),
+    ])
+    bp = Blueprint(
+        id="bp-limit",
+        name="Limited",
+        source_url="https://api.example.test/limited",
+        pagination_type="page_number",
+        pagination_param="page",
+        pagination_items_path="$.items",
+        pagination_max_pages=10,
+        fetch_entry_limit=3,
+    )
+
+    items, pages = await _fetch_raw_pages(bp, {}, {})
+
+    assert items == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    assert pages == 2
+    assert len(route.calls) == 2

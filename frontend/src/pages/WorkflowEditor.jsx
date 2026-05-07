@@ -13,6 +13,9 @@ const EDGE_COLORS = {
   always: '#4b5563',
   on_success: '#22c55e',
   on_failure: '#ef4444',
+  true: '#22c55e',
+  false: '#f97316',
+  loop_item: '#06b6d4',
 }
 
 const STATUS_COLORS = {
@@ -78,7 +81,7 @@ function RunStatusOverlay({ active, done, total }) {
 }
 
 // ── PyBookPalette ─────────────────────────────────────────────────────────────
-function PyBookPalette({ pybooks }) {
+function PyBookPalette({ pybooks, onAddControlNode }) {
   const [query, setQuery] = useState('')
   const filtered = pybooks.filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
 
@@ -111,6 +114,10 @@ function PyBookPalette({ pybooks }) {
         </div>
       </div>
 
+      <div style={{ padding: '8px', borderBottom: '1px solid #1a1f2e', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        <button type="button" onClick={() => onAddControlNode('condition')} style={{ background: '#111118', border: '1px solid #1f2937', color: '#86efac', borderRadius: 6, padding: '6px', fontSize: 11, cursor: 'pointer' }}>+ If</button>
+        <button type="button" onClick={() => onAddControlNode('loop')} style={{ background: '#111118', border: '1px solid #1f2937', color: '#67e8f9', borderRadius: 6, padding: '6px', fontSize: 11, cursor: 'pointer' }}>+ Loop</button>
+      </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
         {filtered.map((pb, i) => {
           const color = pybookColor(pb, i)
@@ -195,7 +202,7 @@ function EdgeLayer({ edges, nodes, selectedEdgeId, onSelectEdge, pendingEdge }) 
         const sel = selectedEdgeId === edge.id
         const col = sel ? '#818cf8' : (EDGE_COLORS[edge.condition] || '#4b5563')
         const mx = (sx + tx) / 2, my = (sy + ty) / 2 - 10
-        const labelMap = { always: 'always', on_success: 'success', on_failure: 'failure' }
+        const labelMap = { always: 'always', on_success: 'success', on_failure: 'failure', true: 'true', false: 'false', loop_item: 'item' }
 
         return (
           <g key={edge.id} style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
@@ -234,7 +241,8 @@ function EdgeLayer({ edges, nodes, selectedEdgeId, onSelectEdge, pendingEdge }) 
 // ── PyBookNode ────────────────────────────────────────────────────────────────
 function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge, pybooks, hasError }) {
   const sc = STATUS_COLORS[node.status] || STATUS_COLORS.idle
-  const pbColor = pybook ? pybookColor(pybook, 0) : '#818cf8'
+  const nodeType = node.type || 'pybook'
+  const pbColor = nodeType === 'condition' ? '#22c55e' : nodeType === 'loop' ? '#06b6d4' : (pybook ? pybookColor(pybook, 0) : '#818cf8')
 
   const handleMouseDown = e => {
     if (e.target.dataset.handle) return
@@ -288,10 +296,7 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pbColor} strokeWidth="2" strokeLinecap="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
+                {nodeType === 'condition' ? <><path d="M12 3l8 8-8 8-8-8 8-8z" /><path d="M9 11h6" /></> : nodeType === 'loop' ? <><path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" /></> : <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>}
               </svg>
             </div>
             <div>
@@ -299,7 +304,7 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
                 {node.label}
               </div>
               <div style={{ color: '#4b5563', fontSize: 10.5, fontFamily: 'monospace', marginTop: 1 }}>
-                {pybook?.name || node.pybookId}
+                {nodeType === 'condition' ? 'condition' : nodeType === 'loop' ? (node.config?.items_path || '$.items') : (pybook?.name || node.pybookId)}
               </div>
             </div>
           </div>
@@ -340,7 +345,7 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
 }
 
 // ── WorkflowCanvas ────────────────────────────────────────────────────────────
-function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelectEdge, onSelectCanvas, onAddNode, onDragNode, onAddEdge, errorNodeIds = [] }) {
+function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelectEdge, onSelectCanvas, onAddNode, onAddControlNode, onDragNode, onAddEdge, errorNodeIds = [] }) {
   const dropRef = useRef(null)
   const [pendingEdge, setPendingEdge] = useState(null)
 
@@ -512,6 +517,9 @@ function ConditionSelect({ value, onChange }) {
     { value: 'always',     label: 'Always',    color: '#6b7280' },
     { value: 'on_success', label: 'Success',   color: '#22c55e' },
     { value: 'on_failure', label: 'Failure',   color: '#ef4444' },
+    { value: 'true', label: 'True', color: '#22c55e' },
+    { value: 'false', label: 'False', color: '#f97316' },
+    { value: 'loop_item', label: 'Loop item', color: '#06b6d4' },
   ]
   return (
     <div style={{ display: 'flex', gap: 6 }}>
@@ -661,11 +669,31 @@ function PropertiesPanel({ selectedItem, workflow, blueprints, onUpdateEdge, onU
 
   if (selectedItem.type === 'node') {
     const node = selectedItem.data
+    const nodeType = node.type || 'pybook'
+    const config = node.config || {}
     return (
       <div style={panelStyle}>
         <div style={titleStyle}>Node Properties</div>
         <PanelLabel>Label in workflow</PanelLabel>
         <FieldInput value={node.label} onChange={v => onUpdateNode(node.id, { label: v })} />
+        {nodeType === 'condition' && <>
+          <Divider />
+          <PanelLabel>If conditions</PanelLabel>
+          <WfTriggerConditionBuilder
+            value={JSON.stringify(config.conditions || [])}
+            onChange={v => { try { onUpdateNode(node.id, { config: { ...config, conditions: JSON.parse(v) } }) } catch {} }}
+          />
+        </>}
+        {nodeType === 'loop' && <>
+          <Divider />
+          <PanelLabel>Items path</PanelLabel>
+          <FieldInput value={config.items_path || '$.items'} onChange={v => onUpdateNode(node.id, { config: { ...config, items_path: v } })} placeholder="$.items" mono />
+        </>}
+        {nodeType === 'pybook' && <>
+          <Divider />
+          <PanelLabel>Retries on failure</PanelLabel>
+          <FieldInput value={String(node.retry_count || 0)} onChange={v => onUpdateNode(node.id, { retry_count: v })} placeholder="0" mono />
+        </>}
         <Divider />
         <button onClick={() => onDeleteNode(node.id)} style={{
           width: '100%', padding: '7px', borderRadius: 6, fontSize: 12, fontWeight: 500,
@@ -940,6 +968,18 @@ export default function WorkflowEditor() {
     }))
   }, [])
 
+  const addControlNode = useCallback((type) => {
+    const id = `n${nodeCounter.current++}`
+    const label = type === 'condition' ? 'If' : 'Loop'
+    const config = type === 'condition'
+      ? { conditions: [{ field: '', operator: 'eq', value: '' }] }
+      : { items_path: '$.items' }
+    setWorkflow(wf => ({
+      ...wf,
+      nodes: [...wf.nodes, { id, type, label, config, x: 80 + wf.nodes.length * 24, y: 80 + wf.nodes.length * 24, status: 'idle', duration: null }],
+    }))
+  }, [])
+
   const addEdge = useCallback((fromId, toId) => {
     setWorkflow(wf => {
       const exists = wf.edges.some(e => e.from === fromId && e.to === toId)
@@ -1107,7 +1147,7 @@ export default function WorkflowEditor() {
 
         {/* Body */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <PyBookPalette pybooks={pybooks} />
+          <PyBookPalette pybooks={pybooks} onAddControlNode={addControlNode} />
 
           {/* Center: tabs + canvas/history */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1135,6 +1175,7 @@ export default function WorkflowEditor() {
                   onSelectEdge={edge => setSelectedItem({ type: 'edge', data: edge })}
                   onSelectCanvas={() => setSelectedItem(null)}
                   onAddNode={addNode}
+                  onAddControlNode={addControlNode}
                   onDragNode={dragNode}
                   onAddEdge={addEdge}
                   errorNodeIds={errorNodeIds}

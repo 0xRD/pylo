@@ -21,8 +21,6 @@ import InviteAccept from './pages/InviteAccept'
 import Workflows from './pages/Workflows'
 import WorkflowEditor from './pages/WorkflowEditor'
 import Automations from './pages/Automations'
-import Cases from './pages/Cases'
-import CaseDetail from './pages/CaseDetail'
 import Wiki from './pages/Wiki'
 
 function SetupGuard({ children }) {
@@ -74,8 +72,6 @@ export default function App() {
               <Route path="/pybooks" element={<PyBooks />} />
               <Route path="/runs" element={<Runs />} />
               <Route path="/automations" element={<Automations />} />
-              <Route path="/cases" element={<Cases />} />
-              <Route path="/cases/:id" element={<CaseDetail />} />
               <Route path="/secrets" element={<Secrets />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/activity" element={<Activity />} />

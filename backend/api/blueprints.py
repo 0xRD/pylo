@@ -52,6 +52,10 @@ class BlueprintCreate(BaseModel):
     pagination_path: Optional[str] = None
     pagination_items_path: Optional[str] = None
     pagination_max_pages: int = 50
+    fetch_entry_limit: Optional[int] = None
+    fetch_retry_count: int = 0
+    fetch_retry_delay_seconds: int = 2
+    fetch_on_fail_pybook_id: Optional[str] = None
     max_entries: Optional[int] = None
     retention_days: Optional[int] = None
     retention_minutes: Optional[int] = None
@@ -77,6 +81,10 @@ class BlueprintUpdate(BaseModel):
     pagination_path: Optional[str] = None
     pagination_items_path: Optional[str] = None
     pagination_max_pages: Optional[int] = None
+    fetch_entry_limit: Optional[int] = None
+    fetch_retry_count: Optional[int] = None
+    fetch_retry_delay_seconds: Optional[int] = None
+    fetch_on_fail_pybook_id: Optional[str] = None
     max_entries: Optional[int] = None
     retention_days: Optional[int] = None
     retention_minutes: Optional[int] = None
@@ -794,6 +802,10 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
             response.raise_for_status()
             raw_data = response.json()
             items = _extract_fetch_items(raw_data, bp.pagination_items_path)
+            limit = _fetch_entry_limit(bp)
+            if limit is not None and len(all_items) + len(items) >= limit:
+                all_items.extend(items[:max(0, limit - len(all_items))])
+                return all_items, page_idx + 1
             all_items.extend(items)
 
             if ptype == "none":
@@ -815,6 +827,43 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
                 cursor = next_cursor
 
     return all_items, max_pages
+
+
+def _fetch_entry_limit(bp: Blueprint) -> int | None:
+    try:
+        limit = int(getattr(bp, "fetch_entry_limit", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return max(1, min(limit, 100000)) if limit > 0 else None
+
+
+def _fire_blueprint_fetch_failure(bp: Blueprint, error: str) -> None:
+    pybook_id = getattr(bp, "fetch_on_fail_pybook_id", None)
+    if not pybook_id:
+        return
+    from backend.core import queue_manager
+    from backend.database import engine as _engine
+    from backend.pybooks.models import PyBook, PyBookRun
+
+    with Session(_engine) as session:
+        pybook = session.get(PyBook, pybook_id)
+        if not pybook or not pybook.is_active:
+            return
+        run = PyBookRun(
+            id=str(uuid.uuid4()),
+            pybook_id=pybook_id,
+            status="queued",
+            trigger_source="blueprint_fetch_failure",
+            trigger_payload=json.dumps({
+                "blueprint_id": bp.id,
+                "blueprint_name": bp.name,
+                "error": error,
+            }),
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(run)
+        session.commit()
+        queue_manager.enqueue(pybook_id, run.id)
 
 
 def _persist_fetch_items(blueprint_id: str, items: list, pages_fetched: int, actor: str, bind=None) -> tuple[dict, list[dict]]:
@@ -913,10 +962,25 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
     except Exception:
         pass
 
-    try:
-        items, pages_fetched = await _fetch_raw_pages(bp, req_headers, req_body)
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"Upstream fetch failed: {exc}")
+    retry_count = max(0, min(int(getattr(bp, "fetch_retry_count", 0) or 0), 5))
+    retry_delay = max(0, min(int(getattr(bp, "fetch_retry_delay_seconds", 2) or 0), 300))
+    last_error = None
+    for attempt in range(retry_count + 1):
+        try:
+            items, pages_fetched = await _fetch_raw_pages(bp, req_headers, req_body)
+            break
+        except httpx.HTTPError as exc:
+            last_error = exc
+            if attempt < retry_count and retry_delay:
+                await asyncio.sleep(retry_delay)
+    else:
+        error = f"Upstream fetch failed: {last_error}"
+        log_activity(session, "blueprint.fetch_failed", actor=actor,
+                     resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
+                     detail={"error": error, "retries": retry_count})
+        session.commit()
+        _fire_blueprint_fetch_failure(bp, error)
+        raise RuntimeError(error)
 
     result, trigger_entries = await asyncio.to_thread(
         _persist_fetch_items, blueprint_id, items, pages_fetched, actor, session.get_bind()

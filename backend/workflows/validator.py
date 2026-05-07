@@ -77,11 +77,46 @@ def validate_dag(nodes_json: str, edges_json: str, session: Session) -> list[dic
             "message": "Workflow contains a circular dependency — check for loops between nodes",
         })
 
-    # ── 4. PyBook checks ──────────────────────────────────────────────────────
+    # ── 4. Node and edge checks ──────────────────────────────────────────────
+    valid_edge_conditions = {"always", "on_success", "on_failure", "true", "false", "loop_item"}
+    for edge in edges:
+        condition = edge.get("condition", "always")
+        if condition not in valid_edge_conditions:
+            errors.append({"type": "invalid_edge", "message": f"Connection has unknown condition '{condition}'"})
+
     for node in nodes:
         pb_id = node.get("pybookId")
         node_id = node.get("id")
         label = node.get("label") or node_id or "?"
+        node_type = node.get("type", "pybook")
+
+        if node_type == "condition":
+            conditions = (node.get("config") or {}).get("conditions") or node.get("conditions") or []
+            if not isinstance(conditions, list) or not conditions:
+                errors.append({
+                    "type": "invalid_condition",
+                    "message": f"Condition node \"{label}\" needs at least one condition",
+                    "node_id": node_id,
+                })
+            continue
+
+        if node_type == "loop":
+            items_path = (node.get("config") or {}).get("items_path") or node.get("items_path")
+            if not items_path:
+                errors.append({
+                    "type": "invalid_loop",
+                    "message": f"Loop node \"{label}\" needs an items path, for example $.items",
+                    "node_id": node_id,
+                })
+            continue
+
+        if node_type != "pybook":
+            errors.append({
+                "type": "invalid_node_type",
+                "message": f"Node \"{label}\" has unknown type '{node_type}'",
+                "node_id": node_id,
+            })
+            continue
 
         if not pb_id:
             errors.append({

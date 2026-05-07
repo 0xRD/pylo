@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { blueprintsApi } from '../api/blueprints'
 import { secretsApi } from '../api/secrets'
+import { pybooksApi } from '../api/pybooks'
 import HelpTip from './HelpTip'
 import ScheduleBuilder from './ScheduleBuilder'
 
@@ -80,6 +81,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
     fetch_cron: '', fetch_is_active: false, is_manual: false, mutable_mode: 'none',
     pagination_type: 'none', pagination_param: '', pagination_path: '',
     pagination_items_path: '', pagination_max_pages: 50,
+    fetch_entry_limit: '', fetch_retry_count: 0, fetch_retry_delay_seconds: 2, fetch_on_fail_pybook_id: '',
     max_entries: '',
   })
   const _initRetention = () => {
@@ -98,12 +100,14 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
   const [focusedRow, setFocusedRow] = useState(null)
   const [rowErrors, setRowErrors] = useState({})
   const [secrets, setSecrets] = useState([])
+  const [pybooks, setPybooks] = useState([])
   const [authType, setAuthType] = useState('none')
   const [authSecret, setAuthSecret] = useState('')
   const [authKeyHeader, setAuthKeyHeader] = useState('X-API-Key')
 
   useEffect(() => {
     secretsApi.list().then(setSecrets).catch(() => {})
+    pybooksApi.list().then(setPybooks).catch(() => {})
     try {
       const h = JSON.parse(initial?.source_headers || '{}')
       const auth = h['Authorization'] || ''
@@ -200,6 +204,10 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
         pagination_path: form.pagination_type === 'cursor' ? (form.pagination_path || null) : null,
         pagination_items_path: form.pagination_items_path || null,
         pagination_max_pages: Number(form.pagination_max_pages || 50),
+        fetch_entry_limit: form.fetch_entry_limit ? Number(form.fetch_entry_limit) : null,
+        fetch_retry_count: Number(form.fetch_retry_count || 0),
+        fetch_retry_delay_seconds: Number(form.fetch_retry_delay_seconds || 2),
+        fetch_on_fail_pybook_id: form.fetch_on_fail_pybook_id || null,
         max_entries: form.max_entries ? Number(form.max_entries) : null,
         retention_minutes: retentionValue ? Number(retentionValue) * UNIT_TO_MINUTES[retentionUnit] : null,
       })
@@ -340,6 +348,35 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
               )}
             </div>
           )}
+
+          <div className="border-t border-gray-800 pt-3">
+            <label className="block text-xs text-gray-400 font-medium mb-2">Fetch controls<HelpTip text="Use these guardrails for large or unreliable APIs. Entry limit caps how many items this Blueprint will pull in a single fetch. Retries are used for transient upstream failures. On fail can trigger a PyBook with blueprint_id, blueprint_name, and error in its payload." /></label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Entry limit per fetch</label>
+                <input type="number" min="1" value={form.fetch_entry_limit || ''} onChange={e => set('fetch_entry_limit', e.target.value)} placeholder="No limit"
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Retry count</label>
+                <input type="number" min="0" max="5" value={form.fetch_retry_count ?? 0} onChange={e => set('fetch_retry_count', e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Retry delay seconds</label>
+                <input type="number" min="0" max="300" value={form.fetch_retry_delay_seconds ?? 2} onChange={e => set('fetch_retry_delay_seconds', e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">On fail PyBook</label>
+                <select value={form.fetch_on_fail_pybook_id || ''} onChange={e => set('fetch_on_fail_pybook_id', e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                  <option value="">None</option>
+                  {pybooks.map(pb => <option key={pb.id} value={pb.id}>{pb.name}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
 
         {previewError && <div className="p-3 bg-red-950 border border-red-800 rounded text-xs text-red-300">{previewError}</div>}

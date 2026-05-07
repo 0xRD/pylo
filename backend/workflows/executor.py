@@ -1,7 +1,8 @@
 """
 Workflow DAG executor.
-Runs a WorkflowRun by traversing nodes/edges in topological order,
-executing independent branches in parallel via asyncio.gather.
+Runs workflow nodes in graph order. PyBook nodes execute containers;
+condition and loop nodes provide lightweight control flow without requiring
+cycles in the stored graph.
 """
 import asyncio
 import json
@@ -12,35 +13,118 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session
 
-from backend.database import engine
-from backend.pybooks.models import PyBook, PyBookRun
 from backend.activity.logger import log_activity
-from backend.workflows.models import Workflow, WorkflowRun, WorkflowNodeRun
+from backend.database import engine
+from backend.objects.filter import check_trigger_conditions
+from backend.pybooks.models import PyBook, PyBookRun
+from backend.workflows.models import Workflow, WorkflowNodeRun, WorkflowRun
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_jsonpath(path: str, output_vars: dict):
-    """Resolve $.vars.key references against an output_vars dict."""
+def _path_get(data, path: str):
+    if path == "$":
+        return data
+    if not isinstance(path, str) or not path.startswith("$."):
+        return path
+    cur = data
+    for part in path[2:].split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part)
+        elif isinstance(cur, list) and part.isdigit():
+            idx = int(part)
+            cur = cur[idx] if idx < len(cur) else None
+        else:
+            return None
+    return cur
+
+
+def _resolve_jsonpath(path: str, payload: dict, output_vars: dict):
+    """Resolve $.vars.key and $.payload.key references for edge mappings."""
     if isinstance(path, str) and path.startswith("$.vars."):
-        return output_vars.get(path[len("$.vars."):])
+        return _path_get(output_vars, "$" + path[len("$.vars"):])
+    if isinstance(path, str) and path.startswith("$.payload."):
+        return _path_get(payload, "$" + path[len("$.payload"):])
     return path
 
 
-def _build_payload(mappings: list, output_vars: dict) -> dict:
-    result = {}
+def _build_payload(mappings: list, payload: dict, output_vars: dict) -> dict:
+    if not mappings:
+        return dict(payload or {})
+    result = dict(payload or {})
     for m in mappings:
         key = m.get("key", "")
         if key:
-            result[key] = _resolve_jsonpath(m.get("source", ""), output_vars)
+            result[key] = _resolve_jsonpath(m.get("source", ""), payload, output_vars)
     return result
 
 
-async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[str, str, dict]:
-    """
-    Execute a single workflow node (one PyBook run).
-    Returns (node_id, final_status, output_vars).
-    """
+def _node_retry_count(node: dict) -> int:
+    try:
+        return max(0, min(int(node.get("retry_count") or 0), 5))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _edge_matches(edge: dict, node: dict, status: str, output_vars: dict) -> bool:
+    cond = edge.get("condition", "always")
+    node_type = node.get("type", "pybook")
+    if cond == "always":
+        return True
+    if cond == "on_success":
+        return status == "success"
+    if cond == "on_failure":
+        return status in ("error", "timeout")
+    if node_type == "condition":
+        result = bool(output_vars.get("result"))
+        return (cond == "true" and result) or (cond == "false" and not result)
+    if node_type == "loop":
+        return cond == "loop_item"
+    return False
+
+
+def _record_control_node_run(workflow_run_id: str, node_id: str, status: str, output_vars: dict, started: datetime) -> None:
+    ended = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        session.add(WorkflowNodeRun(
+            id=str(uuid.uuid4()),
+            workflow_run_id=workflow_run_id,
+            node_id=node_id,
+            status=status,
+            output_vars=json.dumps(output_vars),
+            started_at=started,
+            ended_at=ended,
+            duration_ms=int((ended - started).total_seconds() * 1000),
+        ))
+        session.commit()
+
+
+async def _run_condition_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[str, str, dict]:
+    started = datetime.now(timezone.utc)
+    config = node.get("config") or {}
+    conditions = config.get("conditions") or node.get("conditions") or []
+    result = check_trigger_conditions(payload or {}, conditions)
+    output_vars = {"result": result}
+    _record_control_node_run(workflow_run_id, node["id"], "success", output_vars, started)
+    return node["id"], "success", output_vars
+
+
+async def _run_loop_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[str, str, dict]:
+    started = datetime.now(timezone.utc)
+    config = node.get("config") or {}
+    items_path = config.get("items_path") or node.get("items_path") or "$.items"
+    items = _path_get(payload or {}, items_path)
+    if items is None:
+        items = []
+    if not isinstance(items, list):
+        items = [items]
+    output_vars = {"count": len(items), "items": items}
+    _record_control_node_run(workflow_run_id, node["id"], "success", output_vars, started)
+    return node["id"], "success", output_vars
+
+
+async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[str, str, dict]:
+    """Execute a single PyBook workflow node."""
     from backend.core.runner import run_pybook
     from backend.pybooks.store import get_script_path
 
@@ -88,73 +172,66 @@ async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[st
             secrets = []
 
     started = datetime.now(timezone.utc)
+    stdout, stderr, exit_code = "", "", -1
     final_status = "error"
     output_vars: dict = {}
 
-    try:
-        stdout, stderr, exit_code = await run_pybook(
-            pybook_id=pybook_id,
-            run_id=pb_run_id,
-            script_path=script_path,
-            dependencies=deps,
-            required_secrets=secrets,
-            trigger_payload=payload,
-        )
-        ended = datetime.now(timezone.utc)
-        final_status = "success" if exit_code == 0 else "error"
+    for attempt in range(_node_retry_count(node) + 1):
+        try:
+            stdout, stderr, exit_code = await run_pybook(
+                pybook_id=pybook_id,
+                run_id=pb_run_id,
+                script_path=script_path,
+                dependencies=deps,
+                required_secrets=secrets,
+                trigger_payload=payload,
+            )
+            final_status = "success" if exit_code == 0 else "error"
+        except TimeoutError as exc:
+            final_status = "timeout"
+            stderr = str(exc)
+            exit_code = -1
+        except Exception as exc:
+            final_status = "error"
+            stderr = str(exc)
+            exit_code = -1
+            logger.exception("Error running node %s attempt %s: %s", node_id, attempt + 1, exc)
+        if final_status == "success" or attempt == _node_retry_count(node):
+            break
 
-        with Session(engine) as session:
-            pb_run_obj = session.get(PyBookRun, pb_run_id)
-            if pb_run_obj:
-                pb_run_obj.stdout = stdout
-                pb_run_obj.stderr = stderr
-                pb_run_obj.exit_code = exit_code
-                pb_run_obj.status = final_status
-                pb_run_obj.ended_at = ended
-                pb_run_obj.duration_ms = int((ended - started).total_seconds() * 1000)
-                session.add(pb_run_obj)
-                session.commit()
-                output_vars = json.loads(pb_run_obj.output_vars or "{}")
-
-    except TimeoutError:
-        ended = datetime.now(timezone.utc)
-        final_status = "timeout"
-        with Session(engine) as session:
-            pb_run_obj = session.get(PyBookRun, pb_run_id)
-            if pb_run_obj:
-                pb_run_obj.status = "timeout"
-                pb_run_obj.exit_code = -1
-                pb_run_obj.ended_at = ended
-                pb_run_obj.duration_ms = int((ended - started).total_seconds() * 1000)
-                session.add(pb_run_obj)
-                session.commit()
-    except Exception as exc:
-        ended = datetime.now(timezone.utc)
-        final_status = "error"
-        logger.exception("Error running node %s: %s", node_id, exc)
-        with Session(engine) as session:
-            pb_run_obj = session.get(PyBookRun, pb_run_id)
-            if pb_run_obj:
-                pb_run_obj.status = "error"
-                pb_run_obj.stderr = str(exc)
-                pb_run_obj.exit_code = -1
-                pb_run_obj.ended_at = ended
-                pb_run_obj.duration_ms = int((ended - started).total_seconds() * 1000)
-                session.add(pb_run_obj)
-                session.commit()
-
-    ended_final = datetime.now(timezone.utc)
+    ended = datetime.now(timezone.utc)
     with Session(engine) as session:
+        pb_run_obj = session.get(PyBookRun, pb_run_id)
+        if pb_run_obj:
+            pb_run_obj.stdout = stdout
+            pb_run_obj.stderr = stderr
+            pb_run_obj.exit_code = exit_code
+            pb_run_obj.status = final_status
+            pb_run_obj.ended_at = ended
+            pb_run_obj.duration_ms = int((ended - started).total_seconds() * 1000)
+            session.add(pb_run_obj)
+            session.commit()
+            output_vars = json.loads(pb_run_obj.output_vars or "{}")
+
         nr = session.get(WorkflowNodeRun, node_run_id)
         if nr:
             nr.status = final_status
             nr.output_vars = json.dumps(output_vars)
-            nr.ended_at = ended_final
-            nr.duration_ms = int((ended_final - started).total_seconds() * 1000)
+            nr.ended_at = ended
+            nr.duration_ms = int((ended - started).total_seconds() * 1000)
             session.add(nr)
             session.commit()
 
     return node_id, final_status, output_vars
+
+
+async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[str, str, dict]:
+    node_type = node.get("type", "pybook")
+    if node_type == "condition":
+        return await _run_condition_node(workflow_run_id, node, payload)
+    if node_type == "loop":
+        return await _run_loop_node(workflow_run_id, node, payload)
+    return await _run_pybook_node(workflow_run_id, node, payload)
 
 
 async def execute_workflow(workflow_run_id: str) -> None:
@@ -180,7 +257,6 @@ async def execute_workflow(workflow_run_id: str) -> None:
         _finish(workflow_run_id, "success")
         return
 
-    # Build adjacency structures
     outgoing: dict = defaultdict(list)
     in_degree: dict = defaultdict(int)
     for e in edges:
@@ -190,32 +266,33 @@ async def execute_workflow(workflow_run_id: str) -> None:
     node_map = {n["id"]: n for n in nodes}
     start_nodes = [n for n in nodes if in_degree[n["id"]] == 0]
 
-    # DAG traversal — recursive async with parallel branches
     triggered: set = set()
-    completed: dict = {}  # node_id -> (status, output_vars)
+    completed: dict = {}
 
-    async def visit(node: dict, payload: dict) -> None:
+    async def visit(node: dict, payload: dict, repeat: bool = False) -> None:
         nid = node["id"]
-        if nid in triggered:
+        if not repeat and node.get("type") != "loop" and nid in triggered:
             return
-        triggered.add(nid)
+        if not repeat and node.get("type") != "loop":
+            triggered.add(nid)
 
         nid, status, out_vars = await _run_node(workflow_run_id, node, payload)
         completed[nid] = (status, out_vars)
 
         next_tasks = []
         for edge in outgoing[nid]:
-            cond = edge.get("condition", "always")
-            should_fire = (
-                cond == "always"
-                or (cond == "on_success" and status == "success")
-                or (cond == "on_failure" and status in ("error", "timeout"))
-            )
-            if should_fire:
-                to_id = edge["to"]
-                if to_id not in triggered and to_id in node_map:
-                    next_payload = _build_payload(edge.get("mappings", []), out_vars)
-                    next_tasks.append(visit(node_map[to_id], next_payload))
+            if not _edge_matches(edge, node, status, out_vars):
+                continue
+            to_id = edge["to"]
+            if to_id not in node_map:
+                continue
+            if node.get("type") == "loop":
+                for index, item in enumerate(out_vars.get("items") or []):
+                    item_payload = {**(payload or {}), "item": item, "loop_index": index}
+                    next_tasks.append(visit(node_map[to_id], _build_payload(edge.get("mappings", []), item_payload, out_vars), True))
+            elif repeat or to_id not in triggered:
+                next_payload = _build_payload(edge.get("mappings", []), payload, out_vars)
+                next_tasks.append(visit(node_map[to_id], next_payload, repeat))
         if next_tasks:
             await asyncio.gather(*next_tasks)
 
@@ -223,7 +300,7 @@ async def execute_workflow(workflow_run_id: str) -> None:
     try:
         await asyncio.gather(*[visit(n, trigger_payload) for n in start_nodes])
         statuses = [v[0] for v in completed.values()]
-        final = "success" if all(s == "success" for s in statuses) else "error"
+        final = "success" if statuses and all(s == "success" for s in statuses) else "error"
     except Exception as exc:
         logger.exception("Workflow run %s failed: %s", workflow_run_id, exc)
         final = "error"

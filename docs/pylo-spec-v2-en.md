@@ -126,6 +126,10 @@ blueprint
 ├── polling_interval_seconds INT        -- legacy, prefer fetch_cron
 ├── fetch_cron      TEXT                -- cron expression (NULL = no schedule)
 ├── fetch_is_active BOOL DEFAULT FALSE
+├── fetch_entry_limit INT               -- optional max items pulled in one fetch
+├── fetch_retry_count INT DEFAULT 0     -- transient upstream retry count
+├── fetch_retry_delay_seconds INT DEFAULT 2
+├── fetch_on_fail_pybook_id TEXT        -- optional PyBook triggered after fetch failure
 ├── is_manual       BOOL DEFAULT FALSE  -- TRUE = no fetch; entries created via UI/API
 └── created_at      DATETIME
 ```
@@ -403,7 +407,7 @@ The Authentication section in BlueprintForm generates these templates transparen
 | `HelpTip` | Inline `(?)` with hover tooltip. Props: `text`. |
 | `RunStatusBadge` | Coloured pill for run status. States: `queued` (gray) `running` (blue) `success` (green) `error` (red) `timeout` (orange). |
 | `CodeEditor` | Monaco editor wrapper (Python syntax). |
-| `Sidebar` | Navigation; Pylo logo = home link. Routes: Blueprints, Entries, PyBooks, Runs, Secrets, Settings. |
+| `Sidebar` | Navigation; Pylo logo = home link. Routes: Dashboard, Blueprints, Entries, PyBooks, Workflows, Runs, Automations, Secrets, Activity, Wiki, Settings. |
 
 ---
 

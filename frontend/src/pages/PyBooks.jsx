@@ -18,6 +18,7 @@ import {
   Code2,
   Copy,
   FileText,
+  HelpCircle,
   Play,
   Plus,
   RotateCcw,
@@ -54,11 +55,15 @@ function parseJsonArray(value) {
   }
 }
 
-function RequiredSecretsSelect({ value, onChange, secrets = [], disabled = false, compact = false }) {
+function RequiredSecretsSelect({ value, onChange, secrets = [], disabled = false }) {
   const selected = parseJsonArray(value)
-  const update = (e) => {
-    const names = Array.from(e.target.selectedOptions, option => option.value)
-    onChange(JSON.stringify(names))
+  const selectedSet = new Set(selected)
+  const toggle = (name) => {
+    if (disabled) return
+    const next = selectedSet.has(name)
+      ? selected.filter(item => item !== name)
+      : [...selected, name]
+    onChange(JSON.stringify(next))
   }
 
   return (
@@ -66,26 +71,43 @@ function RequiredSecretsSelect({ value, onChange, secrets = [], disabled = false
       <label className="block text-xs text-gray-400 mb-1">
         Required API keys / secrets <span className="text-gray-600">(stored secrets)</span>
       </label>
-      <select
-        multiple
-        value={selected}
-        onChange={update}
-        disabled={disabled || secrets.length === 0}
-        size={compact ? 4 : 5}
-        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-      >
-        {secrets.map(secret => (
-          <option key={secret.id} value={secret.name}>
-            {secret.name}{secret.description ? ` · ${secret.description}` : ''}
-          </option>
-        ))}
-      </select>
-      <p className="text-xs text-gray-600 mt-1">
-        {secrets.length === 0
-          ? 'No stored secrets yet. Add API keys in Secrets first.'
-          : 'Selected names are injected as SECRET_<name> environment variables.'}
-      </p>
+      <div className="min-h-10 rounded border border-gray-700 bg-gray-800 p-2">
+        {secrets.length === 0 ? (
+          <p className="text-xs text-gray-600">No stored secrets yet. Add API keys in Secrets first.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {secrets.map(secret => {
+              const active = selectedSet.has(secret.name)
+              return (
+                <button
+                  key={secret.id}
+                  type="button"
+                  onClick={() => toggle(secret.name)}
+                  disabled={disabled}
+                  title={active ? `Remove ${secret.name}` : `Inject ${secret.name}`}
+                  className={`inline-flex max-w-full items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? 'border-indigo-500 bg-indigo-950/70 text-indigo-200' : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-gray-200'}`}
+                >
+                  <span className="truncate">{secret.name}</span>
+                  {active && <X className="h-3 w-3 shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-gray-600 mt-1">Click a selected key again, or its ×, to remove it. Selected values are injected as SECRET_&lt;name&gt;.</p>
     </div>
+  )
+}
+
+function InlineHelp({ text }) {
+  return (
+    <span className="group relative inline-flex align-middle">
+      <HelpCircle className="h-3.5 w-3.5 text-gray-500" />
+      <span className="pointer-events-none absolute left-1/2 top-5 z-20 hidden w-64 -translate-x-1/2 rounded border border-gray-700 bg-gray-950 p-2 text-xs leading-relaxed text-gray-300 shadow-xl group-hover:block">
+        {text}
+      </span>
+    </span>
   )
 }
 
@@ -792,7 +814,6 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
             onChange={value => set('required_secrets', value)}
             secrets={secrets}
             disabled={!isAdmin}
-            compact
           />
         </div>
         <div>
@@ -805,9 +826,12 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
           </select>
           {form.network_policy === 'allowlisted' && (
             <div className="mt-2">
-              <label className="block text-xs text-gray-400 mb-1">Allowed hosts <span className="text-gray-600">(JSON array)</span></label>
+              <label className="flex items-center gap-1 text-xs text-gray-400 mb-1">
+                Allowed hosts <span className="text-gray-600">(JSON array)</span>
+                <InlineHelp text={'Enter hostnames only, not full URLs. Example: ["api.abuseipdb.com", "api.github.com"]. Pylo allows network access through the shared Docker network, but only these hostnames are intended to resolve for this PyBook. Do not include https://, paths, headers, or secret values here.'} />
+              </label>
               <input value={form.allowed_hosts} onChange={e => set('allowed_hosts', e.target.value)} disabled={!isAdmin}
-                placeholder='["api.example.com"]'
+                placeholder='["api.abuseipdb.com", "api.github.com"]'
                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
             </div>
           )}
