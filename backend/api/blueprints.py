@@ -5,7 +5,7 @@ import logging
 import re
 import socket
 import uuid
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -19,7 +19,7 @@ from jsonpath_ng import parse as jsonpath_parse
 from backend.activity.logger import log_activity
 from backend.config import settings
 from backend.core.auth import AuthUser, verify_token
-from backend.database import get_session
+from backend.database import engine, get_session
 from backend.objects.filter import json_field_text
 from backend.objects.indexer import count_fts, index_entry, remove_from_index, search_fts
 from backend.objects.models import Entry, Blueprint, EntryEvent
@@ -367,6 +367,7 @@ async def get_reparse_status(blueprint_id: str):
 
 
 _reparse_state: dict[str, dict] = {}
+_fetch_state: dict[str, dict] = {}
 
 
 def _do_reparse_sync(blueprint_id: str, field_mappings_json: str) -> None:
@@ -573,12 +574,25 @@ def _validate_fetch_url(url: str) -> None:
         raise HTTPException(status_code=400, detail="Private, local, and link-local fetch targets are blocked")
 
 
+def _url_with_params(url: str, params: dict | None) -> str:
+    if not params:
+        return url
+    parsed = urlparse(url)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    query.extend((key, str(value)) for key, value in params.items())
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
 async def _request_with_ssrf_guard(client: httpx.AsyncClient, method: str, url: str, **kwargs) -> httpx.Response:
     current_url = url
     current_method = method.upper()
+    request_kwargs = dict(kwargs)
+    extra_params = request_kwargs.pop("params", None)
     for _ in range(4):
-        _validate_fetch_url(current_url)
-        response = await client.request(current_method, current_url, follow_redirects=False, **kwargs)
+        request_url = _url_with_params(current_url, extra_params)
+        extra_params = None
+        _validate_fetch_url(request_url)
+        response = await client.request(current_method, request_url, follow_redirects=False, **request_kwargs)
         if response.status_code not in {301, 302, 303, 307, 308}:
             return response
         location = response.headers.get("location")
@@ -587,7 +601,7 @@ async def _request_with_ssrf_guard(client: httpx.AsyncClient, method: str, url: 
         current_url = urljoin(str(response.url), location)
         if response.status_code == 303 or (response.status_code in {301, 302} and current_method != "GET"):
             current_method = "GET"
-            kwargs.pop("json", None)
+            request_kwargs.pop("json", None)
     raise HTTPException(status_code=400, detail="Too many redirects while fetching Blueprint source")
 
 
@@ -598,6 +612,18 @@ def _extract_fetch_items(raw_data, items_path: Optional[str]) -> list:
     if data is None:
         return []
     return data if isinstance(data, list) else [data]
+
+
+def _extract_total_count(raw_data) -> int | None:
+    for path in ("$.total", "$.count", "$.pagination.total", "$.meta.total"):
+        value = _jsonpath_first(raw_data, path)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
 
 
 _COMMON_ITEM_KEYS = ("items", "data", "results", "records", "value")
@@ -783,6 +809,7 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
     offset = 0
     cursor = None
     seen_cursors = set()
+    last_items_marker = None
 
     async with httpx.AsyncClient(timeout=30) as client:
         for page_idx in range(max_pages):
@@ -802,6 +829,12 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
             response.raise_for_status()
             raw_data = response.json()
             items = _extract_fetch_items(raw_data, bp.pagination_items_path)
+            if ptype in {"page_number", "offset"} and items:
+                items_marker = json.dumps(items, sort_keys=True, default=str)
+                if last_items_marker == items_marker:
+                    return all_items, page_idx + 1
+                last_items_marker = items_marker
+
             limit = _fetch_entry_limit(bp)
             if limit is not None and len(all_items) + len(items) >= limit:
                 all_items.extend(items[:max(0, limit - len(all_items))])
@@ -810,6 +843,9 @@ async def _fetch_raw_pages(bp: Blueprint, headers: dict, body: dict) -> tuple[li
 
             if ptype == "none":
                 return all_items, 1
+            total_count = _extract_total_count(raw_data)
+            if total_count is not None and len(all_items) >= total_count:
+                return all_items, page_idx + 1
             if not items:
                 return all_items, page_idx + 1
 
@@ -990,9 +1026,47 @@ async def _do_fetch(blueprint_id: str, session: Session, actor: str = "scheduler
     return result
 
 
+async def _do_fetch_with_new_session(blueprint_id: str, actor: str) -> dict:
+    with Session(engine) as fetch_session:
+        return await _do_fetch(blueprint_id, fetch_session, actor=actor)
+
+
+async def _run_fetch_background(blueprint_id: str, actor: str) -> None:
+    started = _fetch_state.get(blueprint_id, {}).get("started_at")
+    _fetch_state[blueprint_id] = {"status": "running", "started_at": started or datetime.now(timezone.utc).isoformat()}
+    try:
+        result = await _do_fetch_with_new_session(blueprint_id, actor)
+        _fetch_state[blueprint_id] = {
+            "status": "done",
+            "result": result,
+            "started_at": _fetch_state.get(blueprint_id, {}).get("started_at"),
+            "ended_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.exception("Background fetch failed for Blueprint %s: %s", blueprint_id, exc)
+        _fetch_state[blueprint_id] = {
+            "status": "error",
+            "error": str(exc),
+            "started_at": _fetch_state.get(blueprint_id, {}).get("started_at"),
+            "ended_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+@router.get("/{blueprint_id}/fetch/status")
+async def fetch_blueprint_status(
+    blueprint_id: str,
+    session: Session = Depends(get_session),
+):
+    bp = session.get(Blueprint, blueprint_id)
+    if not bp:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+    return _fetch_state.get(blueprint_id, {"status": "idle"})
+
+
 @router.post("/{blueprint_id}/fetch")
 async def fetch_blueprint(
     blueprint_id: str,
+    background: bool = Query(False),
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(verify_token),
 ):
@@ -1001,8 +1075,20 @@ async def fetch_blueprint(
         raise HTTPException(status_code=404, detail="Blueprint not found")
     if not bp.source_url:
         raise HTTPException(status_code=400, detail="Blueprint has no source_url configured")
+
+    if background:
+        state = _fetch_state.get(blueprint_id, {})
+        if state.get("status") == "running":
+            return state
+        _fetch_state[blueprint_id] = {
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+        asyncio.get_running_loop().create_task(_run_fetch_background(blueprint_id, current_user.username))
+        return _fetch_state[blueprint_id]
+
     try:
-        return await _do_fetch(blueprint_id, session, actor=current_user.username)
+        return await asyncio.shield(_do_fetch_with_new_session(blueprint_id, current_user.username))
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 

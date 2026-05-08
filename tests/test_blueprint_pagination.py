@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from backend.api.blueprints import _build_auto_mappings, _extract_fetch_items, _fetch_raw_pages, _infer_items_path
+from backend.api.blueprints import PreviewRequest, _build_auto_mappings, _extract_fetch_items, _fetch_raw_pages, _infer_items_path, preview_endpoint
 from backend.objects.models import Blueprint
 
 
@@ -113,3 +113,66 @@ async def test_fetch_raw_pages_stops_at_entry_limit():
     assert items == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
     assert pages == 2
     assert len(route.calls) == 2
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_raw_pages_offset_stops_at_total_count():
+    route = respx.get(url__regex=r"https://api\.example\.test/offset.*").mock(side_effect=[
+        httpx.Response(200, json={"items": [{"id": "a"}, {"id": "b"}], "total": 3}),
+        httpx.Response(200, json={"items": [{"id": "c"}], "total": 3}),
+    ])
+    bp = Blueprint(
+        id="bp-offset-total",
+        name="Offset Total",
+        source_url="https://api.example.test/offset?limit=2",
+        pagination_type="offset",
+        pagination_param="offset",
+        pagination_items_path="$.items",
+        pagination_max_pages=10,
+    )
+
+    items, pages = await _fetch_raw_pages(bp, {}, {})
+
+    assert items == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    assert pages == 2
+    assert [str(call.request.url.params["offset"]) for call in route.calls] == ["0", "2"]
+    assert [str(call.request.url.params["limit"]) for call in route.calls] == ["2", "2"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_raw_pages_stops_when_offset_api_repeats_page():
+    route = respx.get(url__regex=r"https://api\.example\.test/repeat.*").mock(side_effect=[
+        httpx.Response(200, json={"items": [{"id": "a"}]}),
+        httpx.Response(200, json={"items": [{"id": "a"}]}),
+    ])
+    bp = Blueprint(
+        id="bp-offset-repeat",
+        name="Offset Repeat",
+        source_url="https://api.example.test/repeat?limit=1",
+        pagination_type="offset",
+        pagination_param="offset",
+        pagination_items_path="$.items",
+        pagination_max_pages=10,
+    )
+
+    items, pages = await _fetch_raw_pages(bp, {}, {})
+
+    assert items == [{"id": "a"}]
+    assert pages == 2
+    assert len(route.calls) == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_preview_endpoint_uses_changed_source_url():
+    first = respx.get("https://api.example.test/first").mock(return_value=httpx.Response(200, json={"items": [{"id": "first"}]}))
+    second = respx.get("https://api.example.test/second").mock(return_value=httpx.Response(200, json={"items": [{"id": "second"}]}))
+
+    first_result = await preview_endpoint(PreviewRequest(source_url="https://api.example.test/first", pagination_items_path="$.items"))
+    second_result = await preview_endpoint(PreviewRequest(source_url="https://api.example.test/second", pagination_items_path="$.items"))
+
+    assert first_result["sample"] == [{"id": "first"}]
+    assert second_result["sample"] == [{"id": "second"}]
+    assert len(first.calls) == 1
+    assert len(second.calls) == 1

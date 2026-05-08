@@ -27,7 +27,8 @@ export const blueprintsApi = {
   getBlueprint: (id) => req("GET", `/${id}`),
   updateBlueprint: (id, data) => req("PUT", `/${id}`, data),
   deleteBlueprint: (id) => req("DELETE", `/${id}`),
-  fetchBlueprint: (id) => req("POST", `/${id}/fetch`),
+  fetchBlueprint: (id, { background = false } = {}) => req("POST", `/${id}/fetch${background ? "?background=true" : ""}`),
+  getFetchStatus: (id) => req("GET", `/${id}/fetch/status`),
 
   listEntries: ({ blueprintId, q, limit = 50, offset = 0 } = {}) => {
     const params = new URLSearchParams()

@@ -324,3 +324,10 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Setup path**: `setup.sh` now generates a Postgres password, writes a Postgres `DATABASE_URL`, and treats SQLite runtime storage as deprecated.
 - **Docs**: README, TODO, and spec references now describe Postgres as the supported runtime database.
 - **Credential hardening**: Compose now requires `POSTGRES_PASSWORD`, setup locks `.env` to `0600`, and production startup rejects placeholder Postgres credentials.
+
+## Session 25 — Blueprint fetch reliability
+- **Background manual fetches**: Blueprint `Fetch now` now starts a backend-owned fetch job and polls `/fetch/status`, so leaving the page no longer cancels the pull.
+- **Pagination fix**: Blueprint fetch/preview now preserves existing URL query parameters such as `limit=100` when adding pagination parameters such as `offset` or `page`.
+- **Pagination guardrails**: offset/page fetches stop when API `total`/`count` metadata is satisfied and abort repeated identical pages, avoiding long loops when an upstream API ignores pagination.
+- **Update fix deployed**: latest main fix for clearing nullable Blueprint fields is included and verified against an imported Sekoia Blueprint setting.
+- **Smoke tests**: public offset and page-number APIs passed; a limited Sekoia smoke reached the API but the stored key returned HTTP 401.

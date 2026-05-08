@@ -130,6 +130,7 @@ export default function BlueprintDetail() {
   const [exporting, setExporting] = useState(false)
   const [includeEntries, setIncludeEntries] = useState(false)
   const reparseTimer = useRef(null)
+  const fetchTimer = useRef(null)
   const { isAdmin } = useAuth()
   const { isProd } = useGitops()
 
@@ -142,10 +143,50 @@ export default function BlueprintDetail() {
       }).catch(() => {})
 
   useEffect(() => {
+    clearInterval(fetchTimer.current)
+    clearInterval(reparseTimer.current)
+    setFetchResult(null)
+    setReparseStatus(null)
     Promise.all([loadBlueprint(), loadEntries()]).finally(() => setLoading(false))
+    blueprintsApi.getFetchStatus(id).then(s => {
+      if (s.status === 'running') startFetchPolling()
+      else if (s.status === 'done' && s.result) setFetchResult(s.result)
+      else if (s.status === 'error') setFetchResult({ error: s.error || 'Fetch failed' })
+    }).catch(() => {})
   }, [id])
 
-  useEffect(() => () => clearInterval(reparseTimer.current), [])
+  useEffect(() => () => {
+    clearInterval(reparseTimer.current)
+    clearInterval(fetchTimer.current)
+  }, [])
+
+  const startFetchPolling = () => {
+    clearInterval(fetchTimer.current)
+    setFetching(true)
+    fetchTimer.current = setInterval(async () => {
+      try {
+        const s = await blueprintsApi.getFetchStatus(id)
+        if (s.status === 'done') {
+          clearInterval(fetchTimer.current)
+          setFetching(false)
+          setFetchResult(s.result || {})
+          loadEntries(query, 1, pageSize)
+          setPage(1)
+        } else if (s.status === 'error') {
+          clearInterval(fetchTimer.current)
+          setFetching(false)
+          setFetchResult({ error: s.error || 'Fetch failed' })
+        } else if (s.status !== 'running') {
+          clearInterval(fetchTimer.current)
+          setFetching(false)
+        }
+      } catch (err) {
+        clearInterval(fetchTimer.current)
+        setFetching(false)
+        setFetchResult({ error: err.message })
+      }
+    }, 1000)
+  }
 
   const startReparsePolling = () => {
     clearInterval(reparseTimer.current)
@@ -169,14 +210,21 @@ export default function BlueprintDetail() {
   const handleFetch = async () => {
     setFetching(true); setFetchResult(null)
     try {
-      const r = await blueprintsApi.fetchBlueprint(id)
-      setFetchResult(r)
-      loadEntries(query, 1, pageSize)
-      setPage(1)
+      const s = await blueprintsApi.fetchBlueprint(id, { background: true })
+      if (s.status === 'done') {
+        setFetching(false)
+        setFetchResult(s.result || {})
+        loadEntries(query, 1, pageSize)
+        setPage(1)
+      } else if (s.status === 'error') {
+        setFetching(false)
+        setFetchResult({ error: s.error || 'Fetch failed' })
+      } else {
+        startFetchPolling()
+      }
     } catch (err) {
-      setFetchResult({ error: err.message })
-    } finally {
       setFetching(false)
+      setFetchResult({ error: err.message })
     }
   }
 
@@ -363,7 +411,7 @@ export default function BlueprintDetail() {
                 <button onClick={handleFetch}
                   disabled={!isAdmin || fetching || !blueprint?.source_url}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
-                  {fetching ? 'Fetching…' : 'Fetch now'}
+                  {fetching ? 'Fetching in background…' : 'Fetch now'}
                 </button>
               )}
             </div>
