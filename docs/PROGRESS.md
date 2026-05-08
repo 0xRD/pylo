@@ -331,3 +331,8 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Pagination guardrails**: offset/page fetches stop when API `total`/`count` metadata is satisfied and abort repeated identical pages, avoiding long loops when an upstream API ignores pagination.
 - **Update fix deployed**: latest main fix for clearing nullable Blueprint fields is included and verified against an imported Sekoia Blueprint setting.
 - **Smoke tests**: public offset and page-number APIs passed; a limited Sekoia smoke reached the API but the stored key returned HTTP 401.
+
+## Session 26 — AbuseIPDB stress and app icon
+- **AbuseIPDB stress**: temporary AbuseIPDB Blueprint + trigger PyBook validated Blueprint fetch, secret template resolution, entry creation, trigger filtering, queue fan-out, secret injection, Docker runner execution, and cleanup.
+- **Concurrency observation**: 30 long-running trigger runs showed Pylo queue stats and Docker containers aligned with `max_concurrent=20`; final queue drained cleanly.
+- **Brand image**: generated a Pylo logo concept and added browser/app image assets under `frontend/public` with favicon and Open Graph references in `frontend/index.html`.
