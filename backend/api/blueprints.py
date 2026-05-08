@@ -297,7 +297,7 @@ async def update_blueprint(
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
-    updated = body.model_dump(exclude_none=True)
+    updated = body.model_dump(exclude_unset=True)
     old_mappings = bp.field_mappings
     for field, value in updated.items():
         setattr(bp, field, value)
