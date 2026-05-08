@@ -1,416 +1,207 @@
 # Pylo
 
-**Python automation orchestration platform for SOAR and beyond.** Write Python scripts (PyBooks) that run in isolated Docker containers, ingest structured data from external APIs (Blueprints), manage secrets securely, and trigger automations on schedules, webhooks, or data events.
+Pylo is a Python automation orchestration platform for SOAR and general-purpose data pipelines. It combines API ingestion, normalized Entries, isolated Python execution, visual Workflows, scoped API keys, encrypted secrets, and an operator-friendly web UI.
+
+Pylo is built for security analysts, DevOps engineers, and code-first automation users who want automation that stays inspectable and scriptable.
+
+## V1 Scope
+
+Pylo V1 focuses on a stable automation core:
+
+- **Blueprints** fetch structured data from external REST APIs with authentication, pagination, retries, fetch limits, and on-fail behavior.
+- **Entries** store normalized records from Blueprints, support deduplication, mutable fields, history, search, filtering, and bulk actions.
+- **PyBooks** run Python scripts in isolated ephemeral Docker containers with payloads, scoped API access, network controls, and selected secrets injected as environment variables.
+- **Workflows** orchestrate PyBooks with branching, loops, multiple outgoing connections, payload mappings, and per-node run history.
+- **Runs** provide a persistent async execution queue with live logs, status history, concurrency limits, and orphan recovery after restarts.
+- **Secrets and API keys** are designed for least privilege: secrets are encrypted, decrypted values are never returned, and integration API keys can be scoped.
+- **Operations** include backup/export, restore/import, system settings, user management, audit activity, and a GitOps-style dev-to-prod promotion flow.
 
 ## Quick Start
 
 ### Requirements
-- Docker (with Compose plugin) — installed automatically by `setup.sh` if missing
-- git
 
-### 1. Clone
+- Docker with the Compose plugin
+- Git
+
+### Install
 
 ```bash
-git clone https://github.com/0xRD/pylo
+git clone https://github.com/<your-org>/pylo
 cd pylo
-```
-
-### 2. Run setup
-
-```bash
 bash setup.sh
 ```
 
-`setup.sh` handles everything on a fresh machine:
-- Installs Docker if not present
-- Generates a `.env` with secure `SECRET_KEY` and `API_TOKEN`
-- Builds the PyBook runner base image (`pylo-runner-base:latest`)
-- Starts the stack with `docker compose up -d --build`
-- Waits for the backend health check
+`setup.sh` prepares a fresh machine by generating `.env`, creating strong runtime secrets, building the PyBook runner base image, starting the Docker Compose stack, and waiting for the backend health check.
 
-It prints your `API_TOKEN` at the end — save it for SDK/script access.
+Open the app at `http://localhost:3000`, then create the first admin account in the setup wizard.
 
-### 3. Create your admin account
-
-Open `http://localhost:3000` in your browser. You are redirected to a **setup wizard** where you create the first admin account (minimum 8-character password).
-
-The wizard disappears once the first user exists. Add more users from the **Users** page.
-
-### Manual setup (optional)
-
-If you prefer to configure things yourself:
+### Manual Setup
 
 ```bash
 cp .env.example .env
-# Edit .env: set SECRET_KEY and API_TOKEN to random values
-# Build the PyBook runner base image:
+# Edit .env and set SECRET_KEY, API_TOKEN, POSTGRES_PASSWORD, and other deployment values.
 docker build -t pylo-runner-base:latest -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/
-# Start:
 docker compose up -d --build
 ```
 
----
+Keep `.env` private. It contains deployment secrets and must not be committed.
 
-## Database Runtime
+## Runtime Services
 
-Postgres is the supported runtime database. `docker compose up -d --build` starts a `postgres:16-alpine` service automatically and the backend connects to it through the internal Compose hostname `postgres`.
+| Service | Default URL | Purpose |
+|---|---|---|
+| Frontend | `http://localhost:3000` | React UI served by nginx |
+| Backend | `http://localhost:8000` | FastAPI API and queue manager |
+| API docs | `http://localhost:8000/docs` | Interactive OpenAPI docs |
+| Postgres | Compose network only | Runtime database |
 
-```env
-POSTGRES_DB=pylo
-POSTGRES_USER=pylo
-POSTGRES_PASSWORD=change_this_password
-DATABASE_URL=postgresql+psycopg://pylo:change_this_password@postgres:5432/pylo
-```
+Postgres is the supported runtime database. SQLite is deprecated for runtime use and kept only as a temporary recovery path when explicitly enabled.
 
-`setup.sh` generates `POSTGRES_PASSWORD`, `SECRET_KEY`, and `API_TOKEN` automatically, writes them to `.env`, and sets `.env` permissions to owner-only (`0600`). SQLite is deprecated for runtime use; old `objects_storage/pylo.db` files are ignored by the Docker stack. A direct local SQLite start now requires `PYLO_ALLOW_DEPRECATED_SQLITE=true` as a temporary recovery escape hatch.
-
-Postgres is not published to the host by default; it is reachable only inside the Docker Compose network. Anyone with shell access to the project directory or Docker-admin access can still read runtime secrets, so protect the VM account and Docker socket like privileged infrastructure.
-
-The backend uses a Postgres `fts_entries` table with `to_tsvector` search indexes and JSONB field extraction for Entry filters.
-
-```mermaid
-flowchart LR
-  User["Browser / API client"] --> Frontend["React + Nginx frontend :3000"]
-  Frontend --> Backend["FastAPI backend :8000"]
-  ApiClient["SDK / automation client"] --> Backend
-  Backend --> Auth["Auth + scoped API keys"]
-  Backend --> PG["Postgres service\npylo database"]
-  Backend --> FTS["fts_entries\nPostgres full-text index"]
-  PG --> FTS
-  Backend --> Queue["In-process run queue"]
-  Queue --> Runner["Ephemeral PyBook containers"]
-  Backend --> Docker["Docker daemon"]
-  Docker --> Runner
-  Runner --> Backend
-  Backend --> Storage["pybooks_storage / backups"]
-```
+The backend applies Alembic migrations on startup. Postgres is not published to the host by default; protect shell access and Docker access as privileged infrastructure.
 
 ## Core Concepts
 
-### PyBooks
-Python scripts that run in isolated Docker containers. Each PyBook has:
-- A Python script edited in the browser (Monaco editor)
-- A **trigger**: manual, cron schedule, webhook, or blueprint event
-- Optional **required secrets** (injected as environment variables at runtime)
-- **Sub-PyBook** mode — callable from other PyBooks via `pylo_sdk.call_sub_pybook()`
-- **Tags** — free-form labels; filter the sidebar by tag to find related playbooks
-
 ### Blueprints
-Define a schema and data source for structured data. Each Blueprint has:
-- A **source URL** (REST API endpoint) with configurable method, headers, and body
-- **Authentication** — Bearer Token, API Key (any header), or Basic Auth via stored secrets
-- **Field mappings** — JSONPath expressions mapped to named fields with type coercion
-- A **unique key field** for deduplication on repeated fetches (★ marker in the field mapping builder)
-- Optional **pagination** for page-number, offset, and cursor-based APIs
-- An optional **auto-fetch schedule** (human-friendly builder generates cron under the hood)
-- **Entry retention** — optional `max_entries` cap and `retention_days` TTL; oldest entries pruned automatically after each fetch or manual creation
-- **Manual mode** — no API source; entries are created directly in the UI (shared variables, rule toggles, allow/blocklists)
 
-Multiple PyBooks can subscribe to a Blueprint's entry events independently (see [Blueprint → PyBook Trigger](#blueprint--pybook-trigger)).
+Blueprints describe how to fetch and parse structured data from external APIs. A Blueprint can define request method, headers, body, authentication, pagination, item extraction path, field mappings, deduplication key, fetch limits, retry policy, retention, and auto-fetch schedule.
+
+Secrets can be referenced in Blueprint headers as `{{secret:name}}`; values are resolved only at fetch time and are never logged or returned by the API.
 
 ### Entries
-Individual records stored under a Blueprint. Created by fetching a source API or manually (manual blueprints). Searchable globally across all blueprints via the Entries page, or scoped to a specific Blueprint's detail view.
 
-**Field query language** — filter entries by parsed field values directly in the UI:
+Entries are instances produced by Blueprints or created manually. They keep raw source data, parsed fields, history, mutable values, and full-text search metadata. Field filters are evaluated server-side so pagination remains correct.
 
-```
+Example field filters:
+
+```text
 severity = "high"
-category contains "Execute"
-os starts_with "Windows"
-score > 7.5
-severity = "critical" AND status != "closed"
+category contains "malware"
+score >= 80
+status != "closed" AND owner starts_with "secops"
 ```
 
-Operators: `=` `!=` `contains` `starts_with` `>` `>=` `<` `<=` — AND-chained. Applied server-side via SQLite `json_extract` or Postgres JSONB extraction for correct pagination.
+### PyBooks
 
-### Secrets
-Encrypted key-value store (Fernet/AES-128). Secret values are never returned by the API after creation. Referenced in Blueprint headers as `{{secret:name}}` — resolved at fetch time. Injected into PyBook containers as `SECRET_<name>` environment variables. Secret injection records an activity event with the PyBook/run and secret names only; decrypted values are never logged.
+PyBooks are Python scripts executed in short-lived Docker containers. They can be triggered manually, by cron, by webhook, by Blueprint Entry events, or from Workflows.
 
-### Scoped API keys
-Admins can create least-privilege API keys from Settings. Keys are stored hashed, the raw token is shown only once, and each key tracks its last-used timestamp. Available scopes are `blueprints:read`, `entries:read`, `entries:write`, `pybooks:trigger`, and `runs:read`. The master `API_TOKEN` remains available for bootstrap/admin automation, but integrations should use scoped keys.
-
-### Runs
-Every PyBook execution creates a Run record with full stdout/stderr, exit code, duration, and trigger source. Live log streaming via WebSocket. The **execution queue** (default: 20 concurrent runs) ensures no run is lost even under heavy load — backed by a persistent asyncio queue that survives restarts and recovers orphaned runs.
-
----
-
-## Navigation
-
-| Route | Description |
-|---|---|
-| `/blueprints` | Blueprint card grid — create and manage data sources |
-| `/blueprints/:id` | Blueprint detail — **Entries** tab (data) + **Settings** tab (config, delete) |
-| `/entries/:id` | Single entry detail with raw, parsed fields, editable mutable fields, and history |
-| `/blueprints/entries/:id` | Legacy single-entry detail route, kept for compatibility |
-| `/entries` | Global entries view — full-text search, field filter, blueprint chips, multi-select bulk delete |
-| `/pybooks` | PyBook editor with sidebar filters, Monaco editor, SDK reference, and run console with output variables |
-| `/runs` | Unified PyBook + Workflow run history with type filter |
-| `/automations` | All active scheduled/triggered PyBooks and Workflows in one view |
-| `/secrets` | Encrypted secret management |
-| `/workflows` | Workflow list — visual DAG editor for multi-step automation |
-| `/settings` | System settings, backup export/import, max concurrent runs, and session duration |
-| `/users` | User management — admin only |
-
----
-
-## PyBook SDK
-
-Available inside every PyBook at `/app/pylo_sdk.py` (auto-mounted at runtime):
-
-```python
-from pylo_sdk import search_entries, get_entry, create_entry, update_entry, delete_entry, call_sub_pybook
-
-# Full-text search across blueprint entries (optionally scoped to a blueprint)
-alerts = search_entries("mimikatz", type_id="<blueprint_id>")
-# search_entries returns the entry list directly, even though the API endpoint is paginated.
-
-# Fetch, create, update mutable fields, or delete entries
-entry = get_entry("<entry_id>")
-created = create_entry("<blueprint_id>", {"hash": "abc", "status": "new"})
-updated = update_entry("<entry_id>", {"status": "sent"})
-delete_entry("<entry_id>")
-# entry["data"] and entry["raw_data"] are JSON strings; parse them before indexing.
-
-# Trigger a sub-PyBook synchronously and get its result
-result = call_sub_pybook("<sub_pybook_id>", payload={"alert_id": "123"})
-```
-
-Export variables for use in downstream workflow nodes or for inspection after the run:
-
-```python
-# Export one variable at a time
-pylo.set_output("alert_id", "abc-123")
-pylo.set_output("vt_score", 0.92)
-
-# Or export all local variables at once (filters non-serialisable values)
-vt_score = 0.92
-is_malicious = vt_score > 0.7
-pylo.export_vars(locals())
-```
-
-Exported variables appear in the **Variables** panel of the run detail and can be passed to downstream Workflow nodes via edge payload mappings (`$.vars.key`).
-
-Secrets are injected as environment variables:
+Each PyBook can receive a JSON payload, use the mounted SDK, export output variables, and access only the selected secrets/API credentials explicitly configured in the UI.
 
 ```python
 import os
+import pylo_sdk as pylo
+
+payload = pylo.get_payload()
 api_key = os.environ["SECRET_virustotal_key"]
+
+matches = pylo.search_entries(payload.get("query", ""))
+pylo.set_output("match_count", len(matches))
 ```
 
----
+PyBook containers are network-restricted by default. When network access is enabled, allowed hosts are configured as a JSON list of hostnames or domains, for example:
 
+```json
+["api.abuseipdb.com", "api.github.com"]
+```
+
+Use hostnames only, not full URLs. Pylo validates outbound access against this allowlist before the PyBook can reach external services.
 
 ### Workflows
 
-Visual DAG (directed acyclic graph) editor for chaining multiple PyBooks into multi-step automations.
+Workflows chain PyBooks into automation graphs. Nodes can branch on success or failure, use conditional expressions, loop over data, fan out through multiple connections, and map variables from upstream node outputs into downstream payloads.
 
-- **Nodes**: drag PyBooks onto the canvas from the left palette
-- **Edges**: draw connections between nodes; set condition (`always` / `on success` / `on failure`)
-- **Payload mappings**: pass output variables from one node to the next via `$.vars.key` references
-- **Triggers**: same options as PyBooks — manual, cron, webhook, or blueprint event with optional trigger conditions
-- **Execution**: parallel fan-out via asyncio, topological ordering, per-node status tracking
-- **Runs**: per-workflow run history with node-level status and output variables
+Workflow runs are tracked separately from PyBook runs and are also visible in the unified Runs page.
 
-The Workflow editor auto-saves changes. Runs are tracked separately from PyBook runs and visible in both the Workflow editor sidebar and the unified Runs page.
+### Runs and Queue
 
----
-## Blueprint Authentication
+Every PyBook execution is written to the database as `queued` before it is enqueued. The run lifecycle is:
 
-The Authentication section in the Blueprint form builds the auth header from a stored secret — no manual template editing required:
-
-| Type | Header sent |
-|---|---|
-| Bearer Token | `Authorization: Bearer <secret_value>` |
-| API Key (header) | `<header_name>: <secret_value>` (e.g. `X-Apikey: abc123`) |
-| Basic Auth | `Authorization: Basic <base64(secret)>` — store credentials as `user:password` |
-
-Additional headers (e.g. `Accept`, `X-Tenant-Id`) can be added separately in the **Additional Headers** JSON field.
-
----
-
-## Auto-fetch Schedules
-
-Both Blueprints and PyBook cron triggers use the **Schedule Builder** — no cron syntax required:
-
-- **Every…** mode: "Every 5 minutes", "Every 2 hours", "Every 1 day"
-- **At a time** mode: choose a 24h time + day-of-week chips ("At 18:00 on Mon–Fri")
-
-The generated cron expression is shown as a read-only preview.
-
----
-
-## Paginated API Fetching
-
-Blueprint API sources can fetch multiple pages before parsing entries. Fetch and preview requests validate targets before outbound HTTP calls: private, loopback, link-local, reserved, multicast, and metadata-style hosts are blocked by default, including DNS results and redirect targets. Set `PYLO_ALLOW_PRIVATE_FETCH=true` only for trusted lab deployments that must reach private APIs.
-
-
-- **Page number** — sends `pagination_param=1`, then `2`, `3`, etc.
-- **Offset** — sends `pagination_param=0`, then increments by the number of returned items.
-- **Cursor** — reads the next token from a JSONPath such as `$.next_cursor`, then sends it on the next request.
-
-If the response wraps entries, set **Items path** to the list JSONPath, for example `$.items` or `$.data.results`. `Max pages` caps every fetch to prevent runaway loops.
-
----
-
-## Blueprint → PyBook Trigger
-
-PyBooks subscribe to Blueprint events from the **PyBook editor**, not the Blueprint settings. This allows multiple PyBooks to react to the same Blueprint independently.
-
-**To subscribe a PyBook to a Blueprint:**
-
-1. Open the PyBook editor → click **Edit trigger** in the trigger bar
-2. Set trigger type to **blueprint**
-3. Select the Blueprint and the event:
-   - **On new entry** — fires once per new entry created by a fetch
-   - **On new or updated entry** — fires on create or update
-4. Optionally add **trigger conditions** — field-level filters that must match before the run is enqueued (e.g. `severity = "critical"`)
-
-**To see which PyBooks are watching a Blueprint:**
-
-Open the Blueprint → **Settings** tab → **Subscribed PyBooks** section.
-
-Triggered runs go through the shared execution queue with the same concurrency limit as manual runs. Each subscriber has its own condition list and is capped at 50 triggered runs per fetch cycle.
-
----
-
-## Entry Field Filter
-
-Both the global **Entries** page and the per-blueprint **Entries** tab expose a field filter input. Entries are filtered server-side — pagination stays correct even with complex conditions.
-
-**Syntax:**
-```
-field_name OPERATOR "value"
+```text
+queued -> pending -> running -> success | error | timeout
 ```
 
-Multiple conditions joined with `AND`:
-```
-severity = "critical" AND category contains "Execute" AND os starts_with "Windows"
-```
+The queue is persistent and recovers orphaned runs after backend restarts. The default concurrency is 20 simultaneous runs and can be adjusted live from Settings without restarting the backend.
 
-**Operators:**
+## Authentication and Security
 
-| Operator | Behaviour |
-|---|---|
-| `=` | Exact match (case-insensitive) |
-| `!=` | Not equal (case-insensitive) |
-| `contains` | Substring present (case-insensitive) |
-| `starts_with` | Prefix match (case-insensitive) |
-| `>` `>=` `<` `<=` | Numeric comparison (values coerced to float) |
-
-The `?` button next to the filter input shows inline syntax examples.
-
----
-
-## Bulk Entry Actions
-
-Hover over any entry card to reveal a checkbox. Select one or more entries to open the bulk action bar:
-
-- **Count** — shows how many entries are selected
-- **Select all** — selects all visible entries on the current page
-- **Clear** — deselects everything
-- **Delete N entries** — confirms and deletes all selected entries in parallel
-
----
-
-## Execution Queue
-
-PyBook runs are **persistent** — every run is written to the database as `queued` before execution starts. A server restart never drops waiting jobs; orphaned runs are recovered automatically on startup.
-
-- Default concurrency: **5 simultaneous Docker containers**
-- Configurable live via **Settings → Max concurrent runs** (1–20), no restart needed
-- Also settable via `PYLO_MAX_CONCURRENT_RUNS` env var (DB setting takes precedence)
-- Queue depth and running count visible on the **Runs page** (live, refreshes every 2 s)
-
----
-
-## Authentication
-
-### Browser / console
-
-The console uses **httpOnly cookie-based JWT**. Login at `/login` (or go through the setup wizard on first launch). Sessions last 24 h by default — configurable in **Settings → Session duration** or via `JWT_EXPIRE_HOURS` in `.env`.
-
-Roles:
-- **Admin** — full access (create, edit, delete, trigger)
-- **Viewer** — read-only; write actions are visible but disabled
-
-### Scripts / SDK / external integrations
-
-Use the master `API_TOKEN` from `.env` via the `X-API-Token` header — it always grants admin-level access:
+Browser sessions use httpOnly JWT cookies. API clients should use scoped API keys created from Settings whenever possible. The bootstrap `API_TOKEN` in `.env` remains available for administrative automation.
 
 ```bash
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
-curl -H "X-API-Token: $API_TOKEN" "http://localhost:8000/api/blueprints/entries?filter=severity%20%3D%20%22high%22"
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/runs/queue
-curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/settings
 ```
 
----
+Security posture:
 
-## Architecture
+- Secrets are encrypted with Fernet and decrypted only at use time.
+- Secret values are never returned by the API after creation.
+- Secret values must not be logged by Pylo internals.
+- API keys are stored hashed and the raw token is shown only once.
+- Blueprint fetches block private, loopback, link-local, reserved, multicast, and metadata-style targets by default.
+- PyBook network access can be restricted by allowed hosts.
+- Docker access should be treated as privileged infrastructure.
 
-```
-┌─────────────────┐     ┌──────────────────────────────────────────┐
-│  Browser        │────▶│  nginx (port 3000)                       │
-│  React + Vite   │     │  ├─ /        → React SPA                 │
-│  + Tailwind     │     │  └─ /api/*   → FastAPI (port 8000)       │
-└─────────────────┘     └─────────────────┬────────────────────────┘
-                                           │
-                        ┌──────────────────▼────────────────────────┐
-                        │  FastAPI backend                           │
-                        │  ├─ /api/auth        Login, logout, setup │
-                        │  ├─ /api/users       User management      │
-                        │  ├─ /api/blueprints  Blueprint + Entry CRUD│
-                        │  ├─ /api/pybooks     PyBook CRUD / run    │
-                        │  ├─ /api/runs        History, logs, WS    │
-                        │  ├─ /api/secrets     Encrypted store      │
-                        │  ├─ /api/workflows    Workflow + DAG runs  │
-                        │  ├─ /api/settings    System config        │
-                        │  ├─ /api/export      Backup/export APIs    │
-                        │  └─ /api/webhooks    Inbound triggers     │
-                        │                                            │
-                        │  APScheduler — cron + blueprint fetches   │
-                        │  asyncio queue — persistent run queue     │
-                        │  Postgres + FTS — persistence + search          │
-                        │  Alembic — schema migrations              │
-                        └──────────────────┬────────────────────────┘
-                                           │ Docker socket (DooD)
-                        ┌──────────────────▼────────────────────────┐
-                        │  Docker sibling containers                 │
-                        │  python:3.12-slim per PyBook run          │
-                        │  pylo_sdk.py + script mounted at runtime  │
-                        └───────────────────────────────────────────┘
-```
+## Main Routes
 
----
+| Route | Description |
+|---|---|
+| `/dashboard` | Operational overview |
+| `/blueprints` | Blueprint list and API ingestion setup |
+| `/blueprints/:id` | Blueprint Entries and Settings tabs |
+| `/entries` | Global searchable Entry view |
+| `/entries/:id` | Single Entry detail and history |
+| `/pybooks` | PyBook editor, trigger setup, SDK reference, and run console |
+| `/workflows` | Visual Workflow editor |
+| `/runs` | Unified run history and queue visibility |
+| `/secrets` | Encrypted secret management |
+| `/settings` | API keys, backups, concurrency, sessions, and system settings |
+| `/users` | User management |
 
 ## Development
 
-```bash
-# Backend hot-reload
-cd backend && uvicorn backend.main:app --reload
-
-# Frontend dev server
-cd frontend && npm run dev
-```
-
-### Database migrations
-
-Alembic runs `alembic upgrade head` automatically on container startup.
+Use Docker for backend tests because the container has the runtime dependencies and database wiring used by the app.
 
 ```bash
-# Inside the backend container or virtualenv:
-alembic revision --autogenerate -m "describe change"
-alembic upgrade head
+docker compose exec -T backend python -m pytest tests/ -v
+docker compose exec -T backend alembic upgrade head
+cd frontend && npm run build
 ```
 
----
+Backend code changes should be followed by:
 
-## Roadmap
+```bash
+docker compose build backend
+docker compose up -d backend
+```
 
-See [`docs/TODO.md`](docs/TODO.md) for the full backlog. Key upcoming items:
+Frontend code changes should be followed by:
 
-- **pylo_sdk standalone library** — pip-installable `PyloClient` for external script integration without manual SDK mounting
-- **Scoped API Keys** — per-key permissions for SIEM/script integrations
-- **Configuration backup & restore** — export/import to ZIP or Git repository
-- **Re-parse entries on mapping change** — apply updated field mappings to historical raw data
-- **Bulk PyBook dispatch** — trigger a PyBook once per selected entry from the global Entries view
+```bash
+docker compose build frontend
+docker compose up -d frontend
+```
+
+## Project Hygiene
+
+Do not commit deployment state or runtime secrets:
+
+- `.env`
+- `objects_storage/`
+- `pybooks_storage/`
+- database files
+- build artifacts such as `frontend/dist/`
+- local agent or editor context files
+
+Before a release, run the tests, migrations, frontend build, stack health check, and a tracked-file scan for secrets or personal paths.
+
+## Documentation
+
+- `docs/pylo-spec-v2-en.md` - technical specification
+- `docs/TODO.md` - backlog and future work
+- `docs/PROGRESS.md` - implementation history
+- `docs/CODE_AUDIT.md` - audit notes when present
+
+## License
+
+Pylo is licensed under the Apache License 2.0. See [`LICENSE`](LICENSE).
+
+Apache-2.0 is permissive and business-friendly: it allows use, modification, distribution, private use, and commercial use, while also including an explicit patent grant and preserving notice requirements.

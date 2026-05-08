@@ -20,7 +20,7 @@ pybooks_storage/
 # Secrets
 .env
 
-# Claude Code context (contains internal paths and dev notes)
+# Local agent context (contains internal paths and dev notes)
 CLAUDE.md
 
 # Alembic

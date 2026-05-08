@@ -109,7 +109,7 @@
 - **Unified Runs page**: PyBook runs and Workflow runs shown together with WF/PB type badges; type filter (All/PyBooks/Workflows); workflow detail shows per-node status and output_vars; global `GET /api/workflows/runs` endpoint added
 - **Automations page** (`/automations`): lists all PyBooks and Workflows with active triggers in one view; filterable by type and active/all; shows trigger type badge + detail (cron expression, blueprint name + event); sidebar link added
 - **Duplicate function cleanup**: removed duplicate `_fire_blueprint_triggers` and `_execute_workflow_bg` definitions left by previous patching; fixed duplicate `_MAX_TRIGGERS_PER_FETCH` constant
-- **Remote fix (Rémi)**: `c4c57cc` — removed duplicate cron handlers in scheduler.py, added auth to WebSocket endpoint and `/api/runs/queue`
+- **Upstream fix**: `c4c57cc` — removed duplicate cron handlers in scheduler.py, added auth to WebSocket endpoint and `/api/runs/queue`
 
 ## Current state (after Session 12)
 All core features working end-to-end on `main` branch.
@@ -254,7 +254,7 @@ When N runs of a brand-new PyBook start simultaneously, all N executor threads r
 The original `_execute_run` opened a single SQLAlchemy session at the start and kept it open for the full Docker run (up to the timeout limit). Even after fixing `QueuePool`, this held a connection during the long blocking operation and leaked the connection until the run completed. Fix: split into two sessions — one short session to read config and mark the run as `running` (closed before Docker starts), and a second short session to write the final result.
 
 ### Test scripts (left in VM for re-use)
-- `/home/romain/pylo_stress2.sh` — bash stress test with image warming, 15-run concurrent burst, live queue monitor, result validation, and cleanup.
+- `local stress helper script` — bash stress test with image warming, 15-run concurrent burst, live queue monitor, result validation, and cleanup.
 
 ### Commits
 - `f44e8ad fix: NullPool for SQLite + image build lock — fix concurrent run pool exhaustion`
@@ -336,3 +336,10 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **AbuseIPDB stress**: temporary AbuseIPDB Blueprint + trigger PyBook validated Blueprint fetch, secret template resolution, entry creation, trigger filtering, queue fan-out, secret injection, Docker runner execution, and cleanup.
 - **Concurrency observation**: 30 long-running trigger runs showed Pylo queue stats and Docker containers aligned with `max_concurrent=20`; final queue drained cleanly.
 - **Brand image**: generated a Pylo logo concept and added browser/app image assets under `frontend/public` with favicon and Open Graph references in `frontend/index.html`.
+
+## Session 27 - V1 public release prep
+- **License**: added Apache License 2.0 and package metadata for the frontend package.
+- **Public README**: rewrote the README as a concise V1 overview covering setup, runtime services, core concepts, PyBooks, Workflows, queue behavior, security posture, development gates, and project hygiene.
+- **Security policy**: added `SECURITY.md` with responsible disclosure guidance and supported-version expectations before the first tagged release.
+- **Hygiene pass**: removed personal/local references from tracked docs and confirmed runtime state, secrets, database files, build output, and local storage are not tracked.
+- **Branch cleanup**: deleted local merged branches `audit/code-quality`, `feat/frontend-refresh`, and `feat/workflow-builder`; no stale remote branches were present.
