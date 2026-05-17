@@ -39,6 +39,10 @@ def create_api_key_token() -> str:
     return f"pylok_{secrets.token_urlsafe(32)}"
 
 
+def api_key_prefix(token: str) -> str:
+    return token[:16]
+
+
 def hash_api_key(token: str) -> str:
     return hash_password(token)
 
@@ -154,22 +158,24 @@ def auth_user_from_scoped_api_key(token: str, session: Session) -> AuthUser | No
     if not token or not token.startswith("pylok_"):
         return None
     from backend.users.models import ApiKey
-    for api_key in session.exec(select(ApiKey).where(ApiKey.is_active == True)).all():
-        if verify_password(token, api_key.key_hash):
-            try:
-                scopes = set(json.loads(api_key.scopes or "[]"))
-            except json.JSONDecodeError:
-                scopes = set()
-            api_key.last_used_at = datetime.now(timezone.utc)
-            session.add(api_key)
-            session.commit()
-            return AuthUser(
-                username=f"api_key:{api_key.name}",
-                role="api_key",
-                api_key_id=api_key.id,
-                scopes=scopes & VALID_API_KEY_SCOPES,
-            )
-    return None
+    api_key = session.exec(
+        select(ApiKey).where(ApiKey.is_active == True, ApiKey.key_prefix == api_key_prefix(token))
+    ).first()
+    if not api_key or not verify_password(token, api_key.key_hash):
+        return None
+    try:
+        scopes = set(json.loads(api_key.scopes or "[]"))
+    except json.JSONDecodeError:
+        scopes = set()
+    api_key.last_used_at = datetime.now(timezone.utc)
+    session.add(api_key)
+    session.commit()
+    return AuthUser(
+        username=f"api_key:{api_key.name}",
+        role="api_key",
+        api_key_id=api_key.id,
+        scopes=scopes & VALID_API_KEY_SCOPES,
+    )
 
 
 def verify_token(

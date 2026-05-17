@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from backend.activity.logger import log_activity
-from backend.core.auth import AuthUser, VALID_API_KEY_SCOPES, create_api_key_token, hash_api_key, require_admin, verify_token
+from backend.core.auth import AuthUser, VALID_API_KEY_SCOPES, api_key_prefix, create_api_key_token, hash_api_key, require_admin, verify_token
 from backend.database import get_session
 from backend.users.models import ApiKey
 
@@ -70,7 +70,7 @@ async def create_api_key(
         raise HTTPException(status_code=422, detail="At least one valid scope is required")
 
     token = create_api_key_token()
-    api_key = ApiKey(name=name, key_hash=hash_api_key(token), scopes=json.dumps(scopes))
+    api_key = ApiKey(name=name, key_prefix=api_key_prefix(token), key_hash=hash_api_key(token), scopes=json.dumps(scopes))
     session.add(api_key)
     session.commit()
     session.refresh(api_key)

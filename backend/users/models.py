@@ -20,6 +20,7 @@ class ApiKey(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    key_prefix: str = Field(default="", index=True)
     key_hash: str
     scopes: str = "[]"
     is_active: bool = Field(default=True)

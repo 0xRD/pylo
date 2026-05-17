@@ -77,14 +77,14 @@ async def test_blueprint_fetch_blocks_redirect_to_private_target():
 
 def test_scoped_api_key_authenticates_and_updates_last_used(tmp_path):
     from sqlmodel import Session, SQLModel, create_engine
-    from backend.core.auth import auth_user_from_scoped_api_key, create_api_key_token, hash_api_key
+    from backend.core.auth import api_key_prefix, auth_user_from_scoped_api_key, create_api_key_token, hash_api_key
     from backend.users.models import ApiKey
 
     engine = create_engine(f"sqlite:///{tmp_path / 'keys.db'}")
     SQLModel.metadata.create_all(engine)
     token = create_api_key_token()
     with Session(engine) as session:
-        session.add(ApiKey(name="siem", key_hash=hash_api_key(token), scopes='["entries:read"]'))
+        session.add(ApiKey(name="siem", key_prefix=api_key_prefix(token), key_hash=hash_api_key(token), scopes='["entries:read"]'))
         session.commit()
 
     with Session(engine) as session:
@@ -95,6 +95,35 @@ def test_scoped_api_key_authenticates_and_updates_last_used(tmp_path):
     assert user.has_scope("entries:read")
     assert not user.has_scope("entries:write")
     assert key.last_used_at is not None
+
+
+def test_scoped_api_key_verifies_only_matching_prefix(tmp_path, monkeypatch):
+    from sqlmodel import Session, SQLModel, create_engine
+    import backend.core.auth as auth
+    from backend.users.models import ApiKey
+
+    db_path = tmp_path / "keys.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    token = auth.create_api_key_token()
+    calls = []
+
+    def fake_verify(plain, hashed):
+        calls.append((plain, hashed))
+        return plain == token and hashed == "target-hash"
+
+    monkeypatch.setattr(auth, "verify_password", fake_verify)
+    with Session(engine) as session:
+        for idx in range(20):
+            session.add(ApiKey(name=f"decoy-{idx}", key_prefix=f"decoy-prefix-{idx}", key_hash="decoy-hash"))
+        session.add(ApiKey(name="target", key_prefix=auth.api_key_prefix(token), key_hash="target-hash", scopes='["entries:read"]'))
+        session.commit()
+
+    with Session(engine) as session:
+        user = auth.auth_user_from_scoped_api_key(token, session)
+
+    assert user.username == "api_key:target"
+    assert calls == [(token, "target-hash")]
 
 
 def test_scoped_api_key_gate_allows_only_matching_scope():
