@@ -22,7 +22,16 @@ RUN mkdir -p /app/pybooks_storage /app/objects_storage
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+ARG PYLO_UID=501
+ARG PYLO_GID=501
+
+RUN groupadd --gid "${PYLO_GID}" pylo \
+ && useradd --uid "${PYLO_UID}" --gid pylo --home-dir /app --shell /usr/sbin/nologin pylo \
+ && chown -R pylo:pylo /app /tmp
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+USER pylo
 
 CMD ["/app/entrypoint.sh"]
