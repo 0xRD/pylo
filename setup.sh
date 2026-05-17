@@ -83,9 +83,9 @@ mkdir -p pybooks_storage
 info "Storage directories ready."
 
 # ── 6. Build the PyBook runner base image ─────────────────────────────────────
-info "Building PyBook runner base image (python:3.12-slim + requests/httpx/pydantic) ..."
-docker build -q -t pylo-runner-base:latest -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/ \
-    && success "pylo-runner-base:latest built."
+info "Building PyBook runner base image (pinned python:3.12.13-slim-trixie + requests/httpx/pydantic) ..."
+docker build -q -t pylo-runner-base:2026.05 -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/ \
+    && success "pylo-runner-base:2026.05 built."
 
 # ── 7. Start the stack ────────────────────────────────────────────────────────
 info "Starting Pylo stack ..."

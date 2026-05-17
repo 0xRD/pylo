@@ -441,7 +441,7 @@ SECRET_KEY=<required — 32+ chars — Fernet key for secret encryption>
 # Optional overrides
 DATABASE_URL=postgresql+psycopg://pylo:<password>@postgres:5432/pylo
 DOCKER_NETWORK=pylo_pylo_default
-PYLO_BASE_IMAGE=pylo-runner-base:latest
+PYLO_BASE_IMAGE=pylo-runner-base:2026.05
 PYLO_TIMEOUT_SECONDS=300
 PYLO_MAX_CONCURRENT_RUNS=5   # overridden at runtime by SystemSetting DB value
 PYLO_MEM_LIMIT=256m

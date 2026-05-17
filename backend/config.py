@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     API_TOKEN: str
 
     DOCKER_NETWORK: str = "pylo_pylo_default"
-    PYLO_BASE_IMAGE: str = "pylo-runner-base:latest"
+    PYLO_BASE_IMAGE: str = "pylo-runner-base:2026.05"
     PYLO_TIMEOUT_SECONDS: int = 300
     PYLO_MAX_CONCURRENT_RUNS: int = 5
     PYLO_MEM_LIMIT: str = "256m"

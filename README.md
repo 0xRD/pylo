@@ -40,7 +40,7 @@ Open the app at `http://localhost:3000`, then create the first admin account in 
 ```bash
 cp .env.example .env
 # Edit .env and set SECRET_KEY, API_TOKEN, POSTGRES_PASSWORD, and other deployment values.
-docker build -t pylo-runner-base:latest -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/
+docker build -t pylo-runner-base:2026.05 -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/
 docker compose up -d --build
 ```
 

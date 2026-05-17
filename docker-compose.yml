@@ -2,7 +2,7 @@ name: pylo
 
 services:
   socket-proxy:
-    image: tecnativa/docker-socket-proxy
+    image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -78,7 +78,7 @@ services:
       - pylo_default
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine3.23@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pylo}
       POSTGRES_USER: ${POSTGRES_USER:-pylo}
