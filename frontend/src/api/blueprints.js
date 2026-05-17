@@ -30,10 +30,12 @@ export const blueprintsApi = {
   fetchBlueprint: (id, { background = false } = {}) => req("POST", `/${id}/fetch${background ? "?background=true" : ""}`),
   getFetchStatus: (id) => req("GET", `/${id}/fetch/status`),
 
-  listEntries: ({ blueprintId, q, limit = 50, offset = 0 } = {}) => {
+  listEntries: ({ blueprintId, q, sortBy, sortDir, limit = 50, offset = 0 } = {}) => {
     const params = new URLSearchParams()
     if (blueprintId) params.set("blueprint_id", blueprintId)
     if (q) params.set("q", q)
+    if (sortBy) params.set("sort_by", sortBy)
+    if (sortDir) params.set("sort_dir", sortDir)
     params.set("limit", limit)
     params.set("offset", offset)
     return req("GET", `/entries?${params}`)

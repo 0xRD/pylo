@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CheckSquare, Play, Search, Trash2, X } from 'lucide-react'
 import { blueprintsApi } from '../api/blueprints'
@@ -10,6 +10,24 @@ import { useAuth } from '../context/AuthContext'
 const PAGE_SIZE_OPTIONS = [25, 48, 100, 200]
 const DEFAULT_PAGE_SIZE = 48
 
+function parseSortValue(value) {
+  if (!value) return {}
+  const [sortBy, sortDir = 'desc'] = value.split(':')
+  return { sortBy, sortDir }
+}
+
+function datetimeFieldsForBlueprint(blueprint) {
+  if (!blueprint) return []
+  try {
+    const mappings = JSON.parse(blueprint.field_mappings || '[]')
+    return mappings
+      .filter(m => m.field_type === 'datetime' && m.field_name)
+      .map(m => m.field_name)
+  } catch {
+    return []
+  }
+}
+
 export default function Entries() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [blueprints, setBlueprints] = useState([])
@@ -19,6 +37,7 @@ export default function Entries() {
   const [query, setQuery] = useState(searchParams.get('q') || '')
   const [draftQuery, setDraftQuery] = useState(searchParams.get('q') || '')
   const [blueprintFilter, setBlueprintFilter] = useState(searchParams.get('blueprint') || '')
+  const [sortValue, setSortValue] = useState(searchParams.get('sort') || '')
   const [offset, setOffset] = useState(0)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
@@ -34,13 +53,36 @@ export default function Entries() {
   }, [])
 
   const blueprintMap = Object.fromEntries(blueprints.map(b => [b.id, b.name]))
+  const selectedBlueprint = blueprints.find(b => b.id === blueprintFilter)
+  const sortOptions = useMemo(() => {
+    const options = [
+      { value: '', label: 'Default' },
+      { value: 'created_at:desc', label: 'Created newest' },
+      { value: 'created_at:asc', label: 'Created oldest' },
+      { value: 'updated_at:desc', label: 'Updated newest' },
+      { value: 'updated_at:asc', label: 'Updated oldest' },
+    ]
+    for (const field of datetimeFieldsForBlueprint(selectedBlueprint)) {
+      options.push({ value: `${field}:asc`, label: `${field} oldest` })
+      options.push({ value: `${field}:desc`, label: `${field} newest` })
+    }
+    return options
+  }, [selectedBlueprint])
 
-  const load = useCallback((q, bpId, off, ps) => {
+  useEffect(() => {
+    if (sortValue && !sortOptions.some(o => o.value === sortValue)) {
+      setSortValue('')
+      setOffset(0)
+    }
+  }, [sortOptions, sortValue])
+
+  const load = useCallback((q, bpId, sort, off, ps) => {
     setLoading(true)
     blueprintsApi.listEntries({
       blueprintId: bpId || undefined,
       q: q || undefined,
       limit: ps,
+      ...parseSortValue(sort),
       offset: off,
     })
       .then(data => {
@@ -53,8 +95,8 @@ export default function Entries() {
   }, [])
 
   useEffect(() => {
-    load(query, blueprintFilter, offset, pageSize)
-  }, [query, blueprintFilter, offset, pageSize, load])
+    load(query, blueprintFilter, sortValue, offset, pageSize)
+  }, [query, blueprintFilter, sortValue, offset, pageSize, load])
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -63,6 +105,7 @@ export default function Entries() {
     const p = {}
     if (draftQuery) p.q = draftQuery
     if (blueprintFilter) p.blueprint = blueprintFilter
+    if (sortValue) p.sort = sortValue
     setSearchParams(p)
   }
 
@@ -74,17 +117,28 @@ export default function Entries() {
     const p = {}
     if (draftQuery) p.q = draftQuery
     if (next) p.blueprint = next
+    if (sortValue) p.sort = sortValue
+    setSearchParams(p)
+  }
+
+  const handleSortChange = (value) => {
+    setSortValue(value)
+    setOffset(0)
+    const p = {}
+    if (draftQuery) p.q = draftQuery
+    if (blueprintFilter) p.blueprint = blueprintFilter
+    if (value) p.sort = value
     setSearchParams(p)
   }
 
   const clearFilters = () => {
-    setDraftQuery(''); setQuery(''); setBlueprintFilter(''); setOffset(0); setSearchParams({})
+    setDraftQuery(''); setQuery(''); setBlueprintFilter(''); setSortValue(''); setOffset(0); setSearchParams({})
   }
 
   const totalPages = total !== null ? Math.ceil(total / pageSize) : null
   const currentPage = Math.floor(offset / pageSize) + 1
 
-  const hasFilter = query || blueprintFilter
+  const hasFilter = query || blueprintFilter || sortValue
   const selectedCount = selectedIds.size
   const allVisibleSelected = entries.length > 0 && entries.every(e => selectedIds.has(e.id))
 
@@ -110,7 +164,7 @@ export default function Entries() {
     if (!selectedCount || !confirm(`Delete ${selectedCount} selected entr${selectedCount === 1 ? 'y' : 'ies'}?`)) return
     await Promise.all([...selectedIds].map(id => blueprintsApi.deleteEntry(id)))
     setSelectedIds(new Set())
-    load(query, blueprintFilter, offset, pageSize)
+    load(query, blueprintFilter, sortValue, offset, pageSize)
   }
 
   const runOnSelected = async () => {
@@ -161,6 +215,13 @@ export default function Entries() {
                 {n}
               </button>
             ))}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-[#6272a4]">Sort</span>
+            <select value={sortValue} onChange={e => handleSortChange(e.target.value)}
+              className="rounded-md border border-[#343746] bg-[#191a21] px-2 py-1 text-xs text-[#f8f8f2] outline-none focus:border-[#bd93f9]">
+              {sortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
           </div>
           {hasFilter && (
             <button onClick={clearFilters} className="inline-flex items-center gap-1 text-xs text-[#ff79c6] hover:text-[#ffb86c] transition-colors">

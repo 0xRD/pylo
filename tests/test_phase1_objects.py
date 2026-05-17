@@ -214,6 +214,65 @@ def test_fts_search(client):
     assert entry_id in ids
 
 
+def test_entry_datetime_field_sorting(client):
+    from backend import database as db_module
+    from backend.objects.models import Entry
+
+    r = client.post("/api/blueprints", json={
+        "name": "SortableTimeType",
+        "field_mappings": json.dumps([
+            {"source_path": "$.event_time", "field_name": "event_time", "field_type": "datetime"},
+            {"source_path": "$.name", "field_name": "name", "field_type": "string"},
+        ]),
+    })
+    blueprint_id = r.json()["id"]
+
+    with Session(db_module.engine) as s:
+        for name, event_time in [
+            ("middle", "2026-02-01T10:00:00+00:00"),
+            ("oldest", "2026-01-01T10:00:00+00:00"),
+            ("newest", "2026-03-01T10:00:00+00:00"),
+        ]:
+            now = datetime.now(timezone.utc)
+            s.add(Entry(
+                id=str(uuid.uuid4()),
+                blueprint_id=blueprint_id,
+                data=json.dumps({"name": name, "event_time": event_time}),
+                raw_data="{}",
+                created_at=now,
+                updated_at=now,
+            ))
+        s.commit()
+
+    r = client.get(
+        f"/api/blueprints/entries?blueprint_id={blueprint_id}&sort_by=event_time&sort_dir=asc"
+    )
+    assert r.status_code == 200
+    assert [json.loads(i["data"])["name"] for i in r.json()["items"]] == ["oldest", "middle", "newest"]
+
+    r = client.get(
+        f"/api/blueprints/entries?blueprint_id={blueprint_id}&sort_by=event_time&sort_dir=desc"
+    )
+    assert r.status_code == 200
+    assert [json.loads(i["data"])["name"] for i in r.json()["items"]] == ["newest", "middle", "oldest"]
+
+
+def test_entry_field_sort_requires_datetime_field_and_blueprint(client):
+    r = client.post("/api/blueprints", json={
+        "name": "SortValidationType",
+        "field_mappings": json.dumps([
+            {"source_path": "$.name", "field_name": "name", "field_type": "string"},
+        ]),
+    })
+    blueprint_id = r.json()["id"]
+
+    r = client.get("/api/blueprints/entries?sort_by=event_time&sort_dir=asc")
+    assert r.status_code == 400
+
+    r = client.get(f"/api/blueprints/entries?blueprint_id={blueprint_id}&sort_by=name&sort_dir=asc")
+    assert r.status_code == 400
+
+
 # ── Delete cascade ────────────────────────────────────────────────────────────
 
 def test_delete_type_removes_instances(client):

@@ -12,7 +12,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, func, cast, or_, String as SAString
+from sqlalchemy import and_, func, cast, nullslast, or_, String as SAString
 from sqlmodel import Session, select
 from jsonpath_ng import parse as jsonpath_parse
 
@@ -202,15 +202,64 @@ def _build_filter_clause(filters: list[tuple], dialect_name: str):
     return or_(*and_groups) if len(and_groups) > 1 else and_groups[0]
 
 
+
+_SORTABLE_ENTRY_COLUMNS = {
+    "created_at": Entry.created_at,
+    "updated_at": Entry.updated_at,
+}
+_SORT_FIELD_RE = re.compile(r"^[a-zA-Z_]\w{0,63}$")
+
+
+def _datetime_field_names(blueprint: Blueprint) -> set[str]:
+    try:
+        mappings = json.loads(blueprint.field_mappings or "[]")
+    except ValueError:
+        return set()
+    return {
+        m.get("field_name")
+        for m in mappings
+        if m.get("field_type") == "datetime" and m.get("field_name")
+    }
+
+
+def _entry_sort_order(sort_by: Optional[str], sort_dir: str, blueprint_id: Optional[str], session: Session, dialect_name: str):
+    if not sort_by:
+        return None
+
+    direction = (sort_dir or "desc").lower()
+    if direction not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail="sort_dir must be asc or desc")
+
+    if sort_by in _SORTABLE_ENTRY_COLUMNS:
+        expr = _SORTABLE_ENTRY_COLUMNS[sort_by]
+    else:
+        if not blueprint_id:
+            raise HTTPException(status_code=400, detail="Field sorting requires a blueprint_id")
+        if not _SORT_FIELD_RE.fullmatch(sort_by):
+            raise HTTPException(status_code=400, detail="Invalid sort field")
+        blueprint = session.get(Blueprint, blueprint_id)
+        if not blueprint:
+            raise HTTPException(status_code=404, detail="Blueprint not found")
+        if sort_by not in _datetime_field_names(blueprint):
+            raise HTTPException(status_code=400, detail="sort_by must be a datetime field for the selected blueprint")
+        expr = cast(json_field_text(Entry.data, sort_by, dialect_name), SAString)
+
+    ordered = expr.asc() if direction == "asc" else expr.desc()
+    return nullslast(ordered)
+
+
 @router.get("/entries")
 async def list_entries(
     blueprint_id: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: str = Query("desc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
     dialect_name = session.get_bind().dialect.name
+    sort_order = _entry_sort_order(sort_by, sort_dir, blueprint_id, session, dialect_name)
     field_filters, fts_text = _parse_query(q or '')
     filter_clause = _build_filter_clause(field_filters, dialect_name)
 
@@ -224,8 +273,8 @@ async def list_entries(
     # ── FTS ───────────────────────────────────────────────────────────────────
     fts_ids: list[str] | None = None
     if fts_text:
-        if filter_clause is not None:
-            # Mixed mode: fetch all FTS matches then intersect via IN
+        if filter_clause is not None or sort_order is not None:
+            # Mixed/sorted mode: fetch FTS matches then intersect/order in the Entry query.
             fts_ids = search_fts(session, fts_text, blueprint_id=blueprint_id, limit=10_000)
             if not fts_ids:
                 return {"items": [], "total": 0}
@@ -250,7 +299,8 @@ async def list_entries(
         count_stmt = count_stmt.where(Entry.id.in_(fts_ids))
 
     total = session.exec(count_stmt).one()
-    items = session.exec(stmt.order_by(Entry.created_at.desc()).offset(offset).limit(limit)).all()
+    order_by = [sort_order, Entry.created_at.desc()] if sort_order is not None else [Entry.created_at.desc()]
+    items = session.exec(stmt.order_by(*order_by).offset(offset).limit(limit)).all()
     return {"items": items, "total": total}
 
 
