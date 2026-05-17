@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+psycopg://pylo:pylo_change_me@postgres:5432/pylo"
     SECRET_KEY: str
+    ENCRYPTION_KEY: str = ""
     API_TOKEN: str
 
     DOCKER_NETWORK: str = "pylo_pylo_default"
@@ -52,6 +53,10 @@ class Settings(BaseSettings):
         insecure = []
         if self.SECRET_KEY == INSECURE_DEFAULT or len(self.SECRET_KEY) < 32:
             insecure.append("SECRET_KEY")
+        if self.ENCRYPTION_KEY == INSECURE_DEFAULT or len(self.ENCRYPTION_KEY) < 32:
+            insecure.append("ENCRYPTION_KEY")
+        if self.ENCRYPTION_KEY and self.ENCRYPTION_KEY == self.SECRET_KEY:
+            insecure.append("ENCRYPTION_KEY must differ from SECRET_KEY")
         if self.API_TOKEN == INSECURE_DEFAULT or len(self.API_TOKEN) < 32:
             insecure.append("API_TOKEN")
         if insecure:

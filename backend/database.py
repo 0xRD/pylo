@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
-from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel import SQLModel, create_engine, Session, select
 
 from backend.config import settings
 
@@ -70,11 +70,28 @@ def init_search_index(bind) -> None:
         """))
 
 
+def rotate_legacy_secret_ciphertexts() -> None:
+    from backend.core.crypto import decrypt_with_rotation_status, encrypt
+
+    rotated = 0
+    with Session(engine) as session:
+        for secret in session.exec(select(Secret)).all():
+            plain, used_legacy_key = decrypt_with_rotation_status(secret.encrypted_value)
+            if used_legacy_key:
+                secret.encrypted_value = encrypt(plain)
+                session.add(secret)
+                rotated += 1
+        if rotated:
+            session.commit()
+            logger.info("Rotated %s legacy secret ciphertext(s)", rotated)
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     with engine.connect() as conn:
         init_search_index(conn)
         conn.commit()
+    rotate_legacy_secret_ciphertexts()
     logger.info("Database initialised (%s)", engine.dialect.name)
 
 

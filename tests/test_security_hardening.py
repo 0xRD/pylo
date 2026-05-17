@@ -133,3 +133,46 @@ def test_secret_access_activity_logs_names_not_values(tmp_path, monkeypatch):
     detail = json.loads(event.detail)
     assert detail == {"secret_names": ["vt"]}
     assert "super-secret-value" not in event.detail
+
+
+def test_secret_encryption_uses_dedicated_pbkdf2_key():
+    from cryptography.fernet import InvalidToken
+    from backend.core.crypto import decrypt, encrypt, _legacy_fernet
+    from backend.config import settings
+
+    token = encrypt("super-secret-value")
+
+    assert decrypt(token) == "super-secret-value"
+    with pytest.raises(InvalidToken):
+        _legacy_fernet(settings.SECRET_KEY).decrypt(token.encode())
+
+
+def test_legacy_secret_ciphertexts_rotate_to_current_key(tmp_path, monkeypatch):
+    from cryptography.fernet import InvalidToken
+    from sqlmodel import Session, SQLModel, create_engine
+    import backend.database as database
+    from backend.config import settings
+    from backend.core.crypto import _legacy_fernet, decrypt, encrypt
+    from backend.secrets.models import Secret
+
+    db_path = tmp_path / "rotate.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(database, "engine", engine)
+    legacy_token = _legacy_fernet(settings.SECRET_KEY).encrypt(b"old-secret-value").decode()
+
+    with Session(engine) as session:
+        session.add(Secret(id="sec-1", name="old", encrypted_value=legacy_token))
+        session.add(Secret(id="sec-2", name="new", encrypted_value=encrypt("new-secret-value")))
+        session.commit()
+
+    database.rotate_legacy_secret_ciphertexts()
+
+    with Session(engine) as session:
+        old_secret = session.get(Secret, "sec-1")
+        new_secret = session.get(Secret, "sec-2")
+
+    assert decrypt(old_secret.encrypted_value) == "old-secret-value"
+    assert decrypt(new_secret.encrypted_value) == "new-secret-value"
+    with pytest.raises(InvalidToken):
+        _legacy_fernet(settings.SECRET_KEY).decrypt(old_secret.encrypted_value.encode())
