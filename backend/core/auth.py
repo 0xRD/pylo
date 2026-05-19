@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hashlib
+import hmac as _hmac
 import json
 import secrets
 
@@ -44,7 +46,22 @@ def api_key_prefix(token: str) -> str:
 
 
 def hash_api_key(token: str) -> str:
-    return hash_password(token)
+    """HMAC-SHA256 of the token keyed by SECRET_KEY.
+
+    API keys are already 256-bit random secrets, so bcrypt's intentional
+    slowness adds ~100-200 ms per request with zero security benefit.
+    HMAC-SHA256 is cryptographically sufficient, O(1) fast, and binds the
+    stored hash to the SECRET_KEY (rainbow tables useless without it).
+    """
+    return _hmac.new(settings.SECRET_KEY.encode(), token.encode(), hashlib.sha256).hexdigest()
+
+
+def _verify_api_key(token: str, stored_hash: str) -> bool:
+    """Constant-time comparison. Falls back to bcrypt for legacy hashes."""
+    if stored_hash.startswith(("$2b$", "$2a$")):
+        # Legacy bcrypt hash — accept and let the caller upgrade it
+        return verify_password(token, stored_hash)
+    return _hmac.compare_digest(hash_api_key(token), stored_hash)
 
 
 def create_access_token(username: str, role: str, expire_hours: int) -> str:
@@ -158,11 +175,27 @@ def auth_user_from_scoped_api_key(token: str, session: Session) -> AuthUser | No
     if not token or not token.startswith("pylok_"):
         return None
     from backend.users.models import ApiKey
+
+    sha_hash = hash_api_key(token)
+
+    # Fast path: O(1) lookup by HMAC-SHA256 hash (new keys)
     api_key = session.exec(
-        select(ApiKey).where(ApiKey.is_active == True, ApiKey.key_prefix == api_key_prefix(token))
+        select(ApiKey).where(ApiKey.is_active == True, ApiKey.key_hash == sha_hash)
     ).first()
-    if not api_key or not verify_password(token, api_key.key_hash):
-        return None
+
+    if api_key is None:
+        # Legacy path: prefix lookup → bcrypt verify (keys created before this fix)
+        api_key = session.exec(
+            select(ApiKey).where(
+                ApiKey.is_active == True,
+                ApiKey.key_prefix == api_key_prefix(token),
+            )
+        ).first()
+        if api_key is None or not verify_password(token, api_key.key_hash):
+            return None
+        # Auto-upgrade: replace bcrypt hash with HMAC-SHA256 so next call is O(1)
+        api_key.key_hash = sha_hash
+
     try:
         scopes = set(json.loads(api_key.scopes or "[]"))
     except json.JSONDecodeError:
