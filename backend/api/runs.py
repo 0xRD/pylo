@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
 
-from backend.core.auth import verify_token, is_master_token
+from backend.core.auth import verify_token, is_master_token, AuthUser
 from backend.database import engine, get_session
 from backend.pybooks.models import PyBookRun
 
@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 TERMINAL = {"success", "error", "timeout", "cancelled", "dead_letter"}
+
+
+def _enforce_run_access(user: AuthUser, run_id: str) -> None:
+    """Run tokens are scoped to a single run; block access to any other run."""
+    if user.is_runner and user.run_id != run_id:
+        raise HTTPException(status_code=403, detail="Run token can only access its own run")
 
 
 @router.get("", dependencies=[Depends(verify_token)])
@@ -38,8 +44,9 @@ async def queue_stats():
     from backend.core import queue_manager
     return queue_manager.get_stats()
 
-@router.get("/{run_id}", dependencies=[Depends(verify_token)])
-async def get_run(run_id: str, session: Session = Depends(get_session)):
+@router.get("/{run_id}")
+async def get_run(run_id: str, session: Session = Depends(get_session), current_user: AuthUser = Depends(verify_token)):
+    _enforce_run_access(current_user, run_id)
     run = session.get(PyBookRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -97,10 +104,11 @@ async def run_status_ws(run_id: str, websocket: WebSocket, token: Optional[str] 
         pass
 
 
-@router.post("/{run_id}/output", dependencies=[Depends(verify_token)])
-async def set_run_output(run_id: str, body: dict, session: Session = Depends(get_session)):
+@router.post("/{run_id}/output")
+async def set_run_output(run_id: str, body: dict, session: Session = Depends(get_session), current_user: AuthUser = Depends(verify_token)):
     """Merge key-value pairs into a run's output_vars (called by pylo.set_output())."""
     import json as _json
+    _enforce_run_access(current_user, run_id)
     run = session.get(PyBookRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -111,9 +119,10 @@ async def set_run_output(run_id: str, body: dict, session: Session = Depends(get
     session.commit()
     return {"ok": True}
 
-@router.delete("/{run_id}", dependencies=[Depends(verify_token)])
-async def cancel_run(run_id: str, session: Session = Depends(get_session)):
+@router.delete("/{run_id}")
+async def cancel_run(run_id: str, session: Session = Depends(get_session), current_user: AuthUser = Depends(verify_token)):
     """Cancel a queued or pending run. Has no effect on running/terminal runs."""
+    _enforce_run_access(current_user, run_id)
     run = session.get(PyBookRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")

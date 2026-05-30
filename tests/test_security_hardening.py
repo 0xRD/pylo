@@ -205,3 +205,22 @@ def test_legacy_secret_ciphertexts_rotate_to_current_key(tmp_path, monkeypatch):
     assert decrypt(new_secret.encrypted_value) == "new-secret-value"
     with pytest.raises(InvalidToken):
         _legacy_fernet(settings.SECRET_KEY).decrypt(old_secret.encrypted_value.encode())
+
+
+def test_run_token_can_only_access_its_own_run():
+    from backend.core.auth import AuthUser
+    from backend.api.runs import _enforce_run_access
+
+    runner = AuthUser(username="pybook:pb-1", role="runner", run_id="run-A", pybook_id="pb-1")
+
+    # Own run is allowed
+    _enforce_run_access(runner, "run-A")
+
+    # Any other run is rejected
+    with pytest.raises(HTTPException) as exc:
+        _enforce_run_access(runner, "run-B")
+    assert exc.value.status_code == 403
+
+    # Admin and scoped-key principals are unaffected
+    _enforce_run_access(AuthUser(username="admin", role="admin"), "run-B")
+    _enforce_run_access(AuthUser(username="api_key:siem", role="api_key"), "run-B")
