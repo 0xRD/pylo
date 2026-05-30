@@ -239,7 +239,7 @@ function EdgeLayer({ edges, nodes, selectedEdgeId, onSelectEdge, pendingEdge }) 
 }
 
 // ── PyBookNode ────────────────────────────────────────────────────────────────
-function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge, pybooks, hasError }) {
+function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge, pybooks, hasError, zoom = 1 }) {
   const sc = STATUS_COLORS[node.status] || STATUS_COLORS.idle
   const nodeType = node.type || 'pybook'
   const pbColor = nodeType === 'condition' ? '#22c55e' : nodeType === 'loop' ? '#06b6d4' : (pybook ? pybookColor(pybook, 0) : '#818cf8')
@@ -247,9 +247,11 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
   const handleMouseDown = e => {
     if (e.target.dataset.handle) return
     e.preventDefault()
-    const startX = e.clientX - node.x
-    const startY = e.clientY - node.y
-    const move = me => onDragNode(node.id, me.clientX - startX, me.clientY - startY)
+    e.stopPropagation()
+    const z = zoom || 1
+    const ox = node.x, oy = node.y
+    const cx = e.clientX, cy = e.clientY
+    const move = me => onDragNode(node.id, ox + (me.clientX - cx) / z, oy + (me.clientY - cy) / z)
     const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -257,7 +259,7 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
 
   return (
     <div
-      style={{ position: 'absolute', left: node.x, top: node.y, width: NODE_W, height: NODE_H, zIndex: selected ? 10 : 5 }}
+      style={{ position: 'absolute', left: node.x, top: node.y, width: NODE_W, height: NODE_H, zIndex: selected ? 10 : 5, pointerEvents: 'auto' }}
       onMouseDown={handleMouseDown}
       onClick={e => { e.stopPropagation(); onSelect(node) }}
     >
@@ -344,111 +346,198 @@ function PyBookNode({ node, pybook, selected, onSelect, onDragNode, onStartEdge,
   )
 }
 
-// ── WorkflowCanvas ────────────────────────────────────────────────────────────
+// ── WorkflowCanvas ─────────────────────────────
 function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelectEdge, onSelectCanvas, onAddNode, onAddControlNode, onDragNode, onAddEdge, errorNodeIds = [] }) {
   const dropRef = useRef(null)
   const [pendingEdge, setPendingEdge] = useState(null)
+  const [view, setView] = useState({ zoom: 1, panX: 0, panY: 0 })
+  const viewRef = useRef(view)
+  viewRef.current = view
+
+  const clampZoom = z => Math.min(2, Math.max(0.25, z))
+
+  // Screen (client) coords -> world (canvas) coords
+  const toWorld = (clientX, clientY) => {
+    const rect = dropRef.current.getBoundingClientRect()
+    const { zoom, panX, panY } = viewRef.current
+    return { x: (clientX - rect.left - panX) / zoom, y: (clientY - rect.top - panY) / zoom }
+  }
+
+  // Zoom toward a screen point, keeping that point stationary
+  const zoomAt = (mx, my, factor) => setView(v => {
+    const zoom = clampZoom(v.zoom * factor)
+    const wx = (mx - v.panX) / v.zoom, wy = (my - v.panY) / v.zoom
+    return { zoom, panX: mx - wx * zoom, panY: my - wy * zoom }
+  })
+
+  // React onWheel is passive (cannot preventDefault) -> attach a native listener
+  useEffect(() => {
+    const el = dropRef.current
+    if (!el) return
+    const onWheel = e => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.12 : 1 / 1.12)
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [])
+
+  const zoomButton = factor => {
+    const rect = dropRef.current.getBoundingClientRect()
+    zoomAt(rect.width / 2, rect.height / 2, factor)
+  }
+  const resetView = () => setView({ zoom: 1, panX: 0, panY: 0 })
+  const fitView = () => {
+    const ns = workflow.nodes
+    const el = dropRef.current
+    if (!ns.length || !el) { resetView(); return }
+    const rect = el.getBoundingClientRect()
+    const minX = Math.min(...ns.map(n => n.x)), minY = Math.min(...ns.map(n => n.y))
+    const maxX = Math.max(...ns.map(n => n.x + NODE_W)), maxY = Math.max(...ns.map(n => n.y + NODE_H))
+    const pad = 80
+    const zoom = clampZoom(Math.min((rect.width - pad) / (maxX - minX || 1), (rect.height - pad) / (maxY - minY || 1), 1.5))
+    setView({ zoom, panX: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom, panY: (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom })
+  }
 
   const handleDrop = e => {
     e.preventDefault()
-    const pybookId = e.dataTransfer.getData('pybookId')
-    const pybookName = e.dataTransfer.getData('pybookName')
+    const pybookId = e.dataTransfer.getData("pybookId")
+    const pybookName = e.dataTransfer.getData("pybookName")
     if (!pybookId || !dropRef.current) return
-    const rect = dropRef.current.getBoundingClientRect()
-    const x = Math.max(0, e.clientX - rect.left - NODE_W / 2)
-    const y = Math.max(0, e.clientY - rect.top - NODE_H / 2)
-    onAddNode(pybookId, pybookName, x, y)
+    const w = toWorld(e.clientX, e.clientY)
+    onAddNode(pybookId, pybookName, Math.max(0, w.x - NODE_W / 2), Math.max(0, w.y - NODE_H / 2))
   }
 
   const handleStartEdge = (e, sourceNode) => {
     if (!dropRef.current) return
-    const rect = dropRef.current.getBoundingClientRect()
     const x1 = sourceNode.x + NODE_W
     const y1 = sourceNode.y + NODE_H / 2
     setPendingEdge({ fromNodeId: sourceNode.id, x1, y1, x2: x1, y2: y1 })
-
     const onMove = me => {
-      setPendingEdge(pe => pe ? { ...pe, x2: me.clientX - rect.left, y2: me.clientY - rect.top } : null)
+      const w = toWorld(me.clientX, me.clientY)
+      setPendingEdge(pe => pe ? { ...pe, x2: w.x, y2: w.y } : null)
     }
     const onUp = me => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      const x = me.clientX - rect.left
-      const y = me.clientY - rect.top
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+      const w = toWorld(me.clientX, me.clientY)
       const target = workflow.nodes.find(n =>
         n.id !== sourceNode.id &&
-        x >= n.x - 10 && x <= n.x + NODE_W + 10 &&
-        y >= n.y - 10 && y <= n.y + NODE_H + 10
+        w.x >= n.x - 10 && w.x <= n.x + NODE_W + 10 &&
+        w.y >= n.y - 10 && w.y <= n.y + NODE_H + 10
       )
       if (target) onAddEdge(sourceNode.id, target.id)
       setPendingEdge(null)
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+  }
+
+  // Drag empty canvas to pan; a click without drag clears the selection
+  const handleBgMouseDown = e => {
+    if (e.button !== 0) return
+    const startX = e.clientX, startY = e.clientY
+    const start = viewRef.current
+    let moved = false
+    const onMove = me => {
+      const dx = me.clientX - startX, dy = me.clientY - startY
+      if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true
+      if (moved) setView({ zoom: start.zoom, panX: start.panX + dx, panY: start.panY + dy })
+    }
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+      if (!moved) onSelectCanvas()
+    }
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+  }
+
+  const { zoom, panX, panY } = view
+  const ctrlBtn = {
+    width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
+    background: "#111118", border: "1px solid #1f2937", borderRadius: 6, color: "#9ca3af",
+    cursor: "pointer", fontSize: 15, lineHeight: 1, fontFamily: "inherit", userSelect: "none",
   }
 
   return (
     <div
       ref={dropRef}
-      style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#09090f' }}
+      style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", background: "#09090f", cursor: "grab" }}
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
-      onClick={() => onSelectCanvas()}
+      onMouseDown={handleBgMouseDown}
     >
-      {/* Dot grid */}
-      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+      {/* Dot grid - pans and zooms with the canvas */}
+      <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         <defs>
-          <pattern id="dotgrid" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
+          <pattern id="dotgrid" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse"
+            patternTransform={`translate(${panX},${panY}) scale(${zoom})`}>
             <circle cx="1" cy="1" r="0.9" fill="#1a1f2e" />
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill="url(#dotgrid)" />
       </svg>
 
-      {/* Edges */}
-      <EdgeLayer
-        edges={workflow.edges}
-        nodes={workflow.nodes}
-        selectedEdgeId={selectedItem?.type === 'edge' ? selectedItem.data.id : null}
-        onSelectEdge={e => onSelectEdge(e)}
-        pendingEdge={pendingEdge}
-      />
-
-      {/* Nodes */}
-      {workflow.nodes.map(node => {
-        const pb = pybooks.find(p => p.id === node.pybookId)
-        return (
-          <PyBookNode
-            key={node.id}
-            node={node}
-            pybook={pb}
-            pybooks={pybooks}
-            selected={selectedItem?.type === 'node' && selectedItem.data.id === node.id}
-            onSelect={n => onSelectNode(n)}
-            onDragNode={onDragNode}
-            onStartEdge={handleStartEdge}
-            hasError={errorNodeIds.includes(node.id)}
-          />
-        )
-      })}
+      {/* World layer: edges + nodes. Empty areas have pointerEvents:none so
+          background pan / deselect keeps working; nodes opt back in. */}
+      <div style={{ position: "absolute", inset: 0, transformOrigin: "0 0", transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, pointerEvents: "none" }}>
+        <EdgeLayer
+          edges={workflow.edges}
+          nodes={workflow.nodes}
+          selectedEdgeId={selectedItem?.type === "edge" ? selectedItem.data.id : null}
+          onSelectEdge={e => onSelectEdge(e)}
+          pendingEdge={pendingEdge}
+        />
+        {workflow.nodes.map(node => {
+          const pb = pybooks.find(p => p.id === node.pybookId)
+          return (
+            <PyBookNode
+              key={node.id}
+              node={node}
+              pybook={pb}
+              pybooks={pybooks}
+              zoom={zoom}
+              selected={selectedItem?.type === "node" && selectedItem.data.id === node.id}
+              onSelect={n => onSelectNode(n)}
+              onDragNode={onDragNode}
+              onStartEdge={handleStartEdge}
+              hasError={errorNodeIds.includes(node.id)}
+            />
+          )
+        })}
+      </div>
 
       {/* Empty state */}
       {workflow.nodes.length === 0 && (
         <div style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          gap: 16, pointerEvents: 'none',
+          position: "absolute", inset: 0,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          gap: 16, pointerEvents: "none",
         }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, border: '2px dashed #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 56, height: 56, borderRadius: 16, border: "2px dashed #1f2937", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <svg width="24" height="24" fill="none" stroke="#374151" strokeWidth="1.5">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </div>
-          <div style={{ textAlign: 'center', color: '#374151', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ textAlign: "center", color: "#374151", fontSize: 13, lineHeight: 1.6 }}>
             Drag a PyBook from the palette<br />to start building your workflow
           </div>
         </div>
       )}
+
+      {/* Zoom / pan controls */}
+      <div style={{ position: "absolute", bottom: 14, right: 14, display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+        <div title="Zoom in" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={() => zoomButton(1.2)}>+</div>
+        <div title="Zoom out" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={() => zoomButton(1 / 1.2)}>{"−"}</div>
+        <div title="Fit to view" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={fitView}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 5V2h3M11 2h3v3M14 9v3h-3M5 12H2V9" /></svg>
+        </div>
+        <div title="Reset view (100%)" style={{ ...ctrlBtn, fontSize: 9, fontWeight: 600 }} onMouseDown={e => e.stopPropagation()} onClick={resetView}>
+          {Math.round(zoom * 100)}%
+        </div>
+      </div>
     </div>
   )
 }
