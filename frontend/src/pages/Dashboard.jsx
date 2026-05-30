@@ -70,9 +70,28 @@ function Panel({ title, icon: Icon, action, children }) {
   )
 }
 
+function ChartTooltip({ x, anchorY, lines, width = 150 }) {
+  const lineH = 16
+  const h = 12 + lines.length * lineH
+  const tx = Math.min(Math.max(x - width / 2, 4), 636 - width)
+  const ty = Math.max(4, anchorY - h - 10)
+  return (
+    <g pointerEvents="none">
+      <rect x={tx} y={ty} width={width} height={h} rx="6" fill="#21222c" stroke="#44475a" opacity="0.98" />
+      {lines.map((ln, i) => (
+        <text key={i} x={tx + 10} y={ty + 19 + i * lineH} fontSize="11" fill={ln.color || '#f8f8f2'} fontWeight={ln.bold ? 600 : 400}>
+          {ln.text}
+        </text>
+      ))}
+    </g>
+  )
+}
+
 function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
+  const [hover, setHover] = useState(null)
   const max = Math.max(1, ...data.map(item => item[valueKey] || 0))
   const ticks = [max, Math.round(max / 2), 0]
+  const colW = 500 / Math.max(data.length, 1)
   return (
     <div className="h-56">
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Bar chart">
@@ -86,27 +105,38 @@ function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
           )
         })}
         {data.map((item, index) => {
-          const width = 500 / Math.max(data.length, 1)
-          const x = 64 + index * (width + 4)
+          const x = 64 + index * (colW + 4)
           const h = ((item[valueKey] || 0) / max) * 140
           return (
-            <g key={item.date}>
-              <rect x={x} y={180 - h} width={Math.max(8, width)} height={h} rx="3" fill={color} opacity="0.85" />
+            <g key={item.date} onMouseEnter={() => setHover(index)} onMouseLeave={() => setHover(null)}>
+              <rect x={x - 2} y="40" width={colW + 4} height="140" fill="transparent" />
+              <rect x={x} y={180 - h} width={Math.max(8, colW)} height={h} rx="3" fill={color} opacity={hover === index ? 1 : 0.85} />
               {(index === 0 || index === data.length - 1 || data.length <= 7) && (
                 <text x={x} y="204" fill="#6272a4" fontSize="11">{shortDate(item.date)}</text>
               )}
             </g>
           )
         })}
+        {hover != null && data[hover] && (() => {
+          const item = data[hover]
+          const x = 64 + hover * (colW + 4) + colW / 2
+          const h = ((item[valueKey] || 0) / max) * 140
+          return <ChartTooltip x={x} anchorY={180 - h} lines={[
+            { text: shortDate(item.date), color: '#6272a4' },
+            { text: numberFmt(item[valueKey] || 0), color, bold: true },
+          ]} />
+        })()}
       </svg>
     </div>
   )
 }
 
 function StackedRunChart({ data }) {
+  const [hover, setHover] = useState(null)
   const keys = ['success', 'error', 'timeout', 'running', 'queued', 'pending']
   const max = Math.max(1, ...data.map(item => item.total || 0))
   const ticks = [max, Math.round(max / 2), 0]
+  const colW = 500 / Math.max(data.length, 1)
   return (
     <div className="h-56">
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Runs by status chart">
@@ -120,15 +150,15 @@ function StackedRunChart({ data }) {
           )
         })}
         {data.map((item, index) => {
-          const width = 500 / Math.max(data.length, 1)
-          const x = 64 + index * (width + 4)
+          const x = 64 + index * (colW + 4)
           let y = 180
           return (
-            <g key={item.date}>
+            <g key={item.date} onMouseEnter={() => setHover(index)} onMouseLeave={() => setHover(null)}>
+              <rect x={x - 2} y="40" width={colW + 4} height="140" fill="transparent" />
               {keys.map(key => {
                 const h = ((item[key] || 0) / max) * 140
                 y -= h
-                return <rect key={key} x={x} y={y} width={Math.max(8, width)} height={h} rx="2" fill={STATUS_COLORS[key]} opacity="0.9" />
+                return <rect key={key} x={x} y={y} width={Math.max(8, colW)} height={h} rx="2" fill={STATUS_COLORS[key]} opacity={hover === index ? 1 : 0.9} />
               })}
               {(index === 0 || index === data.length - 1 || data.length <= 7) && (
                 <text x={x} y="204" fill="#6272a4" fontSize="11">{shortDate(item.date)}</text>
@@ -136,19 +166,31 @@ function StackedRunChart({ data }) {
             </g>
           )
         })}
+        {hover != null && data[hover] && (() => {
+          const item = data[hover]
+          const x = 64 + hover * (colW + 4) + colW / 2
+          const h = ((item.total || 0) / max) * 140
+          const lines = [{ text: shortDate(item.date), color: '#6272a4' }]
+          keys.forEach(key => {
+            if (item[key]) lines.push({ text: key + ': ' + numberFmt(item[key]), color: STATUS_COLORS[key] })
+          })
+          lines.push({ text: 'total: ' + numberFmt(item.total || 0), color: '#f8f8f2', bold: true })
+          return <ChartTooltip x={x} anchorY={180 - h} lines={lines} />
+        })()}
       </svg>
     </div>
   )
 }
 
 function LineChart({ data }) {
+  const [hover, setHover] = useState(null)
   const values = data.map(item => item.rate).filter(value => value != null)
+  const px = index => 64 + index * (520 / Math.max(data.length - 1, 1))
   const points = data.map((item, index) => {
-    const x = 64 + index * (520 / Math.max(data.length - 1, 1))
     const rate = item.rate == null ? 0 : item.rate
-    const y = 180 - (rate / 100) * 140
-    return x + ',' + y
+    return px(index) + ',' + (180 - (rate / 100) * 140)
   }).join(' ')
+  const colW = 520 / Math.max(data.length, 1)
   return (
     <div className="h-56">
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Success rate chart">
@@ -164,10 +206,20 @@ function LineChart({ data }) {
         <polyline fill="none" stroke="#50fa7b" strokeWidth="3" points={points} />
         {data.map((item, index) => {
           if (item.rate == null) return null
-          const x = 64 + index * (520 / Math.max(data.length - 1, 1))
+          const x = px(index)
           const y = 180 - (item.rate / 100) * 140
-          return <circle key={item.date} cx={x} cy={y} r="4" fill="#50fa7b" />
+          return <circle key={item.date} cx={x} cy={y} r={hover === index ? 6 : 4} fill="#50fa7b" />
         })}
+        {data.map((item, index) => (
+          <rect key={'hit' + index} x={px(index) - colW / 2} y="40" width={colW} height="140" fill="transparent"
+            onMouseEnter={() => setHover(index)} onMouseLeave={() => setHover(null)} />
+        ))}
+        {hover != null && data[hover] && data[hover].rate != null && (
+          <ChartTooltip x={px(hover)} anchorY={180 - (data[hover].rate / 100) * 140} lines={[
+            { text: shortDate(data[hover].date), color: '#6272a4' },
+            { text: data[hover].rate + '%', color: '#50fa7b', bold: true },
+          ]} />
+        )}
         {values.length === 0 && <text x="250" y="112" fill="#6272a4" fontSize="13">No completed runs yet</text>}
       </svg>
     </div>
