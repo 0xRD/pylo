@@ -116,3 +116,82 @@ The highest-impact bug was the `pylo_sdk.search_entries()` contract drift: the b
 - `cd frontend && npm run build` passed.
 - `docker compose build frontend --no-cache && docker compose up -d frontend` passed.
 - Final `docker compose ps` passed with backend healthy and frontend running.
+
+
+---
+
+# Pylo Code Audit — Addendum
+
+Date: 2026-05-30
+Branch: `main`
+
+This addendum covers a focused **security review** of the backend and an **audit + functional test of the Workflows feature**. Several "Remaining Findings" from the 2026-04-28 audit are now resolved in the codebase: CORS is configured from `PYLO_ALLOWED_ORIGINS` (no longer `*`), an SSRF guard exists for blueprint fetch, and `Settings.validate_security()` refuses to boot production with default/weak `SECRET_KEY`/`ENCRYPTION_KEY`/`API_TOKEN`.
+
+## Security review
+
+### Fixed in this pass
+
+#### Run-token IDOR — runner could read/modify any run (`ff89f8b`)
+- File: `backend/api/runs.py`, `backend/main.py`
+- Problem: run tokens injected into PyBook containers were allowed to call `GET /api/runs/{id}`, `POST /api/runs/{id}/output`, and `DELETE /api/runs/{id}` for *any* `run_id` — the id was never bound to the token. One PyBook could read another run's stdout/stderr/output_vars and overwrite its output, breaking run isolation.
+- Fix: added `_enforce_run_access()` so a `runner` principal may only touch its own `run_id` (mirrors the existing WebSocket check). Admin and scoped-key principals are unaffected. Regression test added: `tests/test_security_hardening.py::test_run_token_can_only_access_its_own_run`.
+
+#### Non-constant-time master-token comparison (`686a6c2`)
+- Files: `backend/core/auth.py`, `backend/main.py`, `backend/api/runs.py`
+- Problem: `api_key == settings.API_TOKEN` (×5) is a timing side-channel on the highest-value static credential.
+- Fix: centralized `is_master_token()` using `hmac.compare_digest` on encoded bytes (also prevents a non-ASCII `X-API-Token` header from raising a `TypeError`/500).
+
+### Open findings
+
+#### MEDIUM — SSRF DNS-rebinding TOCTOU
+- File: `backend/api/blueprints.py` (`_validate_fetch_url`, `_resolved_private_fetch_host`)
+- `_validate_fetch_url` resolves the hostname to reject private IPs, but `httpx` re-resolves independently at connect time. A host whose DNS flips between a public and a private/metadata IP (`169.254.169.254`, `127.0.0.1`) bypasses the guard.
+- Recommendation: resolve once and pin the connection to the validated IP (custom transport / connect-to-IP with `Host` header), or validate the actually-connected peer IP. (Note: the redirect-follow path already re-validates each hop, which is good.)
+
+#### MEDIUM — `network_policy="allowlisted"` does not restrict egress
+- File: `backend/core/runner.py` (`_run_container_sync`)
+- The "allowlisted" policy only adds `extra_hosts` DNS entries and attaches the container to the full `DOCKER_NETWORK`; it does not block egress to the internet, `backend:8000`, or `postgres`. The name implies an egress allowlist that is not enforced — only `network_policy="none"` truly isolates.
+- Recommendation: enforce egress with a real mechanism (per-run network + firewall), or rename/document the policy as DNS-convenience only.
+
+#### MEDIUM — No rate limiting / lockout on authentication
+- File: `backend/api/auth.py` (`/api/auth/login`, `/api/auth/invite/{token}`)
+- Failures are logged but not throttled — online brute force is unbounded.
+- Recommendation: per-IP/account backoff or lockout.
+
+#### LOW / hardening
+- Run/master tokens accepted via WebSocket **query param** (`backend/api/runs.py` `?token=`) leak into proxy/access logs — prefer the cookie/header paths.
+- Git PAT embedded in the remote URL (`backend/api/gitops.py` `_url_with_token`) is visible in process args (`ps`) and written to `.git/config` — prefer `GIT_ASKPASS`/`http.extraHeader`.
+- Backup-passphrase KDF uses PBKDF2 **100k** iterations (`backend/api/export_import.py`) vs **600k** for the main key — align them.
+- `PYLO_COOKIE_SECURE` defaults to `False` (`backend/config.py`) and is not covered by `validate_security()` — production over HTTP would send the session cookie in clear.
+- Scoped API keys / runner tokens are coarse by design: `pybooks:trigger` triggers any PyBook; `entries:write` writes any blueprint's entries. No per-resource scoping.
+
+## Workflows feature audit
+
+### Functional test (live, against the running stack)
+Created two trivial PyBooks chained `A → B` with an `on_success` edge and a payload mapping `incoming = $.vars.greeting`, plus a diamond `A→B, A→C, B→D, C→D`. Results:
+- Validation (`/validate`) correctly returned `valid: true`.
+- Both nodes executed in dependency order; A's `pylo.set_output("greeting", …)` flowed through the edge mapping and B received `{"incoming": "hello-from-A"}`. Workflow status `success`.
+- Diamond: each node (incl. the join `D`) executed **exactly once**.
+
+Conclusion: the executor's core DAG execution, edge conditions (`always`/`on_success`/`on_failure`/`true`/`false`/`loop_item`), output-var propagation, and condition/loop control nodes work as intended. Edge fields are consistently `from`/`to` across the frontend, executor, and validator.
+
+### Findings / limitations (not fixed — flagged for follow-up)
+- **Fan-in join semantics**: a node with multiple incoming edges executes as soon as the *first* parent completes (guarded by the `triggered` set in `executor.py::execute_workflow`); it does **not** wait for all parents and only receives the first parent's payload. For true join/merge behavior this needs a barrier that waits for all in-edges. A concurrent-completion case could also theoretically double-schedule a join node before the `triggered` guard is set.
+- **Workflow runs bypass the queue manager**: `backend/api/workflows.py::trigger_workflow_run` uses `asyncio.create_task(_run_bg(...))` on the server event loop with status `"pending"` — no concurrency cap, and in-flight runs are lost (left `pending`/`running`) on a backend restart. This is inconsistent with the project rule that all trigger paths write `status="queued"` before `queue_manager.enqueue()` (which PyBook runs follow).
+- `trigger_workflow_run` does not check `wf.is_active` before running.
+- Manual runs cannot supply an input payload (the endpoint takes no body; `WorkflowRun.trigger_payload` defaults to `"{}"`).
+- `create_workflow` does not validate that `nodes`/`edges` are well-formed JSON or that `trigger_type` is known.
+
+### Improvement implemented — canvas zoom & pan
+- File: `frontend/src/pages/WorkflowEditor.jsx`
+- The canvas was previously fixed-scale with no pan, capping practical workflow size. Added:
+  - Mouse-wheel zoom that zooms toward the cursor (native non-passive listener since React's `onWheel` is passive), clamped to 25%–200%.
+  - Drag-empty-canvas to pan; a click without drag still clears the selection.
+  - On-screen controls (zoom in / out / fit-to-view / reset + live % readout).
+  - Dot grid tracks the transform; node dragging and edge drawing convert screen→world coordinates so they remain accurate at any zoom/pan.
+
+## Verification
+- `backend python -m pytest tests/` → **114 passed** (after the two security fixes + new test).
+- `frontend npm run build` → passed (JSX valid); frontend container rebuilt.
+- Live workflow runs (linear + diamond) executed successfully end-to-end.
+- Both security fixes smoke-tested: valid/invalid/non-ASCII master token (200/401/401); runner token own-run (404, ownership OK) vs other run (403).
