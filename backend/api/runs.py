@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
 
-from backend.core.auth import verify_token
+from backend.core.auth import verify_token, is_master_token
 from backend.database import engine, get_session
 from backend.pybooks.models import PyBookRun
 
@@ -60,10 +60,10 @@ async def run_status_ws(run_id: str, websocket: WebSocket, token: Optional[str] 
     with Session(engine) as session:
         cookie_user = auth_user_from_jwt(cookie, session) if cookie else None
     authorized = (
-        (header_key and header_key == settings.API_TOKEN)
+        is_master_token(header_key)
         or _valid_run_token(header_key)
         or bool(cookie_user)
-        or (token and (token == settings.API_TOKEN or _valid_run_token(token)))
+        or (token and (is_master_token(token) or _valid_run_token(token)))
     )
     if not authorized:
         await websocket.close(code=4001)

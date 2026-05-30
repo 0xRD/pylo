@@ -25,7 +25,7 @@ from backend.api.gitops import router as gitops_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
 from backend.core import queue_manager
-from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token, auth_user_from_scoped_api_key
+from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token, auth_user_from_scoped_api_key, is_master_token
 from backend.config import settings
 from sqlmodel import Session
 
@@ -112,7 +112,7 @@ async def enforce_viewer_readonly(request: Request, call_next):
 
     if request.method in ("GET", "HEAD", "OPTIONS"):
         api_key = request.headers.get("X-API-Token")
-        if api_key and api_key != settings.API_TOKEN:
+        if api_key and not is_master_token(api_key):
             runner = auth_user_from_run_token(api_key)
             if runner and not _runner_can_access(request.method, path):
                 return JSONResponse(status_code=403, content={"detail": "Run token scope does not allow this operation"})
@@ -134,7 +134,7 @@ async def enforce_viewer_readonly(request: Request, call_next):
 
     api_key = request.headers.get("X-API-Token")
     if api_key:
-        if api_key == settings.API_TOKEN:
+        if is_master_token(api_key):
             return await call_next(request)
         runner = auth_user_from_run_token(api_key)
         if runner:

@@ -211,6 +211,13 @@ def auth_user_from_scoped_api_key(token: str, session: Session) -> AuthUser | No
     )
 
 
+def is_master_token(candidate: Optional[str]) -> bool:
+    """Constant-time comparison against the master API token."""
+    if not candidate:
+        return False
+    return _hmac.compare_digest(candidate.encode("utf-8"), settings.API_TOKEN.encode("utf-8"))
+
+
 def verify_token(
     api_key: str = Security(_api_key_header),
     pylo_token: Optional[str] = Cookie(default=None),
@@ -218,7 +225,7 @@ def verify_token(
 ) -> AuthUser:
     # Master API_TOKEN (for external admin scripts only; never injected into PyBooks)
     if api_key:
-        if api_key == settings.API_TOKEN:
+        if is_master_token(api_key):
             return AuthUser(username="api_token", role="admin")
         runner = auth_user_from_run_token(api_key)
         if runner:
