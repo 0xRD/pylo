@@ -542,7 +542,7 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                     wf_run = WorkflowRun(
                         id=str(uuid.uuid4()),
                         workflow_id=wf.id,
-                        status="pending",
+                        status="queued",
                         trigger_source="blueprint",
                         trigger_payload=json.dumps({
                             "blueprint_id": blueprint_id,
@@ -555,21 +555,10 @@ def _fire_blueprint_triggers(bp, created_entries: list) -> None:
                     _ts.add(wf_run)
                     _ts.commit()
                     wf_run_id = wf_run.id
-                    try:
-                        loop = _asyncio.get_running_loop()
-                        loop.create_task(_execute_workflow_bg(wf_run_id))
-                    except RuntimeError:
-                        pass
+                    from backend.core import queue_manager as _qm
+                    _qm.enqueue_workflow(wf_run_id)
     except Exception as exc:
         logger.warning("Failed to fire blueprint triggers: %s", exc)
-
-
-async def _execute_workflow_bg(workflow_run_id: str) -> None:
-    from backend.workflows.executor import execute_workflow
-    try:
-        await execute_workflow(workflow_run_id)
-    except Exception as exc:
-        logger.exception("Workflow run %s crashed: %s", workflow_run_id, exc)
 
 
 def _jsonpath_first(data, path: str):

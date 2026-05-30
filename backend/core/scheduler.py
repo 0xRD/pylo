@@ -75,7 +75,7 @@ async def _run_cron_workflow(workflow_id: str):
         wf_run = WorkflowRun(
             id=str(_uuid.uuid4()),
             workflow_id=workflow_id,
-            status="pending",
+            status="queued",
             trigger_source="cron",
             started_at=now,
         )
@@ -83,11 +83,8 @@ async def _run_cron_workflow(workflow_id: str):
         session.commit()
         wf_run_id = wf_run.id
 
-    from backend.workflows.executor import execute_workflow
-    try:
-        await execute_workflow(wf_run_id)
-    except Exception as exc:
-        logger.exception("Cron workflow run %s crashed: %s", wf_run_id, exc)
+    from backend.core import queue_manager
+    queue_manager.enqueue_workflow(wf_run_id)
 
 def sync_cron_jobs():
     """Rebuild all cron jobs from the database. Call on startup and after updates."""

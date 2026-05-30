@@ -1,4 +1,3 @@
-import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -10,6 +9,7 @@ from sqlmodel import Session, select
 
 from backend.activity.logger import log_activity
 from backend.core.auth import AuthUser, verify_token
+from backend.core import queue_manager
 from backend.database import get_session, engine
 from backend.workflows.models import Workflow, WorkflowRun, WorkflowNodeRun
 from backend.workflows.validator import validate_dag
@@ -168,7 +168,7 @@ async def trigger_workflow_run(
     wf_run = WorkflowRun(
         id=str(uuid.uuid4()),
         workflow_id=workflow_id,
-        status="pending",
+        status="queued",
         trigger_source=current_user.username,
         started_at=now,
     )
@@ -177,17 +177,8 @@ async def trigger_workflow_run(
     session.refresh(wf_run)
     wf_run_id = wf_run.id
 
-    asyncio.create_task(_run_bg(wf_run_id))
+    queue_manager.enqueue_workflow(wf_run_id)
     return wf_run
-
-
-async def _run_bg(workflow_run_id: str) -> None:
-    from backend.workflows.executor import execute_workflow
-    try:
-        await execute_workflow(workflow_run_id)
-    except Exception as exc:
-        import logging
-        logging.getLogger(__name__).exception("Workflow run %s crashed: %s", workflow_run_id, exc)
 
 
 @router.get("/{workflow_id}/runs")

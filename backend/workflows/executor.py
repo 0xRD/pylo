@@ -235,7 +235,14 @@ async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[st
 
 
 async def execute_workflow(workflow_run_id: str) -> None:
-    """Main entry point — runs the full workflow DAG."""
+    """Main entry point - runs the full workflow DAG.
+
+    Non-loop nodes use a join barrier: a node runs only after *every* one of
+    its incoming edges has resolved, and it receives the merged payload from
+    each edge whose condition matched. A node whose incoming edges all fail to
+    match is skipped and propagates that skip downstream. Loop nodes fan out
+    per item into independent cascades.
+    """
     trigger_payload = {}
     with Session(engine) as session:
         wf_run = session.get(WorkflowRun, workflow_run_id)
@@ -253,54 +260,93 @@ async def execute_workflow(workflow_run_id: str) -> None:
         session.add(wf_run)
         session.commit()
 
+    started = datetime.now(timezone.utc)
     if not nodes:
-        _finish(workflow_run_id, "success")
+        _finish(workflow_run_id, "success", started)
         return
 
-    outgoing: dict = defaultdict(list)
-    in_degree: dict = defaultdict(int)
-    for e in edges:
-        outgoing[e["from"]].append(e)
-        in_degree[e["to"]] += 1
-
     node_map = {n["id"]: n for n in nodes}
-    start_nodes = [n for n in nodes if in_degree[n["id"]] == 0]
+    outgoing: dict = defaultdict(list)
+    incoming: dict = defaultdict(list)
+    has_incoming: set = set()
+    for e in edges:
+        src, tgt = e.get("from"), e.get("to")
+        if src in node_map and tgt in node_map:
+            outgoing[src].append(e)
+            incoming[tgt].append(e)
+            has_incoming.add(tgt)
 
-    triggered: set = set()
-    completed: dict = {}
+    # Join barrier: a node waits for every incoming edge from a non-loop
+    # source. Loop sources trigger their targets through per-item cascades.
+    remaining = {nid: 0 for nid in node_map}
+    for tgt in node_map:
+        for e in incoming[tgt]:
+            if node_map[e["from"]].get("type") != "loop":
+                remaining[tgt] += 1
 
-    async def visit(node: dict, payload: dict, repeat: bool = False) -> None:
-        nid = node["id"]
-        if not repeat and node.get("type") != "loop" and nid in triggered:
-            return
-        if not repeat and node.get("type") != "loop":
-            triggered.add(nid)
+    inbox: dict = defaultdict(dict)   # nid -> merged payload from matched edges
+    delivered: set = set()            # nids that received >= 1 matched edge
+    statuses: list = []
 
+    # Legacy per-item cascade for loop bodies (independent of the barrier).
+    async def cascade(node: dict, payload: dict) -> None:
         nid, status, out_vars = await _run_node(workflow_run_id, node, payload)
-        completed[nid] = (status, out_vars)
-
-        next_tasks = []
+        statuses.append(status)
+        tasks = []
         for edge in outgoing[nid]:
             if not _edge_matches(edge, node, status, out_vars):
                 continue
-            to_id = edge["to"]
-            if to_id not in node_map:
+            tgt = node_map.get(edge["to"])
+            if not tgt:
                 continue
             if node.get("type") == "loop":
                 for index, item in enumerate(out_vars.get("items") or []):
                     item_payload = {**(payload or {}), "item": item, "loop_index": index}
-                    next_tasks.append(visit(node_map[to_id], _build_payload(edge.get("mappings", []), item_payload, out_vars), True))
-            elif repeat or to_id not in triggered:
-                next_payload = _build_payload(edge.get("mappings", []), payload, out_vars)
-                next_tasks.append(visit(node_map[to_id], next_payload, repeat))
-        if next_tasks:
-            await asyncio.gather(*next_tasks)
+                    tasks.append(cascade(tgt, _build_payload(edge.get("mappings", []), item_payload, out_vars)))
+            else:
+                tasks.append(cascade(tgt, _build_payload(edge.get("mappings", []), payload, out_vars)))
+        if tasks:
+            await asyncio.gather(*tasks)
 
-    started = datetime.now(timezone.utc)
+    async def run_node(node: dict, payload: dict) -> None:
+        nid, status, out_vars = await _run_node(workflow_run_id, node, payload)
+        statuses.append(status)
+        await _propagate(node, status, out_vars, payload)
+
+    async def _propagate(node: dict, status: str, out_vars: dict, payload: dict) -> None:
+        # The barrier bookkeeping below runs synchronously (no await) until the
+        # final gather, so concurrent parents cannot race the decrement /
+        # zero-check of a shared target.
+        tasks = []
+        for edge in outgoing[node["id"]]:
+            tgt = node_map.get(edge["to"])
+            if not tgt:
+                continue
+            tid = tgt["id"]
+            if node.get("type") == "loop":
+                if _edge_matches(edge, node, status, out_vars):
+                    for index, item in enumerate(out_vars.get("items") or []):
+                        item_payload = {**(payload or {}), "item": item, "loop_index": index}
+                        tasks.append(cascade(tgt, _build_payload(edge.get("mappings", []), item_payload, out_vars)))
+                continue
+            if status != "skipped" and _edge_matches(edge, node, status, out_vars):
+                merged = dict(inbox[tid])
+                merged.update(_build_payload(edge.get("mappings", []), payload, out_vars))
+                inbox[tid] = merged
+                delivered.add(tid)
+            remaining[tid] -= 1
+            if remaining[tid] == 0:
+                if tid in delivered:
+                    tasks.append(run_node(tgt, dict(inbox[tid])))
+                else:
+                    tasks.append(_propagate(tgt, "skipped", {}, {}))
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    start_nodes = [n for n in nodes if n["id"] not in has_incoming]
     try:
-        await asyncio.gather(*[visit(n, trigger_payload) for n in start_nodes])
-        statuses = [v[0] for v in completed.values()]
-        final = "success" if statuses and all(s == "success" for s in statuses) else "error"
+        await asyncio.gather(*[run_node(n, trigger_payload) for n in start_nodes])
+        final = "error" if any(s in ("error", "timeout") for s in statuses) else "success"
     except Exception as exc:
         logger.exception("Workflow run %s failed: %s", workflow_run_id, exc)
         final = "error"

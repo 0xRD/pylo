@@ -1,10 +1,16 @@
 """
-Persistent PyBook execution queue.
+Persistent execution queue for PyBook and Workflow runs.
 
 Runs are persisted as status='queued' before any worker picks them up.
 A single asyncio worker drains the queue, gated by the live
 PYLO_MAX_CONCURRENT_RUNS setting. On startup, any runs left in 'queued' or
-'pending' state are automatically re-enqueued.
+'pending' state are re-enqueued, and runs stranded in 'running' by a restart
+are marked as error.
+
+Jobs are tagged by kind: ("pybook", pybook_id, run_id) or
+("workflow", workflow_run_id, ""). A workflow holds one concurrency slot for
+its whole duration; its node executions run via the runner directly and do not
+take additional queue slots.
 """
 import asyncio
 import logging
@@ -64,28 +70,37 @@ async def _release_slot() -> None:
         _limit_condition.notify_all()
 
 
-def enqueue(pybook_id: str, run_id: str) -> None:
+def _put(job: tuple) -> None:
     if _queue is None:
-        logger.warning("Queue not started — run %s dropped", run_id)
+        logger.warning("Queue not started - job %r dropped", job)
         return
-    _queue.put_nowait((pybook_id, run_id))
-    logger.debug("Enqueued run %s (queue depth now %d)", run_id, _queue.qsize())
+    _queue.put_nowait(job)
+    logger.debug("Enqueued %r (queue depth now %d)", job, _queue.qsize())
 
 
-def _mark_pending(run_id: str) -> None:
+def enqueue(pybook_id: str, run_id: str) -> None:
+    """Enqueue a PyBook run (already persisted as status='queued')."""
+    _put(("pybook", pybook_id, run_id))
+
+
+def enqueue_workflow(workflow_run_id: str) -> None:
+    """Enqueue a Workflow run (already persisted as status='queued')."""
+    _put(("workflow", workflow_run_id, ""))
+
+
+def _mark_pending(model, run_id: str) -> None:
     from sqlmodel import Session
     from backend.database import engine
-    from backend.pybooks.models import PyBookRun
 
     with Session(engine) as session:
-        run = session.get(PyBookRun, run_id)
+        run = session.get(model, run_id)
         if run and run.status == "queued":
             run.status = "pending"
             session.add(run)
             session.commit()
 
 
-async def _execute_with_semaphore(pybook_id: str, run_id: str) -> None:
+async def _run_pybook_job(pybook_id: str, run_id: str) -> None:
     from backend.api.pybooks import _execute_run
     try:
         await _execute_run(pybook_id, run_id)
@@ -95,14 +110,32 @@ async def _execute_with_semaphore(pybook_id: str, run_id: str) -> None:
         await _release_slot()
 
 
+async def _run_workflow_job(workflow_run_id: str) -> None:
+    from backend.workflows.executor import execute_workflow
+    try:
+        await execute_workflow(workflow_run_id)
+    except Exception as exc:
+        logger.exception("Unhandled error executing workflow run %s: %s", workflow_run_id, exc)
+    finally:
+        await _release_slot()
+
+
 async def _worker() -> None:
-    logger.info("PyBook queue worker started (max_concurrent=%d)", _current_limit)
+    logger.info("Queue worker started (max_concurrent=%d)", _current_limit)
+    from backend.pybooks.models import PyBookRun
+    from backend.workflows.models import WorkflowRun
+
     while True:
         try:
-            pybook_id, run_id = await _queue.get()
-            _mark_pending(run_id)
-            await _reserve_slot()
-            asyncio.create_task(_execute_with_semaphore(pybook_id, run_id))
+            kind, id_a, id_b = await _queue.get()
+            if kind == "workflow":
+                _mark_pending(WorkflowRun, id_a)
+                await _reserve_slot()
+                asyncio.create_task(_run_workflow_job(id_a))
+            else:
+                _mark_pending(PyBookRun, id_b)
+                await _reserve_slot()
+                asyncio.create_task(_run_pybook_job(id_a, id_b))
             _queue.task_done()
         except asyncio.CancelledError:
             logger.info("Queue worker shutting down")
@@ -116,46 +149,64 @@ async def start() -> None:
     from sqlmodel import Session, select
     from backend.database import engine
     from backend.pybooks.models import PyBookRun
+    from backend.workflows.models import WorkflowRun
     from backend.core.settings_model import SystemSetting
+    from datetime import datetime, timezone as tz
 
-    # Prefer the persisted DB setting over the env var default
+    now = datetime.now(tz.utc)
+    pybook_orphans: list = []
+    workflow_orphans: list = []
+
     with Session(engine) as session:
         row = session.get(SystemSetting, "max_concurrent_runs")
         max_concurrent = int(row.value) if row else _get_max()
 
-        # Runs left in queued/pending state can be safely re-queued
-        orphans = session.exec(
+        pb_orphans = session.exec(
             select(PyBookRun).where(PyBookRun.status.in_(["queued", "pending"]))
         ).all()
-        orphan_ids = [(r.pybook_id, r.id) for r in orphans]
+        pybook_orphans = [(r.pybook_id, r.id) for r in pb_orphans]
 
-        # Runs stuck in running state were interrupted by a restart — mark as error
-        from datetime import datetime, timezone as tz
-        now = datetime.now(tz.utc)
-        stranded = session.exec(
+        wf_orphans = session.exec(
+            select(WorkflowRun).where(WorkflowRun.status.in_(["queued", "pending"]))
+        ).all()
+        workflow_orphans = [r.id for r in wf_orphans]
+
+        stranded_pb = session.exec(
             select(PyBookRun).where(PyBookRun.status == "running")
         ).all()
-        for run in stranded:
+        for run in stranded_pb:
             run.status = "error"
             run.ended_at = now
             run.stderr = (run.stderr or "") + "\n[Interrupted: backend restarted while run was active]"
             if run.exit_code is None:
                 run.exit_code = -1
             session.add(run)
-        if stranded:
+
+        stranded_wf = session.exec(
+            select(WorkflowRun).where(WorkflowRun.status == "running")
+        ).all()
+        for run in stranded_wf:
+            run.status = "error"
+            run.ended_at = now
+            session.add(run)
+
+        if stranded_pb or stranded_wf:
             session.commit()
-            logger.warning("Reset %d stranded runs to error after restart", len(stranded))
+            logger.warning("Reset %d stranded runs to error after restart",
+                           len(stranded_pb) + len(stranded_wf))
 
     _current_limit = max_concurrent
     _queue = asyncio.Queue()
     _limit_condition = asyncio.Condition()
     _worker_task = asyncio.create_task(_worker())
 
-    # Recover runs stuck in queued/pending state from before last restart
-    for pybook_id, run_id in orphan_ids:
-        _queue.put_nowait((pybook_id, run_id))
-    if orphan_ids:
-        logger.info("Recovered %d orphaned runs from DB", len(orphan_ids))
+    for pybook_id, run_id in pybook_orphans:
+        _queue.put_nowait(("pybook", pybook_id, run_id))
+    for wf_run_id in workflow_orphans:
+        _queue.put_nowait(("workflow", wf_run_id, ""))
+    recovered = len(pybook_orphans) + len(workflow_orphans)
+    if recovered:
+        logger.info("Recovered %d orphaned runs from DB", recovered)
 
 
 def stop() -> None:
