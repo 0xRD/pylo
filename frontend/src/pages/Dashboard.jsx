@@ -126,6 +126,9 @@ function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
             { text: numberFmt(item[valueKey] || 0), color, bold: true },
           ]} />
         })()}
+        {!data.some(item => (item[valueKey] || 0) > 0) && (
+          <text x="340" y="116" textAnchor="middle" fill="#6272a4" fontSize="13">No data in this range — try a longer range</text>
+        )}
       </svg>
     </div>
   )
@@ -177,6 +180,9 @@ function StackedRunChart({ data }) {
           lines.push({ text: 'total: ' + numberFmt(item.total || 0), color: '#f8f8f2', bold: true })
           return <ChartTooltip x={x} anchorY={180 - h} lines={lines} />
         })()}
+        {!data.some(item => (item.total || 0) > 0) && (
+          <text x="340" y="116" textAnchor="middle" fill="#6272a4" fontSize="13">No data in this range — try a longer range</text>
+        )}
       </svg>
     </div>
   )
