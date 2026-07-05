@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { GitopsProvider } from './context/GitopsContext'
+import { UiProvider } from './context/UiContext'
 import { authApi } from './api/auth'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
@@ -54,6 +55,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <GitopsProvider>
+        <UiProvider>
         <SetupGuard>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -82,6 +84,7 @@ export default function App() {
             </Route>
           </Routes>
         </SetupGuard>
+        </UiProvider>
         </GitopsProvider>
       </AuthProvider>
     </BrowserRouter>

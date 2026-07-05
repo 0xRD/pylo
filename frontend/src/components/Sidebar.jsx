@@ -5,8 +5,11 @@ import {
   BookOpen,
   Boxes,
   Braces,
+  ChevronsLeft,
+  ChevronsRight,
   CircuitBoard,
   Database,
+  Gauge,
   GitBranch,
   GitCommit,
   GitPullRequest,
@@ -21,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useGitops } from '../context/GitopsContext'
+import { useUi } from '../context/UiContext'
 import CommitPanel from './CommitPanel'
 import SyncPanel from './SyncPanel'
 
@@ -116,69 +120,90 @@ function ChangePasswordModal({ onClose }) {
 export default function Sidebar() {
   const { user, isAdmin, logout } = useAuth()
   const { isProd, isDev, configured, pendingCount, remoteAhead } = useGitops()
+  const { sidebarCollapsed, toggleSidebar, compact, toggleDensity } = useUi()
   const navigate = useNavigate()
   const [showChangePwd, setShowChangePwd] = useState(false)
   const [showCommit, setShowCommit] = useState(false)
   const [showSync, setShowSync] = useState(false)
+
+  const collapsed = sidebarCollapsed
 
   const handleLogout = async () => {
     await logout()
     navigate('/login', { replace: true })
   }
 
+  const navClass = ({ isActive }) =>
+    `flex items-center rounded-md text-sm transition-colors border ${
+      collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
+    } ${
+      isActive
+        ? 'bg-[#44475a] border-[#6272a4] text-[#f8f8f2]'
+        : 'border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#f8f8f2]'
+    }`
+
   return (
     <>
-      <aside className="w-60 bg-[#191a21] border-r border-[#343746] flex flex-col shadow-2xl shadow-black/20">
-        <div className="px-4 py-5 border-b border-[#343746]">
-          <NavLink to="/" className="flex items-center gap-3 text-gray-100 hover:text-[#bd93f9] transition-colors">
-            <span className="grid h-9 w-9 place-items-center rounded-md bg-[#282a36] border border-[#44475a] text-[#8be9fd]">
-              <CircuitBoard size={18} />
-            </span>
-            <span>
-              <span className="block text-base font-semibold tracking-tight">Pylo</span>
-              <span className="block text-[11px] text-[#6272a4]">Automation console</span>
-            </span>
-          </NavLink>
+      <aside className={`${collapsed ? 'w-16' : 'w-60'} shrink-0 bg-[#191a21] border-r border-[#343746] flex flex-col shadow-2xl shadow-black/20 transition-[width] duration-200`}>
+        <div className={`border-b border-[#343746] ${collapsed ? 'px-2 py-4' : 'px-4 py-5'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <NavLink to="/" title="Pylo" className={`flex items-center gap-3 text-gray-100 hover:text-[#bd93f9] transition-colors ${collapsed ? 'mx-auto' : ''}`}>
+              <span className="grid h-9 w-9 place-items-center rounded-md bg-[#282a36] border border-[#44475a] text-[#8be9fd] shrink-0">
+                <CircuitBoard size={18} />
+              </span>
+              {!collapsed && (
+                <span>
+                  <span className="block text-base font-semibold tracking-tight">Pylo</span>
+                  <span className="block text-[11px] text-[#6272a4]">Automation console</span>
+                </span>
+              )}
+            </NavLink>
+            {!collapsed && (
+              <button
+                onClick={toggleSidebar}
+                title="Collapse sidebar"
+                className="grid h-7 w-7 place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors"
+              >
+                <ChevronsLeft size={16} />
+              </button>
+            )}
+          </div>
+          {collapsed && (
+            <button
+              onClick={toggleSidebar}
+              title="Expand sidebar"
+              className="mt-3 grid h-7 w-full place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors"
+            >
+              <ChevronsRight size={16} />
+            </button>
+          )}
         </div>
 
         {/* Prod environment banner */}
         {isProd && (
-          <div className="mx-3 mt-3 px-3 py-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-semibold flex items-center gap-2">
-            <GitBranch size={12} />
-            Production — read-only
-          </div>
+          collapsed ? (
+            <div title="Production — read-only" className="mx-auto mt-3 grid h-8 w-8 place-items-center rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+              <GitBranch size={14} />
+            </div>
+          ) : (
+            <div className="mx-3 mt-3 px-3 py-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-semibold flex items-center gap-2">
+              <GitBranch size={12} />
+              Production — read-only
+            </div>
+          )
         )}
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className={`flex-1 overflow-y-auto py-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
           {links.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border ${
-                  isActive
-                    ? 'bg-[#44475a] border-[#6272a4] text-[#f8f8f2]'
-                    : 'border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#f8f8f2]'
-                }`
-              }
-            >
-              <Icon size={17} />
-              {label}
+            <NavLink key={to} to={to} title={collapsed ? label : undefined} className={navClass}>
+              <Icon size={17} className="shrink-0" />
+              {!collapsed && label}
             </NavLink>
           ))}
           {isAdmin && (
-            <NavLink
-              to="/users"
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border ${
-                  isActive
-                    ? 'bg-[#44475a] border-[#6272a4] text-[#f8f8f2]'
-                    : 'border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#f8f8f2]'
-                }`
-              }
-            >
-              <UserCog size={17} />
-              Users
+            <NavLink to="/users" title={collapsed ? 'Users' : undefined} className={navClass}>
+              <UserCog size={17} className="shrink-0" />
+              {!collapsed && 'Users'}
             </NavLink>
           )}
 
@@ -186,14 +211,19 @@ export default function Sidebar() {
           {configured && isAdmin && isDev && (
             <button
               onClick={() => setShowCommit(true)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#bd93f9]"
+              title={collapsed ? `Commit${pendingCount > 0 ? ` (${pendingCount})` : ''}` : undefined}
+              className={`relative w-full flex items-center rounded-md text-sm transition-colors border border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#bd93f9] ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'}`}
             >
-              <GitCommit size={17} />
-              <span className="flex-1 text-left">Commit</span>
+              <GitCommit size={17} className="shrink-0" />
+              {!collapsed && <span className="flex-1 text-left">Commit</span>}
               {pendingCount > 0 && (
-                <span className="bg-[#bd93f9] text-[#282a36] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {pendingCount}
-                </span>
+                collapsed ? (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#bd93f9]" />
+                ) : (
+                  <span className="bg-[#bd93f9] text-[#282a36] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {pendingCount}
+                  </span>
+                )
               )}
             </button>
           )}
@@ -201,42 +231,72 @@ export default function Sidebar() {
           {configured && isAdmin && isProd && (
             <button
               onClick={() => setShowSync(true)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors border border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#50fa7b]"
+              title={collapsed ? 'Sync' : undefined}
+              className={`relative w-full flex items-center rounded-md text-sm transition-colors border border-transparent text-[#a7abc4] hover:bg-[#282a36] hover:text-[#50fa7b] ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'}`}
             >
-              <GitPullRequest size={17} />
-              <span className="flex-1 text-left">Sync</span>
+              <GitPullRequest size={17} className="shrink-0" />
+              {!collapsed && <span className="flex-1 text-left">Sync</span>}
               {remoteAhead && (
-                <span className="bg-[#50fa7b] text-[#282a36] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  ↓
-                </span>
+                collapsed ? (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#50fa7b]" />
+                ) : (
+                  <span className="bg-[#50fa7b] text-[#282a36] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    ↓
+                  </span>
+                )
               )}
             </button>
           )}
         </nav>
 
-        <div className="px-3 py-3 border-t border-[#343746]">
-          <div className="rounded-md bg-[#282a36] border border-[#343746] px-3 py-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded bg-[#191a21] text-[#50fa7b]">
-                  <Shield size={14} />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-[#f8f8f2] truncate">{user?.username}</p>
-                  <p className="text-[11px] uppercase tracking-wide text-[#6272a4]">{user?.role}</p>
-                </div>
-              </div>
-              <button onClick={handleLogout} title="Sign out" className="text-[#6272a4] hover:text-[#ff79c6] transition-colors ml-2 shrink-0">
+        <div className={`border-t border-[#343746] ${collapsed ? 'px-2 py-3' : 'px-3 py-3'}`}>
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <button onClick={toggleDensity} title={compact ? 'Comfortable density' : 'Compact density'}
+                className="grid h-8 w-8 place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors">
+                <Gauge size={15} />
+              </button>
+              <span title={`${user?.username} — ${user?.role}`} className="grid h-8 w-8 place-items-center rounded bg-[#282a36] text-[#50fa7b]">
+                <Shield size={14} />
+              </span>
+              <button onClick={handleLogout} title="Sign out" className="grid h-8 w-8 place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#ff79c6] transition-colors">
                 <LogOut size={15} />
               </button>
             </div>
-            <button
-              onClick={() => setShowChangePwd(true)}
-              className="text-xs text-[#8be9fd] hover:text-[#bd93f9] transition-colors"
-            >
-              Change password
-            </button>
-          </div>
+          ) : (
+            <div className="rounded-md bg-[#282a36] border border-[#343746] px-3 py-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex items-center gap-2">
+                  <span className="grid h-7 w-7 place-items-center rounded bg-[#191a21] text-[#50fa7b]">
+                    <Shield size={14} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[#f8f8f2] truncate">{user?.username}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-[#6272a4]">{user?.role}</p>
+                  </div>
+                </div>
+                <button onClick={handleLogout} title="Sign out" className="text-[#6272a4] hover:text-[#ff79c6] transition-colors ml-2 shrink-0">
+                  <LogOut size={15} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setShowChangePwd(true)}
+                  className="text-xs text-[#8be9fd] hover:text-[#bd93f9] transition-colors"
+                >
+                  Change password
+                </button>
+                <button
+                  onClick={toggleDensity}
+                  title="Toggle density"
+                  className="inline-flex items-center gap-1 text-xs text-[#6272a4] hover:text-[#f8f8f2] transition-colors"
+                >
+                  <Gauge size={13} />
+                  {compact ? 'Compact' : 'Comfortable'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
 

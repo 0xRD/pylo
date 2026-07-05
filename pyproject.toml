@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pylo-sdk"
+version = "0.1.0"
+description = "Python client for the Pylo automation orchestration platform"
+readme = { file = "docs/pylo_sdk.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Pylo" }]
+keywords = ["pylo", "soar", "automation", "orchestration", "sdk"]
+dependencies = ["requests>=2.25"]
+
+[project.urls]
+Homepage = "https://github.com/0xRD/pylo"
+Source = "https://github.com/0xRD/pylo"
+
+# pylo_sdk.py is a single-module dual-purpose file: it is both mounted into
+# PyBook runner containers (imported as ``pylo``) and published here as the
+# standalone ``pylo-sdk`` package (``from pylo_sdk import PyloClient``).
+# ``packages = []`` disables package auto-discovery so only this module ships.
+[tool.setuptools]
+py-modules = ["pylo_sdk"]
+packages = []

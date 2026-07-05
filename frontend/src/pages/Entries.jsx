@@ -6,6 +6,7 @@ import { pybooksApi } from '../api/pybooks'
 import EntryCard from '../components/EntryCard'
 import SearchHelp from '../components/SearchHelp'
 import { useAuth } from '../context/AuthContext'
+import { useUi } from '../context/UiContext'
 
 const PAGE_SIZE_OPTIONS = [25, 48, 100, 200]
 const DEFAULT_PAGE_SIZE = 48
@@ -46,6 +47,7 @@ export default function Entries() {
   const [runningSelected, setRunningSelected] = useState(false)
   const [runMessage, setRunMessage] = useState('')
   const { isAdmin } = useAuth()
+  const { compact } = useUi()
 
   useEffect(() => {
     blueprintsApi.listBlueprints().then(setBlueprints).catch(() => {})
@@ -192,7 +194,7 @@ export default function Entries() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className={`mx-auto max-w-[1720px] px-4 ${compact ? 'py-5' : 'py-8'}`}>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-[#f8f8f2] tracking-tight">Entries</h1>
@@ -305,7 +307,7 @@ export default function Entries() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 ${compact ? 'gap-3' : 'gap-4'}`}>
             {entries.map(e => (
               <EntryCard
                 key={e.id}

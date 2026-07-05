@@ -343,3 +343,37 @@ All core features remain working end-to-end on `main`. Dashboard is now the defa
 - **Security policy**: added `SECURITY.md` with responsible disclosure guidance and supported-version expectations before the first tagged release.
 - **Hygiene pass**: removed personal/local references from tracked docs and confirmed runtime state, secrets, database files, build output, and local storage are not tracked.
 - **Branch cleanup**: deleted local merged branches `audit/code-quality`, `feat/frontend-refresh`, and `feat/workflow-builder`; no stale remote branches were present.
+
+## Session 28 — Security hardening batch (auth, secrets, container)
+Platform and auth/crypto hardening pass (commits `e06dc87`…`864cb95`, `b7d964f`, `f2cd8f5`, `686a6c2`, `ff89f8b`, May 17–31):
+- **Separate encryption key derivation** (`b7d964f`): secret encryption now derives its Fernet key from a dedicated `ENCRYPTION_KEY` via PBKDF2-HMAC-SHA256 (600k iterations) instead of reusing `SECRET_KEY` with a bare SHA-256 digest. Legacy ciphertext still decrypts through a fallback, and `rotate_legacy_secret_ciphertexts()` re-encrypts old secrets under the new scheme on startup. Resolves the two open SEC-HIGH issues (SECRET_KEY reuse, SHA-256-as-KDF).
+- **Config enforcement**: `validate_security()` refuses to start in production when `ENCRYPTION_KEY` is unset, shorter than 32 chars, or equal to `SECRET_KEY`.
+- **API key hashing** (`bb0d859`, `f2cd8f5`): replaced bcrypt with keyed HMAC-SHA256 for API-key hashes (keys are already high-entropy), with an O(1) hash lookup, a `key_prefix` column plus bcrypt fallback for legacy keys, and transparent auto-upgrade on use. Migration `s8t9u0v1w2x3_add_api_key_prefix`.
+- **Constant-time master token** (`686a6c2`): master `API_TOKEN` comparison now uses `hmac.compare_digest`.
+- **Run-token IDOR fix** (`ff89f8b`): run endpoints enforce run-token ownership so a scoped run token cannot read or act on other runs.
+- **WebSocket proxy hardening** (`83e5b4d`): restrict proxied upgrade headers to websocket upgrades only.
+- **Container hardening**: backend runs as a non-root user (`e152559`), Docker image tags pinned (`21cf5ef`), and vulnerable backend deps updated (`e06dc87`, `22c922d`).
+- **Entry sorting controls** (`864cb95`): sortable entry columns in the Entries UI/API.
+
+## Session 29 — Workflow canvas + queue routing + dashboard polish
+(commits `11452f1`…`b33cb04`, May 30–31)
+- **Workflow runs through the queue manager** (`34da757`): workflow node executions are enqueued via the shared queue manager with a proper join barrier so fan-in nodes wait for all upstream branches.
+- **Workflow canvas zoom & pan** (`11452f1`): the React Flow editor now supports zoom and pan.
+- **Dashboard exact hover values** (`7c8b49c`) and an **explicit empty-state** when a chart range has no data (`b33cb04`).
+- **Docs** (`660646e`): 2026-05-30 audit addendum (security review + workflows) added to the audit notes.
+
+## Session 30 — Dependency bumps + VM sync
+(commits `976ef84`, `d2f475a`, merged `a682bf1`, `c71c3bb`, Jul 5)
+- **cryptography 46.0.7 → 48.0.1** (PR #11) and **react-router 6.30.3 → 6.30.4** (PR #10) merged via Dependabot; validated in the VM (cryptography 48.0.1 Fernet+PBKDF2 roundtrip OK, frontend rebuilt and serving 200).
+- **VM brought current** to `c71c3bb` and migrated to Alembic head `s8t9u0v1w2x3`; a fresh dedicated `ENCRYPTION_KEY` was provisioned in the VM `.env` (required by the Session 28 hardening — the backend refused to boot without it).
+
+## Current state (after Session 30)
+All core features working end-to-end on `main`.
+
+**Alembic head**: `s8t9u0v1w2x3`
+
+**⚠️ Upgrade note**: existing production deployments must set a dedicated `ENCRYPTION_KEY` (≥32 chars, different from `SECRET_KEY`) before starting the updated backend, or `validate_security()` will refuse to boot. On first start with both keys present, legacy secrets are auto-rotated to the PBKDF2/`ENCRYPTION_KEY` scheme.
+
+**Open backlog:**
+- `pylo_sdk` as a standalone pip-installable library with a `PyloClient` class (in progress).
+- Dashboard & dense-views ergonomics rework.

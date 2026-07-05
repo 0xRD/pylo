@@ -508,14 +508,14 @@ function RunPanel({ pybook, onClose, isAdmin }) {
               {selectedRun.stdout && (
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#50fa7b]">stdout</p>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{selectedRun.stdout}</pre>
+                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{selectedRun.stdout}</pre>
                 </div>
               )}
 
               {selectedRun.stderr && (
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#ff5555]">stderr</p>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{selectedRun.stderr}</pre>
+                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{selectedRun.stderr}</pre>
                 </div>
               )}
 
@@ -1020,6 +1020,10 @@ export default function PyBooks() {
   const [script, setScript] = useState("")
   const [showNew, setShowNew] = useState(false)
   const [showRuns, setShowRuns] = useState(false)
+  const [runsHeight, setRunsHeight] = useState(() => {
+    const v = Number(localStorage.getItem('pylo:runsHeight'))
+    return v >= 220 ? v : 460
+  })
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -1038,6 +1042,26 @@ export default function PyBooks() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all') // 'all' | 'top' | 'sub'
   const [activeTag, setActiveTag] = useState('')
+
+  useEffect(() => {
+    try { localStorage.setItem('pylo:runsHeight', String(runsHeight)) } catch { /* ignore */ }
+  }, [runsHeight])
+
+  const startRunsResize = (e) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = runsHeight
+    const onMove = (ev) => {
+      const next = startH + (startY - ev.clientY)
+      setRunsHeight(Math.min(Math.max(next, 220), window.innerHeight - 200))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   const { isAdmin } = useAuth()
   const { isProd } = useGitops()
@@ -1429,9 +1453,18 @@ export default function PyBooks() {
               <CodeEditor value={script} onChange={setScript} height="100%" />
             </div>
             {showRuns && (
-              <div className="h-[48%] min-h-[420px] shrink-0 overflow-hidden">
-                <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin} />
-              </div>
+              <>
+                <div
+                  onMouseDown={startRunsResize}
+                  title="Drag to resize the run console"
+                  className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-t border-[#343746] bg-[#20222c] hover:bg-[#282a36]"
+                >
+                  <div className="h-0.5 w-10 rounded bg-[#44475a] group-hover:bg-[#6272a4]" />
+                </div>
+                <div className="shrink-0 overflow-hidden" style={{ height: runsHeight }}>
+                  <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin} />
+                </div>
+              </>
             )}
           </div>
           {showDocs && (

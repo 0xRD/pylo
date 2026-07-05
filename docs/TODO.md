@@ -18,15 +18,12 @@ Items are ordered by priority. This file tracks remaining product work only; com
 
 ---
 
-## 2. `pylo_sdk` standalone library
+## 2. `pylo_sdk` standalone library — implemented
 
-- Package `pylo_sdk` as a pip-installable library.
-- Add a `PyloClient` class for external scripts:
-  - configurable base URL and API key
-  - `search_entries`, `get_entry`, `update_entry`
-  - `run_pybook`, `get_run`, `wait_for_run`
-- Keep the mounted container SDK backward compatible.
-- Add minimal documentation and examples.
+- `pyproject.toml` packages `pylo_sdk.py` as the pip-installable `pylo-sdk` (single-module, `py-modules`; wheel ships only the module). ✅
+- `PyloClient` class for external scripts: configurable base URL and API key (with `PYLO_API_URL` / `PYLO_API_TOKEN` fallback); `search_entries`, `get_entry`, `update_entry`, `run_pybook` (optional `wait=`), `get_run`, `wait_for_run`; `RunResult`, `PyloError`, `TERMINAL_STATUSES`. ✅
+- Mounted container SDK kept backward compatible: same `pylo_sdk.py` still mounts into runner containers; module is now import-safe without the container env; all existing helpers unchanged. ✅
+- Docs (`docs/pylo_sdk.md`), example (`examples/pylo_sdk_example.py`), and tests (`tests/test_pylo_sdk_client.py`). ✅
 
 **Why:** External automation should not depend on copying the in-container helper file.
 
@@ -149,6 +146,7 @@ pylo-config/
 
 ## Completed
 
+- `pylo_sdk` standalone pip-installable library: `pyproject.toml` (`pylo-sdk`), `PyloClient` (entries + run/wait helpers), `RunResult`/`PyloError`, import-safe dual-purpose module, docs/example/tests.
 - Workflow control-flow nodes: condition blocks with true/false routing, loop blocks over payload lists, multiple outgoing branch labels, and node-level PyBook retries.
 - Blueprint fetch controls: per-fetch entry limit, retry count/delay, on-fail PyBook trigger, and Blueprint form controls.
 - Cases feature removed from app navigation/API; migration drops case tables.

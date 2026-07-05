@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { fmtDateTime, parseUTC } from '../utils/dates'
 import RunStatusBadge from '../components/RunStatusBadge'
 import { runsApi } from '../api/pybooks'
+import { useUi } from '../context/UiContext'
 
 const workflowRunsApi = {
   list: ({ workflowId, status, limit = 100, offset = 0 } = {}) => {
@@ -142,6 +143,7 @@ function WorkflowRunDetail({ run }) {
 }
 
 export default function Runs() {
+  const { compact } = useUi()
   const [searchParams, setSearchParams] = useSearchParams()
   const initPybookId = searchParams.get('pybook') || ''
   const initWorkflowId = searchParams.get('workflow') || ''
@@ -295,10 +297,10 @@ export default function Runs() {
 
         {allRuns.length === 0 && <p className="text-sm text-gray-600 italic">No runs found.</p>}
 
-        <div className="space-y-1">
+        <div className={compact ? 'space-y-1' : 'space-y-2'}>
           {allRuns.map(run => (
             <div key={run.id} onClick={() => setSelected(run)}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+              className={`flex items-center gap-3 px-4 rounded-lg border cursor-pointer transition-colors ${compact ? 'py-2.5' : 'py-3.5'} ${
                 selected?.id === run.id
                   ? 'border-indigo-500 bg-indigo-950'
                   : 'border-gray-800 bg-gray-900 hover:border-gray-700'
@@ -329,7 +331,7 @@ export default function Runs() {
 
       {/* Detail panel */}
       {selected && (
-        <div className="w-[420px] max-w-[42vw] shrink-0 space-y-4 overflow-y-auto">
+        <div className="w-[420px] max-w-[42vw] shrink-0 space-y-4 overflow-y-auto 2xl:w-[480px]">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">
               {selected._type === 'workflow' ? 'Workflow run' : 'PyBook run'}

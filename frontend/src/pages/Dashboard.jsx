@@ -15,7 +15,14 @@ import {
   Workflow,
 } from 'lucide-react'
 import { dashboardApi } from '../api/dashboard'
+import { useUi } from '../context/UiContext'
 import { fmtDateTime } from '../utils/dates'
+
+function SectionHeading({ children }) {
+  return (
+    <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6272a4]">{children}</h2>
+  )
+}
 
 const STATUS_COLORS = {
   success: '#50fa7b',
@@ -43,13 +50,13 @@ function duration(ms) {
 function StatTile({ icon: Icon, label, value, detail, tone = 'cyan', to }) {
   const color = tone === 'pink' ? 'text-[#ff79c6]' : tone === 'green' ? 'text-[#50fa7b]' : tone === 'orange' ? 'text-[#ffb86c]' : 'text-[#8be9fd]'
   const body = (
-    <div className="rounded-lg border border-[#343746] bg-[#191a21] px-4 py-3 hover:border-[#6272a4] transition-colors min-h-[112px]">
+    <div className="h-full rounded-xl border border-[#343746] bg-[#191a21] px-5 py-4 hover:border-[#6272a4] hover:bg-[#1c1d26] transition-colors min-h-[128px]">
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs uppercase tracking-wide text-[#6272a4]">{label}</span>
         <Icon size={18} className={color} />
       </div>
-      <div className="mt-3 text-3xl font-semibold text-[#f8f8f2]">{numberFmt(value)}</div>
-      <div className="mt-1 text-xs text-[#a7abc4]">{detail}</div>
+      <div className="mt-4 text-[2rem] leading-none font-semibold text-[#f8f8f2]">{numberFmt(value)}</div>
+      <div className="mt-2 text-xs text-[#a7abc4]">{detail}</div>
     </div>
   )
   return to ? <Link to={to}>{body}</Link> : body
@@ -57,15 +64,15 @@ function StatTile({ icon: Icon, label, value, detail, tone = 'cyan', to }) {
 
 function Panel({ title, icon: Icon, action, children }) {
   return (
-    <section className="rounded-lg border border-[#343746] bg-[#191a21]">
-      <div className="flex items-center justify-between border-b border-[#343746] px-4 py-3">
+    <section className="rounded-xl border border-[#343746] bg-[#191a21]">
+      <div className="flex items-center justify-between border-b border-[#343746] px-5 py-3.5">
         <div className="flex items-center gap-2 text-sm font-medium text-[#f8f8f2]">
           {Icon && <Icon size={16} className="text-[#8be9fd]" />}
           {title}
         </div>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-5">{children}</div>
     </section>
   )
 }
@@ -87,13 +94,13 @@ function ChartTooltip({ x, anchorY, lines, width = 150 }) {
   )
 }
 
-function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
+function BarChart({ data, valueKey = 'count', color = '#8be9fd', h = 'h-56' }) {
   const [hover, setHover] = useState(null)
   const max = Math.max(1, ...data.map(item => item[valueKey] || 0))
   const ticks = [max, Math.round(max / 2), 0]
   const colW = 500 / Math.max(data.length, 1)
   return (
-    <div className="h-56">
+    <div className={h}>
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Bar chart">
         {ticks.map(value => {
           const y = 180 - (value / max) * 140
@@ -134,14 +141,14 @@ function BarChart({ data, valueKey = 'count', color = '#8be9fd' }) {
   )
 }
 
-function StackedRunChart({ data }) {
+function StackedRunChart({ data, h = 'h-56' }) {
   const [hover, setHover] = useState(null)
   const keys = ['success', 'error', 'timeout', 'running', 'queued', 'pending']
   const max = Math.max(1, ...data.map(item => item.total || 0))
   const ticks = [max, Math.round(max / 2), 0]
   const colW = 500 / Math.max(data.length, 1)
   return (
-    <div className="h-56">
+    <div className={h}>
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Runs by status chart">
         {ticks.map(value => {
           const y = 180 - (value / max) * 140
@@ -188,7 +195,7 @@ function StackedRunChart({ data }) {
   )
 }
 
-function LineChart({ data }) {
+function LineChart({ data, h = 'h-56' }) {
   const [hover, setHover] = useState(null)
   const values = data.map(item => item.rate).filter(value => value != null)
   const px = index => 64 + index * (520 / Math.max(data.length - 1, 1))
@@ -198,7 +205,7 @@ function LineChart({ data }) {
   }).join(' ')
   const colW = 520 / Math.max(data.length, 1)
   return (
-    <div className="h-56">
+    <div className={h}>
       <svg viewBox="0 0 640 220" className="h-full w-full" role="img" aria-label="Success rate chart">
         {[100, 50, 0].map(value => {
           const y = 180 - (value / 100) * 140
@@ -237,10 +244,15 @@ function EmptyState({ text }) {
 }
 
 export default function Dashboard() {
+  const { compact } = useUi()
   const [days, setDays] = useState(14)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const chartH = compact ? 'h-56' : 'h-72'
+  const sectionGap = compact ? 'space-y-5' : 'space-y-8'
+  const gridGap = compact ? 'gap-3' : 'gap-4'
 
   const load = async (nextDays = days) => {
     setLoading(true)
@@ -271,7 +283,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className={`mx-auto max-w-[1720px] ${sectionGap}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[#f8f8f2]">Dashboard</h1>
@@ -304,7 +316,9 @@ export default function Dashboard() {
 
       {data && (
         <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section className="space-y-3">
+            <SectionHeading>Overview</SectionHeading>
+            <div className={`grid grid-cols-2 ${gridGap} lg:grid-cols-4`}>
             <StatTile icon={Boxes} label="Blueprints" value={data.counts.blueprints} detail="Configured data sources" to="/blueprints" />
             <StatTile icon={Database} label="Entries" value={data.counts.entries} detail="Indexed records" tone="green" to="/entries" />
             <StatTile icon={Braces} label="PyBooks" value={data.counts.pybooks} detail={`${data.counts.active_pybooks} active`} tone="pink" to="/pybooks" />
@@ -313,14 +327,17 @@ export default function Dashboard() {
             <StatTile icon={Timer} label="Queue" value={data.queue.queued} detail={`${data.queue.running} running / ${data.queue.max_concurrent} slots`} tone="orange" to="/runs" />
             <StatTile icon={AlertTriangle} label="Failures" value={(data.status_totals.pybook.error || 0) + (data.status_totals.workflow.error || 0) + (data.status_totals.pybook.timeout || 0) + (data.status_totals.workflow.timeout || 0)} detail="Errors and timeouts" tone="pink" to="/runs" />
             <StatTile icon={Clock3} label="Retention" value={data.retention.deleted_entries} detail={`Deleted over ${data.days} days`} tone="green" />
-          </div>
+            </div>
+          </section>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <section className="space-y-3">
+            <SectionHeading>Trends</SectionHeading>
+            <div className={`grid grid-cols-1 ${gridGap} xl:grid-cols-2`}>
             <Panel title="Entries created" icon={Database}>
-              <BarChart data={data.series.entries} />
+              <BarChart data={data.series.entries} h={chartH} />
             </Panel>
             <Panel title="Runs by status" icon={PlayCircle}>
-              <StackedRunChart data={combinedRuns} />
+              <StackedRunChart data={combinedRuns} h={chartH} />
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#a7abc4]">
                 {Object.entries(STATUS_COLORS).map(([status, color]) => (
                   <span key={status} className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: color }} />{status}</span>
@@ -328,14 +345,17 @@ export default function Dashboard() {
               </div>
             </Panel>
             <Panel title="PyBook runs" icon={Braces}>
-              <StackedRunChart data={data.series.pybook_runs} />
+              <StackedRunChart data={data.series.pybook_runs} h={chartH} />
             </Panel>
             <Panel title="Success rate" icon={ShieldCheck}>
-              <LineChart data={data.series.success_rate} />
+              <LineChart data={data.series.success_rate} h={chartH} />
             </Panel>
-          </div>
+            </div>
+          </section>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <section className="space-y-3">
+            <SectionHeading>Operations</SectionHeading>
+            <div className={`grid grid-cols-1 ${gridGap} xl:grid-cols-3`}>
             <Panel title="Recent failures" icon={AlertTriangle} action={<Link to="/runs" className="text-xs text-[#8be9fd] hover:text-[#bd93f9]">Runs</Link>}>
               {data.recent_failures.length === 0 ? <EmptyState text="No recent failed runs." /> : (
                 <div className="space-y-2">
@@ -388,7 +408,8 @@ export default function Dashboard() {
                 <div className="rounded-md bg-[#282a36] px-3 py-2">Workflows: {numberFmt(Object.values(data.automations.workflows).reduce((a, b) => a + b, 0))}</div>
               </div>
             </Panel>
-          </div>
+            </div>
+          </section>
 
           <Panel title="Latest activity" icon={Activity} action={<Link to="/activity" className="text-xs text-[#8be9fd] hover:text-[#bd93f9]">Activity</Link>}>
             {data.activity.length === 0 ? <EmptyState text="No activity recorded yet." /> : (
