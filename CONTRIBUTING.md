@@ -41,7 +41,7 @@ export PYLO_ENV=test PYLO_ALLOW_INSECURE_DEFAULTS=true
 ```bash
 cd frontend
 npm ci
-npm run dev      # Vite dev server on :3000, proxies /api to the backend
+PYLO_BACKEND_URL=http://localhost:8000 npm run dev   # Vite on :3000, proxies /api to the backend
 npm run build    # production build; CI runs this on every pull request
 ```
 

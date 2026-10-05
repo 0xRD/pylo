@@ -1,6 +1,9 @@
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 
+// Backend for the dev-server proxy; defaults to the Compose service name.
+const backend = process.env.PYLO_BACKEND_URL || "http://backend:8000"
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -8,12 +11,12 @@ export default defineConfig({
     port: 3000,
     proxy: {
       "/api": {
-        target: "http://backend:8000",
+        target: backend,
         changeOrigin: true,
         ws: true,
       },
       "/health": {
-        target: "http://backend:8000",
+        target: backend,
         changeOrigin: true,
       },
     },
