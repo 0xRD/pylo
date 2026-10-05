@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in Pylo is not working as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do **not** report security vulnerabilities here. See SECURITY.md.
+        Remove secrets, tokens, and production data from logs before pasting them.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a Blueprint with ...
+        2. Run ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pylo version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Docker version, browser, and anything non-default in your deployment.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Output of `docker compose logs backend` or browser console, if relevant.
+      render: text

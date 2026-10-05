@@ -45,12 +45,21 @@ command -v git &>/dev/null || die "git is required. Install it with: sudo apt in
 # ── 4. Generate .env ──────────────────────────────────────────────────────────
 if [[ -f .env ]]; then
     warn ".env already exists — skipping generation. Delete it to regenerate."
+    # Installs created before ENCRYPTION_KEY became mandatory need one added.
+    if ! grep -qE '^ENCRYPTION_KEY=[^[:space:]]{32,}$' .env || grep -q '^ENCRYPTION_KEY=replace_with' .env; then
+        command -v python3 &>/dev/null || die "python3 is required to generate secrets."
+        ENCRYPTION_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+        sed -i '/^ENCRYPTION_KEY=/d' .env
+        echo "ENCRYPTION_KEY=${ENCRYPTION_KEY}" >> .env
+        info "Added a dedicated ENCRYPTION_KEY to the existing .env (existing secrets are re-encrypted on start)."
+    fi
 else
     cp .env.example .env
 
     # Generate cryptographically secure secrets
     if command -v python3 &>/dev/null; then
         SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+        ENCRYPTION_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
         API_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
         POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
     else
@@ -58,14 +67,15 @@ else
     fi
 
     # Inject into .env
-    sed -i "s|SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
-    sed -i "s|API_TOKEN=.*|API_TOKEN=${API_TOKEN}|" .env
-    sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
-    sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://pylo:${POSTGRES_PASSWORD}@postgres:5432/pylo|" .env
+    sed -i "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
+    sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${ENCRYPTION_KEY}|" .env
+    sed -i "s|^API_TOKEN=.*|API_TOKEN=${API_TOKEN}|" .env
+    sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
+    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://pylo:${POSTGRES_PASSWORD}@postgres:5432/pylo|" .env
 
     # Set PYBOOKS_HOST_PATH to the actual absolute path on this machine
     PYBOOKS_ABS="$(pwd)/pybooks_storage"
-    sed -i "s|PYBOOKS_HOST_PATH=.*|PYBOOKS_HOST_PATH=${PYBOOKS_ABS}|" .env
+    sed -i "s|^PYBOOKS_HOST_PATH=.*|PYBOOKS_HOST_PATH=${PYBOOKS_ABS}|" .env
 
     chmod 600 .env
     info "Generated .env with fresh secrets."
@@ -73,7 +83,7 @@ else
     echo "  API_TOKEN  = ${API_TOKEN}"
     echo ""
     warn "Save your API_TOKEN — you'll need it for SDK / script access."
-    warn "SECRET_KEY was generated and stored in .env; it is not printed."
+    warn "SECRET_KEY and ENCRYPTION_KEY were generated and stored in .env; they are not printed."
 fi
 
 chmod 600 .env
@@ -107,7 +117,7 @@ echo ""
 success "=== Pylo is running! ==="
 echo ""
 echo "  Frontend : http://localhost:3000"
-echo "  API docs : http://localhost:8000/docs"
+echo "  API docs : http://localhost:8000/docs (set PYLO_EXPOSE_DOCS=true in .env to enable)"
 echo "  API token: $(grep ^API_TOKEN .env | cut -d= -f2)"
 echo ""
 echo "  Open http://localhost:3000 in your browser to create the first admin account."

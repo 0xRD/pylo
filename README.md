@@ -26,7 +26,7 @@ Pylo V1 focuses on a stable automation core:
 ### Install
 
 ```bash
-git clone https://github.com/<your-org>/pylo
+git clone https://github.com/0xRD/pylo
 cd pylo
 bash setup.sh
 ```
@@ -39,7 +39,9 @@ Open the app at `http://localhost:3000`, then create the first admin account in 
 
 ```bash
 cp .env.example .env
-# Edit .env and set SECRET_KEY, API_TOKEN, POSTGRES_PASSWORD, and other deployment values.
+# Edit .env and set SECRET_KEY, ENCRYPTION_KEY (must differ from SECRET_KEY), API_TOKEN,
+# POSTGRES_PASSWORD/DATABASE_URL, and other deployment values. Each key needs 32+ characters:
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
 docker build -t pylo-runner-base:2026.05 -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/
 docker compose up -d --build
 ```
@@ -52,7 +54,7 @@ Keep `.env` private. It contains deployment secrets and must not be committed.
 |---|---|---|
 | Frontend | `http://localhost:3000` | React UI served by nginx |
 | Backend | `http://localhost:8000` | FastAPI API and queue manager |
-| API docs | `http://localhost:8000/docs` | Interactive OpenAPI docs |
+| API docs | `http://localhost:8000/docs` | Interactive OpenAPI docs (enable with `PYLO_EXPOSE_DOCS=true`) |
 | Postgres | Compose network only | Runtime database |
 
 Postgres is the supported runtime database. SQLite is deprecated for runtime use and kept only as a temporary recovery path when explicitly enabled.
@@ -119,7 +121,7 @@ Every PyBook execution is written to the database as `queued` before it is enque
 queued -> pending -> running -> success | error | timeout
 ```
 
-The queue is persistent and recovers orphaned runs after backend restarts. The default concurrency is 20 simultaneous runs and can be adjusted live from Settings without restarting the backend.
+The queue is persistent and recovers orphaned runs after backend restarts. Finished runs are pruned nightly after the retention window configured in Settings (30 days by default, `0` keeps them forever). The default concurrency is 5 simultaneous runs (`PYLO_MAX_CONCURRENT_RUNS`) and can be adjusted live from Settings without restarting the backend.
 
 ## Authentication and Security
 
@@ -129,6 +131,8 @@ Browser sessions use httpOnly JWT cookies. API clients should use scoped API key
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/blueprints
 curl -H "X-API-Token: $API_TOKEN" http://localhost:8000/api/runs/queue
 ```
+
+Failed logins are throttled per account and per client IP (HTTP 429 with `Retry-After`). Set `PYLO_COOKIE_SECURE=true` whenever Pylo is served over HTTPS.
 
 Security posture:
 
@@ -158,7 +162,7 @@ Security posture:
 
 ## Development
 
-Use Docker for backend tests because the container has the runtime dependencies and database wiring used by the app.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for running the test suite without Docker. With the stack running:
 
 ```bash
 docker compose exec -T backend python -m pytest tests/ -v
@@ -195,10 +199,12 @@ Before a release, run the tests, migrations, frontend build, stack health check,
 
 ## Documentation
 
-- `docs/pylo-spec-v2-en.md` - technical specification
-- `docs/TODO.md` - backlog and future work
-- `docs/PROGRESS.md` - implementation history
-- `docs/CODE_AUDIT.md` - audit notes when present
+- [`docs/pylo-spec-v2-en.md`](docs/pylo-spec-v2-en.md) - technical specification
+- [`docs/pylo_sdk.md`](docs/pylo_sdk.md) - Python SDK reference (in-container helpers and `PyloClient`)
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) - known limitations and planned work
+- [`CHANGELOG.md`](CHANGELOG.md) - release notes
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) - development setup and contribution guidelines
+- [`SECURITY.md`](SECURITY.md) - vulnerability reporting
 
 ## License
 

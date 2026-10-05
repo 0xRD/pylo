@@ -120,7 +120,27 @@ jobs:
           PYBOOKS_STORAGE_PATH: /tmp/pybooks_storage
         run: python -m pytest tests/ -v --tb=short
 
-  # ── Job 3: Smoke test (full Compose stack) ─────────────────────────────────
+  # ── Job 3: Frontend build ──────────────────────────────────────────────────
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+  # ── Job 4: Smoke test (full Compose stack) ─────────────────────────────────
   # Boots the full docker-compose stack and exercises the key API paths:
   # setup wizard, blueprint creation, entry search, and a PyBook run.
   smoke-test:
@@ -140,6 +160,7 @@ jobs:
           POSTGRES_PASSWORD=smoke_postgres_password_abc123
           POSTGRES_USER=pylo
           POSTGRES_DB=pylo
+          ENCRYPTION_KEY=smoke_test_encryption_key_xyz789uvw456rst
           PYLO_ENV=test
           PYLO_ALLOW_INSECURE_DEFAULTS=true
           PYLO_EXPOSE_DOCS=true

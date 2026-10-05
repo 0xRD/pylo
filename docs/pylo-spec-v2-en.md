@@ -1,7 +1,8 @@
 # Pylo — Technical Specification v2
 
-> Living document. Last updated: session 9 (trigger conditions, field query language, multi-select).
-> See `docs/PROGRESS.md` for session-by-session history and `docs/TODO.md` for the backlog.
+> Design reference for the core data model and execution architecture. Some sections predate
+> later features (users, scoped API keys, workflows, GitOps); the README describes current behaviour.
+> See [`CHANGELOG.md`](../CHANGELOG.md) for release history and [`ROADMAP.md`](ROADMAP.md) for planned work.
 
 ---
 
@@ -98,8 +99,8 @@ pylo/
 ├── README.md
 └── docs/
     ├── pylo-spec-v2-en.md        # This file
-    ├── PROGRESS.md               # Session-by-session development log
-    └── TODO.md                   # Prioritised feature backlog
+    ├── pylo_sdk.md               # SDK reference
+    └── ROADMAP.md                # Known limitations and planned work
 ```
 
 ---
@@ -517,13 +518,6 @@ alembic revision --autogenerate -m "describe change"
 21. WebSocket live log streaming
 22. Webhook triggers
 
-### Pending (see `docs/TODO.md`)
-- **#1** Entry deduplication + mutable fields + history/audit trail
-- **#4** User authentication + roles (login page, JWT, admin/viewer)
-- **#5** Scoped API keys
-- **#6** Re-parse existing entries when field mappings change
-- **#9** Paginated API source fetching (cursor / page-number / offset)
-- **#15** Multi-PyBook blueprint triggers (subscribe from PyBook editor)
-- **#16** Run variable inspector (post-run variable snapshot)
-- **#17** Visual workflow builder (React Flow DAG)
-- **#19** Always-on sub-PyBooks (warm Docker containers)
+### Pending
+
+See [`ROADMAP.md`](ROADMAP.md).

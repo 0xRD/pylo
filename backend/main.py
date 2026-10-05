@@ -26,6 +26,7 @@ from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
 from backend.core import queue_manager
 from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token, auth_user_from_scoped_api_key, is_master_token
+from backend import __version__
 from backend.config import settings
 from sqlmodel import Session
 
@@ -89,7 +90,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Pylo",
     description="Python automation orchestration platform",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
     docs_url="/docs" if settings.PYLO_EXPOSE_DOCS else None,
     redoc_url="/redoc" if settings.PYLO_EXPOSE_DOCS else None,
@@ -180,4 +181,4 @@ app.include_router(gitops_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "pylo-backend"}
+    return {"status": "ok", "service": "pylo-backend", "version": __version__}
