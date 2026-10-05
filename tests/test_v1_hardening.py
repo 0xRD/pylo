@@ -153,3 +153,42 @@ def test_manual_workflow_run_stores_payload_and_rejects_inactive(monkeypatch):
         with pytest.raises(HTTPException) as exc:
             asyncio.run(wf_api.trigger_workflow_run("w2", body, session, user))
         assert exc.value.status_code == 400
+
+
+def test_failure_notification_posts_only_for_failed_runs(monkeypatch):
+    import httpx
+    import respx
+    from backend.api.settings import set_setting
+    from backend.core import notifications
+    from backend.pybooks.models import PyBook
+
+    engine = _engine()
+    monkeypatch.setattr(notifications, "engine", engine)
+    with Session(engine) as session:
+        set_setting(session, "notify_webhook_url", "https://hooks.example.test/pylo")
+        session.add(PyBook(id="p1", name="Enrich IP"))
+        session.add(PyBookRun(id="bad", pybook_id="p1", status="dead_letter", trigger_source="cron", stderr="boom"))
+        session.add(PyBookRun(id="good", pybook_id="p1", status="success", trigger_source="cron"))
+        session.commit()
+
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.post("https://hooks.example.test/pylo").mock(return_value=httpx.Response(200))
+        asyncio.run(notifications.notify_pybook_run("good"))
+        assert route.call_count == 0
+        asyncio.run(notifications.notify_pybook_run("bad"))
+        assert route.call_count == 1
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["kind"] == "pybook" and sent["status"] == "dead_letter" and "Enrich IP" in sent["text"]
+
+
+def test_notification_webhook_url_hidden_from_non_admins():
+    from backend.api import settings as settings_api
+    from backend.core.auth import AuthUser
+
+    engine = _engine()
+    with Session(engine) as session:
+        settings_api.set_setting(session, "notify_webhook_url", "https://hooks.example.test/secret")
+        viewer = asyncio.run(settings_api.get_settings(session, AuthUser(username="v", role="viewer")))
+        admin = asyncio.run(settings_api.get_settings(session, AuthUser(username="a", role="admin")))
+    assert viewer["notify_webhook_url"] == "" and viewer["notify_webhook_set"] is True
+    assert admin["notify_webhook_url"] == "https://hooks.example.test/secret"

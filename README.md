@@ -121,7 +121,7 @@ Every PyBook execution is written to the database as `queued` before it is enque
 queued -> pending -> running -> success | error | timeout
 ```
 
-The queue is persistent and recovers orphaned runs after backend restarts. Finished runs are pruned nightly after the retention window configured in Settings (30 days by default, `0` keeps them forever). The default concurrency is 5 simultaneous runs (`PYLO_MAX_CONCURRENT_RUNS`) and can be adjusted live from Settings without restarting the backend.
+The queue is persistent and recovers orphaned runs after backend restarts. Set a failure-notification webhook in Settings to have Pylo POST a JSON message (with a Slack/Mattermost-compatible `text` field) whenever a PyBook or Workflow run ends in `error`, `timeout`, or `dead_letter` after its retries. The message includes the last 500 characters of the run's stderr, so avoid printing secrets in PyBooks. Finished runs are pruned nightly after the retention window configured in Settings (30 days by default, `0` keeps them forever). The default concurrency is 5 simultaneous runs (`PYLO_MAX_CONCURRENT_RUNS`) and can be adjusted live from Settings without restarting the backend.
 
 ## Authentication and Security
 

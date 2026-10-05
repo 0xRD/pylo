@@ -18,7 +18,7 @@ These are documented trade-offs in the current release. Deploy accordingly.
 - Enforced egress allowlisting for PyBook containers (per-run network + egress proxy).
 - Pinning Blueprint fetch connections to the validated IP address.
 - Per-resource scopes for API keys (specific PyBooks / Blueprints).
-- Notification channels for failed runs and workflows (email, Slack, generic webhook).
+- Additional notification channels (email) and per-PyBook notification rules.
 - Prometheus `/metrics` endpoint for queue depth, run outcomes, and fetch latency.
 - Wider operator layout options for dense pages (Runs, Entries, PyBook console).
 - Published `pylo-sdk` package on PyPI and versioned Docker images.

@@ -14,6 +14,7 @@ First public release.
 - **Runs**: persistent queue with live logs, retries, dead-lettering, cancellation, live concurrency limits, orphan recovery, and configurable history retention.
 - **Security**: users and roles, invitations, scoped API keys, Fernet-encrypted secrets with a dedicated key, SSRF guard for Blueprint fetches, and throttling for login, password change, and invitation endpoints.
 - **Operations**: dashboard, activity log, per-object and full ZIP backup/restore (optionally including passphrase-encrypted secrets), scheduled backups, and GitOps dev → prod promotion.
+- **Failure notifications**: an admin-configured webhook (Slack/Mattermost-compatible) receives a message when a PyBook or Workflow run finally fails, with a "Send test" button in Settings.
 - `pylo-sdk` Python client (`PyloClient`) for external scripts.
 
 ### Fixed

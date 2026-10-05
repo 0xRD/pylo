@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -14,6 +14,7 @@ DEFAULTS = {
     "jwt_expire_hours": None,  # falls back to JWT_EXPIRE_HOURS env
     "activity_retention_days": "7",
     "run_retention_days": "30",  # finished PyBook/Workflow runs; 0 = keep forever
+    "notify_webhook_url": "",   # POSTed on final PyBook/Workflow run failure
     "backup_cron": "",          # empty = auto-backup disabled
     "backup_retention": "7",    # number of auto-backup files to keep
     # GitOps settings (managed via /api/gitops/config, read here for convenience)
@@ -42,7 +43,7 @@ def set_setting(session: Session, key: str, value: str) -> None:
 
 
 @router.get("")
-async def get_settings(session: Session = Depends(get_session)):
+async def get_settings(session: Session = Depends(get_session), current_user: AuthUser = Depends(verify_token)):
     from backend.config import settings as cfg
     from backend.core import queue_manager
     max_runs = get_setting(session, "max_concurrent_runs")
@@ -57,6 +58,9 @@ async def get_settings(session: Session = Depends(get_session)):
         "jwt_expire_hours": int(jwt_hours_raw) if jwt_hours_raw else cfg.JWT_EXPIRE_HOURS,
         "activity_retention_days": int(retention_raw or 7),
         "run_retention_days": int(run_retention_raw or 0),
+        # Webhook URLs (e.g. Slack) embed a credential: only admins may read them.
+        "notify_webhook_url": (get_setting(session, "notify_webhook_url") or "") if current_user.is_admin else "",
+        "notify_webhook_set": bool(get_setting(session, "notify_webhook_url")),
         "backup_cron": backup_cron or "",
         "backup_retention": int(backup_retention_raw or 7),
         **stats,
@@ -68,6 +72,7 @@ class SettingsUpdate(BaseModel):
     jwt_expire_hours: int | None = None
     activity_retention_days: int | None = None
     run_retention_days: int | None = None
+    notify_webhook_url: str | None = None
     backup_cron: str | None = None
     backup_retention: int | None = None
 
@@ -79,6 +84,9 @@ async def update_settings(
     current_user: AuthUser = Depends(require_admin),
 ):
     from backend.core import queue_manager
+    # Validate everything before writing anything: set_setting commits per key.
+    if body.notify_webhook_url and not body.notify_webhook_url.strip().startswith(("https://", "http://")):
+        raise HTTPException(status_code=422, detail="Notification webhook must be an http(s) URL")
     result = {}
     if body.max_concurrent_runs is not None:
         limit = max(1, min(body.max_concurrent_runs, 50))
@@ -97,6 +105,10 @@ async def update_settings(
         days = max(0, min(body.run_retention_days, 3650))
         set_setting(session, "run_retention_days", str(days))
         result["run_retention_days"] = days
+    if body.notify_webhook_url is not None:
+        url = body.notify_webhook_url.strip()
+        set_setting(session, "notify_webhook_url", url)
+        result["notify_webhook_url"] = url
     if body.backup_cron is not None:
         set_setting(session, "backup_cron", body.backup_cron.strip())
         result["backup_cron"] = body.backup_cron.strip()
@@ -112,3 +124,22 @@ async def update_settings(
                      detail={"changed": list(result.keys())})
         session.commit()
     return result
+
+
+@router.post("/notifications/test")
+async def test_notification(
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(require_admin),
+):
+    from backend.core.notifications import send_webhook
+
+    url = get_setting(session, "notify_webhook_url")
+    if not url:
+        raise HTTPException(status_code=400, detail="No notification webhook configured")
+    ok = await send_webhook(url, {
+        "text": f":white_check_mark: Pylo test notification sent by {current_user.username}",
+        "event": "test",
+    })
+    if not ok:
+        raise HTTPException(status_code=502, detail="Webhook delivery failed; check the URL and backend logs")
+    return {"ok": True}
