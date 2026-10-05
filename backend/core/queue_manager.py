@@ -108,6 +108,8 @@ async def _run_pybook_job(pybook_id: str, run_id: str) -> None:
         logger.exception("Unhandled error executing run %s: %s", run_id, exc)
     finally:
         await _release_slot()
+    from backend.core.notifications import notify_pybook_run
+    await notify_pybook_run(run_id)
 
 
 async def _run_workflow_job(workflow_run_id: str) -> None:
@@ -118,6 +120,8 @@ async def _run_workflow_job(workflow_run_id: str) -> None:
         logger.exception("Unhandled error executing workflow run %s: %s", workflow_run_id, exc)
     finally:
         await _release_slot()
+    from backend.core.notifications import notify_workflow_run
+    await notify_workflow_run(workflow_run_id)
 
 
 async def _worker() -> None:

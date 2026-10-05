@@ -146,15 +146,22 @@ async def validate_workflow(
     return {"valid": len(errors) == 0, "errors": errors}
 
 
+class WorkflowRunTrigger(BaseModel):
+    trigger_payload: dict = {}
+
+
 @router.post("/{workflow_id}/run")
 async def trigger_workflow_run(
     workflow_id: str,
+    body: Optional[WorkflowRunTrigger] = None,
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(verify_token),
 ):
     wf = session.get(Workflow, workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    if not wf.is_active:
+        raise HTTPException(status_code=400, detail="Workflow is inactive")
 
     # Block run if DAG is invalid
     errors = validate_dag(wf.nodes, wf.edges, session)
@@ -170,6 +177,7 @@ async def trigger_workflow_run(
         workflow_id=workflow_id,
         status="queued",
         trigger_source=current_user.username,
+        trigger_payload=json.dumps(body.trigger_payload if body else {}),
         started_at=now,
     )
     session.add(wf_run)

@@ -265,13 +265,17 @@ def _upsert_workflow(session: Session, data: dict, pybook_id_map: dict[str, str]
 
 # ── Backup helpers ─────────────────────────────────────────────────────────────
 
-def _derive_fernet_key(passphrase: str, salt: bytes) -> bytes:
+BACKUP_KDF_ITERATIONS = 600_000
+LEGACY_BACKUP_KDF_ITERATIONS = 100_000
+
+
+def _derive_fernet_key(passphrase: str, salt: bytes, iterations: int = BACKUP_KDF_ITERATIONS) -> bytes:
     """Derive a Fernet-compatible key from a passphrase using PBKDF2-SHA256."""
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=salt,
-        iterations=100_000,
+        iterations=iterations,
     )
     return base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
 
@@ -323,7 +327,7 @@ def _build_full_zip(
                     pass  # skip secrets that cannot be decrypted
             secrets_payload = {
                 "algorithm": "PBKDF2HMAC-SHA256",
-                "iterations": 100_000,
+                "iterations": BACKUP_KDF_ITERATIONS,
                 "salt": salt.hex(),
                 "secrets": encrypted_secrets,
             }
@@ -723,7 +727,10 @@ async def import_full_backup(
 
             try:
                 salt = bytes.fromhex(secrets_raw["salt"])
-                fernet_key = _derive_fernet_key(passphrase, salt)
+                iterations = int(secrets_raw.get("iterations") or LEGACY_BACKUP_KDF_ITERATIONS)
+                if not LEGACY_BACKUP_KDF_ITERATIONS <= iterations <= 10_000_000:
+                    raise ValueError("unsupported KDF iteration count")
+                fernet_key = _derive_fernet_key(passphrase, salt, iterations)
                 f = Fernet(fernet_key)
                 for name, token in secrets_raw.get("secrets", {}).items():
                     try:

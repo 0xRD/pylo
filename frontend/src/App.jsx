@@ -1,28 +1,29 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { GitopsProvider } from './context/GitopsContext'
 import { UiProvider } from './context/UiContext'
 import { authApi } from './api/auth'
 import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
-import Blueprints from './pages/Blueprints'
-import BlueprintDetail from './pages/BlueprintDetail'
-import EntryDetail from './pages/EntryDetail'
-import Entries from './pages/Entries'
-import PyBooks from './pages/PyBooks'
-import Runs from './pages/Runs'
-import Secrets from './pages/Secrets'
-import Settings from './pages/Settings'
-import Users from './pages/Users'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
-import Activity from './pages/Activity'
 import InviteAccept from './pages/InviteAccept'
-import Workflows from './pages/Workflows'
-import WorkflowEditor from './pages/WorkflowEditor'
-import Automations from './pages/Automations'
-import Wiki from './pages/Wiki'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Blueprints = lazy(() => import('./pages/Blueprints'))
+const BlueprintDetail = lazy(() => import('./pages/BlueprintDetail'))
+const EntryDetail = lazy(() => import('./pages/EntryDetail'))
+const Entries = lazy(() => import('./pages/Entries'))
+const PyBooks = lazy(() => import('./pages/PyBooks'))
+const Runs = lazy(() => import('./pages/Runs'))
+const Secrets = lazy(() => import('./pages/Secrets'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Users = lazy(() => import('./pages/Users'))
+const Activity = lazy(() => import('./pages/Activity'))
+const Workflows = lazy(() => import('./pages/Workflows'))
+const WorkflowEditor = lazy(() => import('./pages/WorkflowEditor'))
+const Automations = lazy(() => import('./pages/Automations'))
+const Wiki = lazy(() => import('./pages/Wiki'))
 
 function SetupGuard({ children }) {
   const [setupRequired, setSetupRequired] = useState(undefined)
@@ -57,6 +58,7 @@ export default function App() {
         <GitopsProvider>
         <UiProvider>
         <SetupGuard>
+          <Suspense fallback={<div className="p-8 text-sm text-gray-500">Loading…</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/setup" element={<Setup />} />
@@ -81,8 +83,10 @@ export default function App() {
               <Route path="/workflows" element={<Workflows />} />
               <Route path="/workflows/:id" element={<WorkflowEditor />} />
               <Route path="/users" element={<Users />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Route>
           </Routes>
+          </Suspense>
         </SetupGuard>
         </UiProvider>
         </GitopsProvider>

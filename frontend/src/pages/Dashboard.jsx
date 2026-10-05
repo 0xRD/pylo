@@ -97,7 +97,7 @@ function ChartTooltip({ x, anchorY, lines, width = 150 }) {
 function BarChart({ data, valueKey = 'count', color = '#8be9fd', h = 'h-56' }) {
   const [hover, setHover] = useState(null)
   const max = Math.max(1, ...data.map(item => item[valueKey] || 0))
-  const ticks = [max, Math.round(max / 2), 0]
+  const ticks = [...new Set([max, Math.round(max / 2), 0])]
   const colW = 500 / Math.max(data.length, 1)
   return (
     <div className={h}>
@@ -145,7 +145,7 @@ function StackedRunChart({ data, h = 'h-56' }) {
   const [hover, setHover] = useState(null)
   const keys = ['success', 'error', 'timeout', 'running', 'queued', 'pending']
   const max = Math.max(1, ...data.map(item => item.total || 0))
-  const ticks = [max, Math.round(max / 2), 0]
+  const ticks = [...new Set([max, Math.round(max / 2), 0])]
   const colW = 500 / Math.max(data.length, 1)
   return (
     <div className={h}>

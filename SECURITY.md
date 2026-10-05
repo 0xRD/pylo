@@ -2,11 +2,18 @@
 
 ## Supported Versions
 
-Until the first tagged release, security fixes are handled on `main`. After V1 tags are published, supported versions should be documented here per release line.
+| Version | Supported |
+|---|---|
+| 1.x | Yes |
+| < 1.0 | No |
+
+Security fixes land on `main` and are released as patch versions of the latest 1.x release.
 
 ## Reporting a Vulnerability
 
-Use GitHub private vulnerability reporting if it is enabled for the repository. If it is not enabled, open a public issue without exploit details and request a private reporting channel.
+Report vulnerabilities privately through [GitHub Security Advisories](https://github.com/0xRD/pylo/security/advisories/new). Do not open a public issue for security problems.
+
+You should receive an acknowledgement within a few days. Please give us reasonable time to release a fix before disclosing publicly.
 
 Please include:
 

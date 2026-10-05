@@ -12,6 +12,12 @@ const settingsApi = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   }).then(r => r.json()),
+  testNotification: () => fetch('/api/settings/notifications/test', {
+    method: 'POST', credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Test failed')
+    return r.json()
+  }),
 }
 
 const apiKeysApi = {
@@ -47,6 +53,10 @@ export default function Settings() {
   const [settings, setSettings] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(5)
   const [jwtHours, setJwtHours] = useState(24)
+  const [activityRetention, setActivityRetention] = useState(7)
+  const [runRetention, setRunRetention] = useState(30)
+  const [notifyUrl, setNotifyUrl] = useState('')
+  const [notifyStatus, setNotifyStatus] = useState({ busy: false, message: '', error: false })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -117,6 +127,9 @@ export default function Settings() {
       setSettings(s)
       setMaxConcurrent(s.max_concurrent_runs)
       setJwtHours(s.jwt_expire_hours ?? 24)
+      setActivityRetention(s.activity_retention_days ?? 7)
+      setRunRetention(s.run_retention_days ?? 30)
+      setNotifyUrl(s.notify_webhook_url ?? '')
       setBackupCron(s.backup_cron ?? '')
       setBackupRetention(s.backup_retention ?? 7)
     }).catch(() => {})
@@ -134,7 +147,10 @@ export default function Settings() {
     }
   }, [])
 
-  const isDirty = maxConcurrent !== settings?.max_concurrent_runs || jwtHours !== (settings?.jwt_expire_hours ?? 24)
+  const isDirty = maxConcurrent !== settings?.max_concurrent_runs
+    || jwtHours !== (settings?.jwt_expire_hours ?? 24)
+    || activityRetention !== (settings?.activity_retention_days ?? 7)
+    || runRetention !== (settings?.run_retention_days ?? 30)
 
   const handleSave = async () => {
     setSaving(true); setSaved(false)
@@ -142,15 +158,48 @@ export default function Settings() {
       const updated = await settingsApi.update({
         max_concurrent_runs: maxConcurrent,
         jwt_expire_hours: jwtHours,
+        activity_retention_days: activityRetention,
+        run_retention_days: runRetention,
       })
       setSettings(s => ({
         ...s,
         ...(updated.max_concurrent_runs !== undefined && { max_concurrent_runs: updated.max_concurrent_runs }),
         ...(updated.jwt_expire_hours !== undefined && { jwt_expire_hours: updated.jwt_expire_hours }),
+        ...(updated.activity_retention_days !== undefined && { activity_retention_days: updated.activity_retention_days }),
+        ...(updated.run_retention_days !== undefined && { run_retention_days: updated.run_retention_days }),
       }))
+      if (updated.activity_retention_days !== undefined) setActivityRetention(updated.activity_retention_days)
+      if (updated.run_retention_days !== undefined) setRunRetention(updated.run_retention_days)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally { setSaving(false) }
+  }
+
+  const handleSaveNotify = async () => {
+    setNotifyStatus({ busy: true, message: '', error: false })
+    try {
+      const r = await fetch('/api/settings', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notify_webhook_url: notifyUrl }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.detail || 'Could not save webhook')
+      setSettings(s => ({ ...s, notify_webhook_url: data.notify_webhook_url }))
+      setNotifyStatus({ busy: false, message: data.notify_webhook_url ? 'Saved' : 'Notifications disabled', error: false })
+    } catch (e) {
+      setNotifyStatus({ busy: false, message: e.message, error: true })
+    }
+  }
+
+  const handleTestNotify = async () => {
+    setNotifyStatus({ busy: true, message: '', error: false })
+    try {
+      await settingsApi.testNotification()
+      setNotifyStatus({ busy: false, message: 'Test notification delivered', error: false })
+    } catch (e) {
+      setNotifyStatus({ busy: false, message: e.message, error: true })
+    }
   }
 
   const handleSaveGitConfig = async () => {
@@ -349,7 +398,65 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* ── Data retention ────────────────────────────────────────────────── */}
+        <div className="p-5 bg-gray-900 border border-gray-800 rounded-lg">
+          <h2 className="text-sm font-semibold text-gray-200 mb-1">Data retention</h2>
+          <p className="text-xs text-gray-500 mb-4">Old records are pruned nightly. Queued or running runs are never deleted.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-xs text-gray-400">Activity log (days)</span>
+              <input
+                type="number" min={1} max={365} value={activityRetention}
+                onChange={e => setActivityRetention(Number(e.target.value))}
+                disabled={!isAdmin}
+                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-gray-400">Finished runs (days, 0 = keep forever)</span>
+              <input
+                type="number" min={0} max={3650} value={runRetention}
+                onChange={e => setRunRetention(Number(e.target.value))}
+                disabled={!isAdmin}
+                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+            </label>
+          </div>
+        </div>
 
+
+
+        {/* ── Notifications ─────────────────────────────────────────────────── */}
+        {isAdmin && (
+          <div className="p-5 bg-gray-900 border border-gray-800 rounded-lg space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-200">Failure notifications</h2>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Pylo POSTs a JSON message to this URL when a PyBook or Workflow run ends in error, timeout, or dead-letter
+                (after retries). The payload includes a Slack/Mattermost-compatible <code>text</code> field. Leave empty to disable.
+              </p>
+            </div>
+            <input
+              value={notifyUrl}
+              onChange={e => setNotifyUrl(e.target.value)}
+              placeholder="https://hooks.slack.com/services/…"
+              className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500"
+            />
+            <div className="flex items-center gap-2">
+              <button onClick={handleSaveNotify} disabled={notifyStatus.busy || notifyUrl === (settings?.notify_webhook_url ?? '')}
+                className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded">
+                Save
+              </button>
+              <button onClick={handleTestNotify} disabled={notifyStatus.busy || !settings?.notify_webhook_url}
+                className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 rounded">
+                Send test
+              </button>
+              {notifyStatus.message && (
+                <span className={`text-xs ${notifyStatus.error ? 'text-red-400' : 'text-green-400'}`}>{notifyStatus.message}</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Scoped API keys ───────────────────────────────────────────────── */}
         {isAdmin && (

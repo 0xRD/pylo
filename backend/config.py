@@ -44,8 +44,6 @@ class Settings(BaseSettings):
     # Optional trusted pip index URL (empty = use default PyPI)
     PYLO_PIP_INDEX_URL: str = ""
 
-    MCP_ENABLED: bool = False
-    MCP_AUTH_TOKEN: str = "change_me"
 
     def validate_security(self) -> None:
         if self.PYLO_ALLOW_INSECURE_DEFAULTS or self.PYLO_ENV.lower() in {"dev", "development", "test"}:
