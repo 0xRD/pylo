@@ -3,7 +3,7 @@ uvicorn[standard]==0.34.2
 sqlmodel==0.0.22
 pydantic-settings==2.9.1
 docker==7.1.0
-apscheduler==3.11.0
+apscheduler==3.11.3
 jsonpath-ng==1.7.0
 httpx==0.28.1
 cryptography==50.0.0
