@@ -1,4 +1,4 @@
-FROM python:3.12.13-slim-trixie@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
+FROM python:3.14.7-slim-trixie@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates gnupg && \
