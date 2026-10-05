@@ -47,6 +47,8 @@ export default function Settings() {
   const [settings, setSettings] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(5)
   const [jwtHours, setJwtHours] = useState(24)
+  const [activityRetention, setActivityRetention] = useState(7)
+  const [runRetention, setRunRetention] = useState(30)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -117,6 +119,8 @@ export default function Settings() {
       setSettings(s)
       setMaxConcurrent(s.max_concurrent_runs)
       setJwtHours(s.jwt_expire_hours ?? 24)
+      setActivityRetention(s.activity_retention_days ?? 7)
+      setRunRetention(s.run_retention_days ?? 30)
       setBackupCron(s.backup_cron ?? '')
       setBackupRetention(s.backup_retention ?? 7)
     }).catch(() => {})
@@ -134,7 +138,10 @@ export default function Settings() {
     }
   }, [])
 
-  const isDirty = maxConcurrent !== settings?.max_concurrent_runs || jwtHours !== (settings?.jwt_expire_hours ?? 24)
+  const isDirty = maxConcurrent !== settings?.max_concurrent_runs
+    || jwtHours !== (settings?.jwt_expire_hours ?? 24)
+    || activityRetention !== (settings?.activity_retention_days ?? 7)
+    || runRetention !== (settings?.run_retention_days ?? 30)
 
   const handleSave = async () => {
     setSaving(true); setSaved(false)
@@ -142,12 +149,18 @@ export default function Settings() {
       const updated = await settingsApi.update({
         max_concurrent_runs: maxConcurrent,
         jwt_expire_hours: jwtHours,
+        activity_retention_days: activityRetention,
+        run_retention_days: runRetention,
       })
       setSettings(s => ({
         ...s,
         ...(updated.max_concurrent_runs !== undefined && { max_concurrent_runs: updated.max_concurrent_runs }),
         ...(updated.jwt_expire_hours !== undefined && { jwt_expire_hours: updated.jwt_expire_hours }),
+        ...(updated.activity_retention_days !== undefined && { activity_retention_days: updated.activity_retention_days }),
+        ...(updated.run_retention_days !== undefined && { run_retention_days: updated.run_retention_days }),
       }))
+      if (updated.activity_retention_days !== undefined) setActivityRetention(updated.activity_retention_days)
+      if (updated.run_retention_days !== undefined) setRunRetention(updated.run_retention_days)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally { setSaving(false) }
@@ -346,6 +359,32 @@ export default function Settings() {
               <span className="text-gray-500">How long a login session lasts before requiring re-authentication</span>
               <span>720h</span>
             </div>
+          </div>
+        </div>
+
+        {/* ── Data retention ────────────────────────────────────────────────── */}
+        <div className="p-5 bg-gray-900 border border-gray-800 rounded-lg">
+          <h2 className="text-sm font-semibold text-gray-200 mb-1">Data retention</h2>
+          <p className="text-xs text-gray-500 mb-4">Old records are pruned nightly. Queued or running runs are never deleted.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-xs text-gray-400">Activity log (days)</span>
+              <input
+                type="number" min={1} max={365} value={activityRetention}
+                onChange={e => setActivityRetention(Number(e.target.value))}
+                disabled={!isAdmin}
+                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-gray-400">Finished runs (days, 0 = keep forever)</span>
+              <input
+                type="number" min={0} max={3650} value={runRetention}
+                onChange={e => setRunRetention(Number(e.target.value))}
+                disabled={!isAdmin}
+                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+            </label>
           </div>
         </div>
 

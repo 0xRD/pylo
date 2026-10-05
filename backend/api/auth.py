@@ -16,6 +16,7 @@ from backend.core.auth import (
     _decode_jwt,
 )
 from backend.config import settings
+from backend.core.rate_limit import client_ip, ip_limiter, login_limiter
 from backend.database import get_session
 from backend.users.models import User
 from backend.users.invitation import Invitation
@@ -81,14 +82,22 @@ async def setup_first_admin(body: SetupBody, response: Response, session: Sessio
 
 
 @router.post("/login")
-async def login(body: LoginBody, response: Response, session: Session = Depends(get_session)):
+async def login(body: LoginBody, request: Request, response: Response, session: Session = Depends(get_session)):
+    ip = client_ip(request)
+    account_key = f"login:{body.username.lower()}"
+    login_limiter.check(account_key)
+    ip_limiter.check(f"ip:{ip}")
+
     user = session.exec(select(User).where(User.username == body.username)).first()
     if not user or not verify_password(body.password, user.hashed_password):
-        log_activity(session, "auth.login_failed", actor=body.username)
+        login_limiter.fail(account_key)
+        ip_limiter.fail(f"ip:{ip}")
+        log_activity(session, "auth.login_failed", actor=body.username, detail={"ip": ip})
         session.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
+    login_limiter.reset(account_key)
 
     log_activity(session, "auth.login", actor=body.username)
     session.commit()
@@ -121,14 +130,18 @@ async def change_password(
     current_user: AuthUser = Depends(verify_token),
     session: Session = Depends(get_session),
 ):
-    if len(body.new_password) < 8:
+    if len(body.new_password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
 
+    account_key = f"password:{current_user.username.lower()}"
+    login_limiter.check(account_key)
     user = session.exec(select(User).where(User.username == current_user.username)).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if not verify_password(body.current_password, user.hashed_password):
+        login_limiter.fail(account_key)
         raise HTTPException(status_code=401, detail="Current password is incorrect")
+    login_limiter.reset(account_key)
 
     user.hashed_password = hash_password(body.new_password)
     session.add(user)
@@ -140,9 +153,12 @@ async def change_password(
 
 
 @router.get("/invite/{token}")
-async def validate_invite(token: str, session: Session = Depends(get_session)):
+async def validate_invite(token: str, request: Request, session: Session = Depends(get_session)):
+    ip_key = f"ip:{client_ip(request)}"
+    ip_limiter.check(ip_key)
     inv = session.exec(select(Invitation).where(Invitation.token == token)).first()
     if not inv or not inv.is_valid:
+        ip_limiter.fail(ip_key)
         raise HTTPException(status_code=404, detail="Invitation not found or expired")
     return {"role": inv.role, "expires_at": inv.expires_at.isoformat()}
 
@@ -151,11 +167,15 @@ async def validate_invite(token: str, session: Session = Depends(get_session)):
 async def accept_invite(
     token: str,
     body: AcceptInviteBody,
+    request: Request,
     response: Response,
     session: Session = Depends(get_session),
 ):
+    ip_key = f"ip:{client_ip(request)}"
+    ip_limiter.check(ip_key)
     inv = session.exec(select(Invitation).where(Invitation.token == token)).first()
     if not inv or not inv.is_valid:
+        ip_limiter.fail(ip_key)
         raise HTTPException(status_code=404, detail="Invitation not found or expired")
     if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")

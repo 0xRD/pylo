@@ -13,6 +13,7 @@ DEFAULTS = {
     "max_concurrent_runs": "5",
     "jwt_expire_hours": None,  # falls back to JWT_EXPIRE_HOURS env
     "activity_retention_days": "7",
+    "run_retention_days": "30",  # finished PyBook/Workflow runs; 0 = keep forever
     "backup_cron": "",          # empty = auto-backup disabled
     "backup_retention": "7",    # number of auto-backup files to keep
     # GitOps settings (managed via /api/gitops/config, read here for convenience)
@@ -47,6 +48,7 @@ async def get_settings(session: Session = Depends(get_session)):
     max_runs = get_setting(session, "max_concurrent_runs")
     jwt_hours_raw = get_setting(session, "jwt_expire_hours")
     retention_raw = get_setting(session, "activity_retention_days")
+    run_retention_raw = get_setting(session, "run_retention_days")
     backup_cron = get_setting(session, "backup_cron")
     backup_retention_raw = get_setting(session, "backup_retention")
     stats = queue_manager.get_stats()
@@ -54,6 +56,7 @@ async def get_settings(session: Session = Depends(get_session)):
         "max_concurrent_runs": int(max_runs or cfg.PYLO_MAX_CONCURRENT_RUNS),
         "jwt_expire_hours": int(jwt_hours_raw) if jwt_hours_raw else cfg.JWT_EXPIRE_HOURS,
         "activity_retention_days": int(retention_raw or 7),
+        "run_retention_days": int(run_retention_raw or 0),
         "backup_cron": backup_cron or "",
         "backup_retention": int(backup_retention_raw or 7),
         **stats,
@@ -64,6 +67,7 @@ class SettingsUpdate(BaseModel):
     max_concurrent_runs: int | None = None
     jwt_expire_hours: int | None = None
     activity_retention_days: int | None = None
+    run_retention_days: int | None = None
     backup_cron: str | None = None
     backup_retention: int | None = None
 
@@ -89,6 +93,10 @@ async def update_settings(
         days = max(1, min(body.activity_retention_days, 365))
         set_setting(session, "activity_retention_days", str(days))
         result["activity_retention_days"] = days
+    if body.run_retention_days is not None:
+        days = max(0, min(body.run_retention_days, 3650))
+        set_setting(session, "run_retention_days", str(days))
+        result["run_retention_days"] = days
     if body.backup_cron is not None:
         set_setting(session, "backup_cron", body.backup_cron.strip())
         result["backup_cron"] = body.backup_cron.strip()

@@ -172,23 +172,57 @@ def sync_cron_jobs():
             logger.error("Failed to schedule Workflow %s: %s", wf.id, exc)
 
 
+TERMINAL_RUN_STATUSES = ("success", "error", "timeout", "cancelled", "dead_letter")
+
+
 async def _cleanup_activity_log():
     from backend.api.settings import get_setting
     from backend.activity.models import ActivityEvent
     from datetime import timedelta
+    from sqlmodel import delete
 
     with Session(engine) as session:
         retention_raw = get_setting(session, "activity_retention_days")
         days = int(retention_raw or 7)
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        events = session.exec(
-            select(ActivityEvent).where(ActivityEvent.created_at < cutoff)
-        ).all()
-        for ev in events:
-            session.delete(ev)
+        result = session.exec(delete(ActivityEvent).where(ActivityEvent.created_at < cutoff))
         session.commit()
-        if events:
-            logger.info("Activity log cleanup: deleted %d events older than %d days", len(events), days)
+        if result.rowcount:
+            logger.info("Activity log cleanup: deleted %d events older than %d days", result.rowcount, days)
+
+
+def cleanup_run_history(session: Session, days: int) -> dict:
+    """Delete finished PyBook and Workflow runs older than ``days``. 0 keeps everything."""
+    from datetime import timedelta
+    from sqlmodel import delete
+    from backend.workflows.models import WorkflowNodeRun, WorkflowRun
+
+    if days <= 0:
+        return {"pybook_runs": 0, "workflow_runs": 0}
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    old_wf_runs = select(WorkflowRun.id).where(
+        WorkflowRun.started_at < cutoff, WorkflowRun.status.in_(TERMINAL_RUN_STATUSES)
+    )
+    session.exec(delete(WorkflowNodeRun).where(WorkflowNodeRun.workflow_run_id.in_(old_wf_runs)))
+    wf_result = session.exec(delete(WorkflowRun).where(
+        WorkflowRun.started_at < cutoff, WorkflowRun.status.in_(TERMINAL_RUN_STATUSES)
+    ))
+    pb_result = session.exec(delete(PyBookRun).where(
+        PyBookRun.started_at < cutoff, PyBookRun.status.in_(TERMINAL_RUN_STATUSES)
+    ))
+    session.commit()
+    return {"pybook_runs": pb_result.rowcount or 0, "workflow_runs": wf_result.rowcount or 0}
+
+
+async def _cleanup_run_history():
+    from backend.api.settings import get_setting
+
+    with Session(engine) as session:
+        days = int(get_setting(session, "run_retention_days") or 0)
+        deleted = cleanup_run_history(session, days)
+    if any(deleted.values()):
+        logger.info("Run history cleanup: deleted %s (older than %d days)", deleted, days)
 
 
 async def _run_auto_backup():
@@ -244,6 +278,11 @@ def start_scheduler():
     scheduler.add_job(
         _cleanup_activity_log, "cron",
         hour=3, minute=0, id="cleanup_activity_log",
+        replace_existing=True, misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        _cleanup_run_history, "cron",
+        hour=3, minute=15, id="cleanup_run_history",
         replace_existing=True, misfire_grace_time=3600,
     )
     scheduler.start()

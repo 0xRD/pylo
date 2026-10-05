@@ -9,7 +9,12 @@ import pytest
 
 @pytest.fixture(scope="module")
 def docker_client():
-    return docker.from_env()
+    try:
+        client = docker.from_env()
+        client.ping()
+    except docker.errors.DockerException as exc:
+        pytest.skip(f"Docker daemon not reachable: {exc}")
+    return client
 
 
 def test_docker_daemon_reachable(docker_client):

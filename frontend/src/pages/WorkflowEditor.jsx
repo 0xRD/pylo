@@ -922,6 +922,9 @@ export default function WorkflowEditor() {
   const [saved, setSaved] = useState(true)
   const [validationErrors, setValidationErrors] = useState([])
   const [runState, setRunState] = useState({ active: false, done: 0, total: 0, runId: null })
+  const [payloadOpen, setPayloadOpen] = useState(false)
+  const [payloadText, setPayloadText] = useState('{}')
+  const [runError, setRunError] = useState('')
   const nodeCounter = useRef(100)
   const edgeCounter = useRef(100)
   const saveTimer = useRef(null)
@@ -1084,16 +1087,38 @@ export default function WorkflowEditor() {
 
   const handleRun = async () => {
     if (runState.active || !workflow.nodes.length) return
+    setRunError('')
+    let triggerPayload = {}
+    try {
+      triggerPayload = JSON.parse(payloadText.trim() || '{}')
+      if (typeof triggerPayload !== 'object' || triggerPayload === null || Array.isArray(triggerPayload)) {
+        throw new Error('Payload must be a JSON object')
+      }
+    } catch (e) {
+      setPayloadOpen(true)
+      setRunError(`Invalid payload: ${e.message}`)
+      return
+    }
     setWorkflow(wf => ({
       ...wf,
       nodes: wf.nodes.map(n => ({ ...n, status: 'idle', duration: null })),
       edges: wf.edges.map(e => ({ ...e, animated: false })),
     }))
     try {
-      const r = await fetch(`/api/workflows/${id}/run`, { method: 'POST', credentials: 'include' })
-      const data = await r.json()
+      const r = await fetch(`/api/workflows/${id}/run`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger_payload: triggerPayload }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message
+        setRunError(detail || `Run failed (HTTP ${r.status})`)
+        return
+      }
       setRunState({ active: true, done: 0, total: workflow.nodes.length, runId: data.id })
-    } catch (e) { console.error('Run failed', e) }
+    } catch (e) { setRunError(`Run failed: ${e.message}`) }
   }
 
   const errorNodeIds = useMemo(
@@ -1192,13 +1217,20 @@ export default function WorkflowEditor() {
             onMouseLeave={e => { e.currentTarget.style.background = '#1f2937'; e.currentTarget.style.color = '#9ca3af' }}>
               Export
             </button>
-            <button onClick={handleRun} disabled={runState.active || workflow.nodes.length === 0 || validationErrors.length > 0} style={{
+            <button onClick={() => setPayloadOpen(o => !o)} title="JSON payload passed to the start nodes" style={{
+              padding: '6px 12px', background: payloadOpen ? '#374151' : '#1f2937', border: 'none',
+              borderRadius: 7, color: payloadOpen ? '#e2e8f0' : '#9ca3af', fontSize: 12, cursor: 'pointer',
+              transition: 'all 0.15s', fontFamily: 'inherit',
+            }}>
+              Payload{payloadText.trim() && payloadText.trim() !== '{}' ? ' •' : ''}
+            </button>
+            <button onClick={handleRun} disabled={runState.active || workflow.nodes.length === 0 || validationErrors.length > 0}
+              title={validationErrors.length > 0 ? 'Fix validation errors before running' : undefined} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
               background: runState.active || validationErrors.length > 0 ? '#1f2937' : '#4f46e5', border: 'none',
               borderRadius: 7, color: runState.active || validationErrors.length > 0 ? '#4b5563' : '#fff',
               fontSize: 12.5, fontWeight: 600, cursor: runState.active || validationErrors.length > 0 ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s', fontFamily: 'inherit',
-              title: validationErrors.length > 0 ? 'Fix validation errors before running' : undefined,
             }}
             onMouseEnter={e => { if (!runState.active && !validationErrors.length) e.currentTarget.style.background = '#4338ca' }}
             onMouseLeave={e => { if (!runState.active && !validationErrors.length) e.currentTarget.style.background = runState.active || validationErrors.length > 0 ? '#1f2937' : '#4f46e5' }}>
@@ -1209,6 +1241,29 @@ export default function WorkflowEditor() {
             </button>
           </div>
         </div>
+
+        {(payloadOpen || runError) && (
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid #1f2937', background: '#0b1120', flexShrink: 0 }}>
+            {payloadOpen && (
+              <>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>
+                  Run payload (JSON object) — delivered to start nodes, available via <code>pylo.get_payload()</code>
+                </div>
+                <textarea
+                  value={payloadText}
+                  onChange={e => setPayloadText(e.target.value)}
+                  spellCheck={false}
+                  rows={4}
+                  style={{
+                    width: '100%', background: '#030712', border: '1px solid #1f2937', borderRadius: 6,
+                    color: '#e2e8f0', fontFamily: 'ui-monospace, monospace', fontSize: 12, padding: 8, resize: 'vertical',
+                  }}
+                />
+              </>
+            )}
+            {runError && <div style={{ color: '#f87171', fontSize: 12, marginTop: payloadOpen ? 6 : 0 }}>{runError}</div>}
+          </div>
+        )}
 
         {/* Validation errors panel */}
         {validationErrors.length > 0 && (
