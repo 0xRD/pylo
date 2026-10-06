@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import CodeEditor from "../components/CodeEditor"
 import RunStatusBadge from "../components/RunStatusBadge"
 import { pybooksApi } from "../api/pybooks"
+import { useRunDetail } from "../hooks/useRunDetail"
 import { secretsApi } from "../api/secrets"
 import { blueprintsApi } from "../api/blueprints"
 import ScheduleBuilder from "../components/ScheduleBuilder"
@@ -374,6 +375,7 @@ entry_data = payload.get("entry_data", {})`
 function RunPanel({ pybook, onClose, isAdmin }) {
   const [runs, setRuns] = useState([])
   const [selectedRun, setSelectedRun] = useState(null)
+  const shownRun = useRunDetail(selectedRun)
   const [running, setRunning] = useState(false)
   const [payloadText, setPayloadText] = useState("{}")
   const [payloadError, setPayloadError] = useState("")
@@ -505,24 +507,24 @@ function RunPanel({ pybook, onClose, isAdmin }) {
                 <span className="max-w-full truncate font-mono text-[11px] text-[#6272a4]">{selectedRun.id}</span>
               </div>
 
-              {selectedRun.stdout && (
+              {shownRun.stdout && (
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#50fa7b]">stdout</p>
-                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{selectedRun.stdout}</pre>
+                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{shownRun.stdout}</pre>
                 </div>
               )}
 
-              {selectedRun.stderr && (
+              {shownRun.stderr && (
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#ff5555]">stderr</p>
-                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{selectedRun.stderr}</pre>
+                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{shownRun.stderr}</pre>
                 </div>
               )}
 
-              {!selectedRun.stdout && !selectedRun.stderr && !TERMINAL.has(selectedRun.status) && (
+              {!shownRun.stdout && !shownRun.stderr && !TERMINAL.has(selectedRun.status) && (
                 <p className="text-xs italic text-[#6272a4] animate-pulse">Running...</p>
               )}
-              {!selectedRun.stdout && !selectedRun.stderr && TERMINAL.has(selectedRun.status) && (
+              {!shownRun._loading && !shownRun.stdout && !shownRun.stderr && TERMINAL.has(selectedRun.status) && (
                 <p className="text-xs italic text-[#6272a4]">This run did not emit stdout or stderr.</p>
               )}
 

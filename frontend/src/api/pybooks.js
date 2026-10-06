@@ -27,7 +27,7 @@ export const pybooksApi = {
   run: (id, payload = {}, triggerSource = "manual") =>
     req("POST", `/pybooks/${id}/run`, { trigger_source: triggerSource, trigger_payload: payload }),
   build: (id) => req("POST", `/pybooks/${id}/build`),
-  getRuns: (id) => req("GET", `/pybooks/${id}/runs`),
+  getRuns: (id) => req("GET", `/pybooks/${id}/runs?include_output=false`),
 }
 
 export const runsApi = {
@@ -37,6 +37,7 @@ export const runsApi = {
     if (status && status.length) status.forEach(s => p.append("status", s))
     p.set("limit", limit)
     p.set("offset", offset)
+    p.set("include_output", "false")
     return req("GET", `/runs?${p}`)
   },
   get: (id) => req("GET", `/runs/${id}`),

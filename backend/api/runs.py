@@ -12,6 +12,19 @@ from backend.pybooks.models import PyBookRun
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
+# Everything except the (potentially multi-megabyte) log columns.
+_SUMMARY_COLUMNS = [col for name, col in PyBookRun.__table__.columns.items() if name not in ("stdout", "stderr")]
+
+
+def select_runs(include_output: bool):
+    """Select full runs, or lightweight summaries that skip loading stdout/stderr."""
+    return select(PyBookRun) if include_output else select(*_SUMMARY_COLUMNS)
+
+
+def run_rows(session: Session, stmt, include_output: bool) -> list:
+    rows = session.exec(stmt).all()
+    return rows if include_output else [dict(row._mapping) for row in rows]
+
 TERMINAL = {"success", "error", "timeout", "cancelled", "dead_letter"}
 
 
@@ -27,15 +40,16 @@ async def list_runs(
     status: List[str] = Query(default=[]),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    include_output: bool = Query(True, description="Set false to omit stdout/stderr (much smaller responses)"),
     session: Session = Depends(get_session),
 ):
-    stmt = select(PyBookRun)
+    stmt = select_runs(include_output)
     if pybook_id:
         stmt = stmt.where(PyBookRun.pybook_id == pybook_id)
     if status:
         stmt = stmt.where(PyBookRun.status.in_(status))
     stmt = stmt.order_by(PyBookRun.started_at.desc()).offset(offset).limit(limit)
-    return session.exec(stmt).all()
+    return run_rows(session, stmt, include_output)
 
 
 

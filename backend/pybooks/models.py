@@ -35,13 +35,13 @@ class PyBookRun(SQLModel, table=True):
     id: str = Field(primary_key=True)
     pybook_id: str = Field(index=True)
     # statuses: queued | pending | running | success | error | timeout | cancelled | dead_letter
-    status: str = "pending"
+    status: str = Field(default="pending", index=True)
     trigger_source: str               # "manual" | "cron" | "webhook" | "object_event" | "sub_pybook"
     trigger_payload: str = "{}"
     stdout: str = ""
     stderr: str = ""
     exit_code: Optional[int] = None
-    started_at: datetime = Field(default_factory=_now)
+    started_at: datetime = Field(default_factory=_now, index=True)
     ended_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
     output_vars: str = "{}"           # JSON dict populated by pylo.set_output()

@@ -31,7 +31,7 @@ class WorkflowRun(SQLModel, table=True):
     status: str = "pending"   # queued | pending | running | success | error | timeout
     trigger_source: str = "manual"
     trigger_payload: str = "{}"
-    started_at: datetime = Field(default_factory=_now)
+    started_at: datetime = Field(default_factory=_now, index=True)
     ended_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
 
@@ -42,7 +42,7 @@ class WorkflowNodeRun(SQLModel, table=True):
     id: str = Field(primary_key=True)
     workflow_run_id: str = Field(index=True)
     node_id: str                        # references node.id in workflow.nodes JSON
-    pybook_run_id: Optional[str] = None # references pybook_run.id
+    pybook_run_id: Optional[str] = Field(default=None, index=True)  # references pybook_run.id
     status: str = "pending"
     output_vars: str = "{}"             # JSON dict of vars exported by pylo.set_output()
     started_at: datetime = Field(default_factory=_now)

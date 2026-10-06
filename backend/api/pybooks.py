@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -302,12 +302,21 @@ async def build_pybook_image(pybook_id: str, session: Session = Depends(get_sess
 
 
 @router.get("/{pybook_id}/runs")
-async def list_pybook_runs(pybook_id: str, session: Session = Depends(get_session)):
+async def list_pybook_runs(
+    pybook_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    include_output: bool = Query(True, description="Set false to omit stdout/stderr (much smaller responses)"),
+    session: Session = Depends(get_session),
+):
+    from backend.api.runs import run_rows, select_runs
+
     pb = session.get(PyBook, pybook_id)
     if not pb:
         raise HTTPException(status_code=404, detail="PyBook not found")
-    return session.exec(
-        select(PyBookRun)
+    stmt = (
+        select_runs(include_output)
         .where(PyBookRun.pybook_id == pybook_id)
         .order_by(PyBookRun.started_at.desc())
-    ).all()
+        .limit(limit)
+    )
+    return run_rows(session, stmt, include_output)
