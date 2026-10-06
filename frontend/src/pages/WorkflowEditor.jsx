@@ -26,7 +26,11 @@ const STATUS_COLORS = {
   success: { dot: '#22c55e', text: '#86efac' },
   error:   { dot: '#ef4444', text: '#fca5a5' },
   timeout: { dot: '#f97316', text: '#fdba74' },
+  skipped: { dot: '#4b5563', text: '#9ca3af' },
+  cancelled: { dot: '#a855f7', text: '#d8b4fe' },
 }
+
+const TERMINAL_RUN_STATUSES = ['success', 'error', 'timeout', 'cancelled']
 
 const PYBOOK_COLORS = [
   '#a78bfa', '#60a5fa', '#34d399', '#f59e0b',
@@ -714,6 +718,23 @@ function PropertiesPanel({ selectedItem, workflow, blueprints, onUpdateEdge, onU
                 </div>
               )}
 
+              {workflow.trigger_type === 'webhook' && (() => {
+                const url = `${window.location.origin}/api/webhooks/workflows/${workflow.id}`
+                return (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ color: '#6b7280', fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Webhook URL</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <code style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#0f1117', border: '1px solid #1f2937', borderRadius: 6, padding: '6px 8px', color: '#a5b4fc', fontSize: 11 }} title={url}>{url}</code>
+                      <button onClick={() => navigator.clipboard?.writeText(url)}
+                        style={{ padding: '4px 8px', background: '#1f2937', border: 'none', borderRadius: 6, color: '#9ca3af', fontSize: 11, cursor: 'pointer' }}>Copy</button>
+                    </div>
+                    <div style={{ color: '#6b7280', fontSize: 11, lineHeight: 1.5 }}>
+                      POST a JSON body with an <code>X-API-Token</code> header (a scoped key with <code>workflows:trigger</code> is enough). The body becomes the run payload.
+                    </div>
+                  </div>
+                )
+              })()}
+
               {workflow.trigger_type === 'blueprint' && (
                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div>
@@ -999,9 +1020,15 @@ export default function WorkflowEditor() {
     const interval = setInterval(async () => {
       try {
         const r = await fetch(`/api/workflows/${id}/runs/${runState.runId}`, { credentials: 'include' })
+        if (!r.ok) {
+          // Run deleted or inaccessible: stop polling instead of retrying forever.
+          setRunState({ active: false, done: 0, total: 0, runId: null })
+          clearInterval(interval)
+          return
+        }
         const data = await r.json()
         const nodeRuns = data.node_runs || []
-        const doneCount = nodeRuns.filter(nr => ['success', 'error', 'timeout'].includes(nr.status)).length
+        const doneCount = nodeRuns.filter(nr => TERMINAL_RUN_STATUSES.includes(nr.status) || nr.status === 'skipped').length
 
         setWorkflow(wf => ({
           ...wf,
@@ -1017,7 +1044,8 @@ export default function WorkflowEditor() {
         }))
         setRunState(rs => ({ ...rs, done: doneCount, total: nodeRuns.length || rs.total }))
 
-        if (['success', 'error', 'timeout'].includes(data.status)) {
+        if (TERMINAL_RUN_STATUSES.includes(data.status)) {
+          if (data.status === 'cancelled') setRunError('Run cancelled')
           setRunState({ active: false, done: 0, total: 0, runId: null })
           clearInterval(interval)
         }
@@ -1121,6 +1149,15 @@ export default function WorkflowEditor() {
     } catch (e) { setRunError(`Run failed: ${e.message}`) }
   }
 
+  const handleCancel = async () => {
+    if (!runState.runId) return
+    const r = await fetch(`/api/workflows/runs/${runState.runId}/cancel`, { method: 'POST', credentials: 'include' })
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}))
+      setRunError(data.detail || `Cancel failed (HTTP ${r.status})`)
+    }
+  }
+
   const errorNodeIds = useMemo(
     () => validationErrors.filter(e => e.node_id).map(e => e.node_id),
     [validationErrors]
@@ -1217,6 +1254,14 @@ export default function WorkflowEditor() {
             onMouseLeave={e => { e.currentTarget.style.background = '#1f2937'; e.currentTarget.style.color = '#9ca3af' }}>
               Export
             </button>
+            {runState.active && (
+              <button onClick={handleCancel} title="Stop after the nodes currently running" style={{
+                padding: '6px 12px', background: '#3b1f2c', border: 'none',
+                borderRadius: 7, color: '#fca5a5', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+                Cancel run
+              </button>
+            )}
             <button onClick={() => setPayloadOpen(o => !o)} title="JSON payload passed to the start nodes" style={{
               padding: '6px 12px', background: payloadOpen ? '#374151' : '#1f2937', border: 'none',
               borderRadius: 7, color: payloadOpen ? '#e2e8f0' : '#9ca3af', fontSize: 12, cursor: 'pointer',

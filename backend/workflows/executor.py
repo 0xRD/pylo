@@ -17,6 +17,7 @@ from backend.activity.logger import log_activity
 from backend.database import engine
 from backend.objects.filter import check_trigger_conditions
 from backend.pybooks.models import PyBook, PyBookRun
+from backend.pybooks.versions import current_version_number, sync_version
 from backend.workflows.models import Workflow, WorkflowNodeRun, WorkflowRun
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,12 @@ def _edge_matches(edge: dict, node: dict, status: str, output_vars: dict) -> boo
     return False
 
 
+def _is_cancelled(workflow_run_id: str) -> bool:
+    with Session(engine) as session:
+        run = session.get(WorkflowRun, workflow_run_id)
+        return run is None or run.status == "cancelled"
+
+
 def _record_control_node_run(workflow_run_id: str, node_id: str, status: str, output_vars: dict, started: datetime) -> None:
     ended = datetime.now(timezone.utc)
     with Session(engine) as session:
@@ -135,16 +142,24 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
         pb = session.get(PyBook, pybook_id)
         if not pb:
             logger.error("PyBook %s not found for node %s", pybook_id, node_id)
+            # Still record the node so the failure is visible in the run detail.
+            _record_control_node_run(workflow_run_id, node_id, "error",
+                                     {"error": f"PyBook {pybook_id or '(none)'} not found"},
+                                     datetime.now(timezone.utc))
             return node_id, "error", {}
 
+        sync_version(session, pb)
         now = datetime.now(timezone.utc)
         pb_run = PyBookRun(
             id=str(uuid.uuid4()),
             pybook_id=pybook_id,
-            status="queued",
+            # "running", not "queued": queued runs are re-enqueued as standalone
+            # PyBook runs by the restart recovery in queue_manager.start().
+            status="running",
             trigger_source="workflow",
             trigger_payload=json.dumps(payload),
             started_at=now,
+            script_version=current_version_number(session, pybook_id),
         )
         session.add(pb_run)
         node_run = WorkflowNodeRun(
@@ -226,6 +241,8 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
 
 
 async def _run_node(workflow_run_id: str, node: dict, payload: dict) -> tuple[str, str, dict]:
+    if _is_cancelled(workflow_run_id):
+        return node["id"], "skipped", {}
     node_type = node.get("type", "pybook")
     if node_type == "condition":
         return await _run_condition_node(workflow_run_id, node, payload)
@@ -244,28 +261,39 @@ async def execute_workflow(workflow_run_id: str) -> None:
     per item into independent cascades.
     """
     trigger_payload = {}
+    started = datetime.now(timezone.utc)
     with Session(engine) as session:
         wf_run = session.get(WorkflowRun, workflow_run_id)
         if not wf_run:
             logger.error("WorkflowRun %s not found", workflow_run_id)
             return
+        if wf_run.status == "cancelled":
+            logger.info("Workflow run %s was cancelled before it started", workflow_run_id)
+            return
         wf = session.get(Workflow, wf_run.workflow_id)
         if not wf:
             logger.error("Workflow %s not found for run %s", wf_run.workflow_id, workflow_run_id)
+            _finish(workflow_run_id, "error", started)
             return
-        nodes = json.loads(wf.nodes or "[]")
-        edges = json.loads(wf.edges or "[]")
-        trigger_payload = json.loads(getattr(wf_run, "trigger_payload", None) or "{}")
+        try:
+            nodes = json.loads(wf.nodes or "[]")
+            edges = json.loads(wf.edges or "[]")
+            trigger_payload = json.loads(getattr(wf_run, "trigger_payload", None) or "{}")
+            if not isinstance(nodes, list) or not isinstance(edges, list):
+                raise ValueError("nodes and edges must be JSON arrays")
+        except (ValueError, TypeError) as exc:
+            logger.error("Workflow %s has an invalid definition: %s", wf.id, exc)
+            _finish(workflow_run_id, "error", started)
+            return
         wf_run.status = "running"
         session.add(wf_run)
         session.commit()
 
-    started = datetime.now(timezone.utc)
     if not nodes:
         _finish(workflow_run_id, "success", started)
         return
 
-    node_map = {n["id"]: n for n in nodes}
+    node_map = {n["id"]: n for n in nodes if isinstance(n, dict) and n.get("id")}
     outgoing: dict = defaultdict(list)
     incoming: dict = defaultdict(list)
     has_incoming: set = set()
@@ -343,7 +371,7 @@ async def execute_workflow(workflow_run_id: str) -> None:
         if tasks:
             await asyncio.gather(*tasks)
 
-    start_nodes = [n for n in nodes if n["id"] not in has_incoming]
+    start_nodes = [n for n in node_map.values() if n["id"] not in has_incoming]
     try:
         await asyncio.gather(*[run_node(n, trigger_payload) for n in start_nodes])
         final = "error" if any(s in ("error", "timeout") for s in statuses) else "success"
@@ -359,6 +387,8 @@ def _finish(workflow_run_id: str, status: str, started: datetime | None = None) 
     with Session(engine) as session:
         wf_run = session.get(WorkflowRun, workflow_run_id)
         if wf_run:
+            if wf_run.status == "cancelled":
+                status = "cancelled"  # a cancel request wins over the computed outcome
             wf_run.status = status
             wf_run.ended_at = ended
             if started:

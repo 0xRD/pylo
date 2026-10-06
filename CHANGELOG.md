@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Workflows
+- Workflow node runs record the PyBook script version they executed. The run detail shows each node's label, PyBook and version.
+- **Cancel** queued or running workflow runs from the editor or the Runs page (`POST /api/workflows/runs/{id}/cancel`). Nodes already executing finish; no further nodes start.
+- **Webhook trigger now works**: `POST /api/webhooks/workflows/{id}` starts a workflow whose trigger type is `webhook`, with the JSON body as its payload. The editor shows the URL. New API-key scope `workflows:trigger` (also allows `POST /api/workflows/{id}/run`).
+- Fixed: creating or editing a cron-triggered workflow (schedule, active flag, deletion) only took effect after a backend restart.
+- Fixed: a PyBook run started by a workflow node stayed `queued` while executing, so a backend restart could re-run it as a standalone PyBook run.
+- Fixed: a node whose PyBook was deleted failed without leaving a node-run record.
+- Fixed: runs whose workflow was deleted, or whose definition was malformed, stayed `queued`/`running` forever. Create/update now reject malformed `nodes`/`edges`, unknown trigger types and invalid `trigger_config` (HTTP 422).
+- Fixed: the editor polled a missing run forever. The editor run history is capped (`limit`, default 50).
+
 ### Added
 - **PyBook script history** (GitLab-style): every save, restore, import or sync records a version with author, message and +/− line counts. A History panel shows the timeline; selecting a version opens a side-by-side or inline diff ("changes since the previous version" or "compare with editor") with one-click restore (restores are new versions, nothing is deleted). Each run records the script version it executed, linked from the run console. New endpoints: `GET /api/pybooks/{id}/versions`, `GET …/versions/{n}`, `POST …/versions/{n}/restore`.
 - **PyBook editor**: optional change description on save, `Ctrl/Cmd+S` to save, `Ctrl/Cmd+Enter` to save and run with the current payload, a status bar (saved state, current version, cursor position), sticky scroll and bracket colouring, and a prompt before switching away from unsaved changes.

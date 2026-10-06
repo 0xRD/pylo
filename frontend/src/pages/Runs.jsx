@@ -19,9 +19,12 @@ const workflowRunsApi = {
    },
   getDetail: (workflowId, runId) =>
     fetch(`/api/workflows/${workflowId}/runs/${runId}`, { credentials: 'include' }).then(r => r.json()),
+  cancel: (runId) =>
+    fetch(`/api/workflows/runs/${runId}/cancel`, { method: 'POST', credentials: 'include' })
+      .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Cancel failed'); return r.json() }),
 }
 
-const FILTER_STATUSES = ['queued', 'pending', 'running', 'success', 'error', 'timeout']
+const FILTER_STATUSES = ['queued', 'pending', 'running', 'success', 'error', 'timeout', 'cancelled']
 const TYPES = ['all', 'pybook', 'workflow']
 
 function formatJson(value) {
@@ -100,20 +103,34 @@ function PyBookRunDetail({ run: summary }) {
 
 function WorkflowRunDetail({ run }) {
   const [detail, setDetail] = useState(null)
+  const [cancelState, setCancelState] = useState('')
 
   useEffect(() => {
     if (!run) return
+    setCancelState('')
     workflowRunsApi.getDetail(run.workflow_id, run.id)
       .then(setDetail).catch(() => {})
-  }, [run?.id])
+  }, [run?.id, run?.status])
+
+  const status = detail?.status || run.status
+  const cancellable = ['queued', 'pending', 'running'].includes(status)
+  const cancel = () => workflowRunsApi.cancel(run.id)
+    .then(() => { setCancelState('Cancelled — nodes already running will finish.'); return workflowRunsApi.getDetail(run.workflow_id, run.id).then(setDetail) })
+    .catch(e => setCancelState(e.message))
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <RunStatusBadge status={run.status} />
+        <RunStatusBadge status={status} />
         <span className="text-xs text-gray-500">{run.trigger_source}</span>
         {run.duration_ms != null && <span className="text-xs text-gray-600">{run.duration_ms}ms</span>}
+        {cancellable && (
+          <button onClick={cancel} className="ml-auto rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-900/60">
+            Cancel run
+          </button>
+        )}
       </div>
+      {cancelState && <p className="text-xs text-gray-400">{cancelState}</p>}
       <div className="text-xs text-gray-500 space-y-0.5">
         <p>Workflow: <span className="font-mono text-gray-300">{run.workflow_id?.slice(0, 12)}</span></p>
         <p>Started: {fmtDateTime(run.started_at)}</p>
@@ -126,14 +143,21 @@ function WorkflowRunDetail({ run }) {
             {detail.node_runs.map(nr => (
               <div key={nr.id} className="bg-gray-950 border border-gray-800 rounded p-3 text-xs space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <RunStatusBadge status={nr.status} />
-                    <span className="text-gray-500 font-mono">{nr.node_id?.slice(0, 8)}</span>
+                    <span className="truncate text-gray-300">{nr.node_label || nr.pybook_name || nr.node_id}</span>
+                    {nr.node_type && nr.node_type !== 'pybook' && <span className="text-gray-600">{nr.node_type}</span>}
+                    {nr.script_version != null && (
+                      <span className="rounded bg-gray-800 px-1.5 font-mono text-[10px] text-cyan-300" title="PyBook script version that ran">v{nr.script_version}</span>
+                    )}
                   </div>
                   {nr.duration_ms != null && <span className="text-gray-600">{nr.duration_ms}ms</span>}
                 </div>
                 {nr.pybook_run_id && (
-                  <p className="text-gray-600">PyBook run: <span className="font-mono text-gray-400">{nr.pybook_run_id.slice(0, 12)}</span></p>
+                  <p className="text-gray-600">
+                    {nr.pybook_name ? <>PyBook <span className="text-gray-400">{nr.pybook_name}</span> · </> : null}
+                    run <span className="font-mono text-gray-400">{nr.pybook_run_id.slice(0, 12)}</span>
+                  </p>
                 )}
                 <VarsPanel vars={nr.output_vars} />
               </div>
@@ -257,7 +281,7 @@ export default function Runs() {
               ))}
             </div>
             {/* Status multi-filter */}
-            <div className="flex gap-1">
+            <div className="flex min-w-0 flex-wrap gap-1">
               {FILTER_STATUSES.map(s => {
                 const active = selectedStatuses.includes(s)
                 return (

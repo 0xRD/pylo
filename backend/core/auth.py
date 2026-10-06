@@ -27,6 +27,7 @@ VALID_API_KEY_SCOPES = frozenset({
     "entries:write",
     "pybooks:trigger",
     "runs:read",
+    "workflows:trigger",
 })
 
 
