@@ -53,7 +53,7 @@ Keep `.env` private. It contains deployment secrets and must not be committed.
 | Service | Default URL | Purpose |
 |---|---|---|
 | Frontend | `http://localhost:3000` | React UI served by nginx |
-| Backend | `http://localhost:8000` | FastAPI API and queue manager |
+| Backend | `http://localhost:8000` | FastAPI API and queue manager (bound to the host loopback; remote clients use `http://<host>:3000/api`) |
 | API docs | `http://localhost:8000/docs` | Interactive OpenAPI docs (enable with `PYLO_EXPOSE_DOCS=true`) |
 | Postgres | Compose network only | Runtime database |
 

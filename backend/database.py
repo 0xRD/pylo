@@ -8,7 +8,7 @@ from sqlmodel import SQLModel, create_engine, Session, select
 from backend.config import settings
 
 # Import all models so SQLModel.metadata sees every table
-from backend.pybooks.models import PyBook, PyBookRun          # noqa: F401
+from backend.pybooks.models import PyBook, PyBookRun, PyBookVersion  # noqa: F401
 from backend.objects.models import Blueprint, Entry            # noqa: F401
 from backend.secrets.models import Secret                      # noqa: F401
 from backend.core.settings_model import SystemSetting         # noqa: F401

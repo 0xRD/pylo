@@ -77,6 +77,9 @@ def _runner_can_access(method: str, path: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting Pylo backend...")
+    if settings.PYLO_ENV.lower() == "production" and not settings.PYLO_COOKIE_SECURE:
+        logger.warning("PYLO_COOKIE_SECURE is false: session cookies will be sent over plain HTTP. "
+                       "Set PYLO_COOKIE_SECURE=true when Pylo is served over HTTPS.")
     init_db()
     init_host_paths()
     start_scheduler()

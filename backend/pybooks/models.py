@@ -35,15 +35,31 @@ class PyBookRun(SQLModel, table=True):
     id: str = Field(primary_key=True)
     pybook_id: str = Field(index=True)
     # statuses: queued | pending | running | success | error | timeout | cancelled | dead_letter
-    status: str = "pending"
+    status: str = Field(default="pending", index=True)
     trigger_source: str               # "manual" | "cron" | "webhook" | "object_event" | "sub_pybook"
     trigger_payload: str = "{}"
     stdout: str = ""
     stderr: str = ""
     exit_code: Optional[int] = None
-    started_at: datetime = Field(default_factory=_now)
+    started_at: datetime = Field(default_factory=_now, index=True)
     ended_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
     output_vars: str = "{}"           # JSON dict populated by pylo.set_output()
     retry_count: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     max_retries: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
+    script_version: Optional[int] = None  # PyBookVersion.version that executed
+
+
+class PyBookVersion(SQLModel, table=True):
+    """Immutable snapshot of a PyBook script, recorded whenever it changes."""
+    __tablename__ = "pybook_version"
+
+    id: str = Field(primary_key=True)
+    pybook_id: str = Field(index=True)
+    version: int                       # 1, 2, 3… per PyBook
+    script: str = ""
+    message: str = ""
+    author: str = "system"
+    additions: int = 0                 # lines added vs. the previous version
+    deletions: int = 0                 # lines removed vs. the previous version
+    created_at: datetime = Field(default_factory=_now, index=True)

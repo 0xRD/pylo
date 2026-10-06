@@ -2,6 +2,8 @@ name: pylo
 
 services:
   socket-proxy:
+    security_opt:
+      - no-new-privileges:true
     image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -36,6 +38,8 @@ services:
       - socket_proxy
 
   backend:
+    security_opt:
+      - no-new-privileges:true
     build: ./backend
     volumes:
       - ./pybooks_storage:/app/pybooks_storage
@@ -44,7 +48,9 @@ services:
       - ./migrations:/app/migrations
       - ./alembic.ini:/app/alembic.ini
     ports:
-      - "8000:8000"
+      # Loopback only: browsers and remote API clients go through the frontend
+      # proxy (http://<host>:3000/api), which sets the client IP headers.
+      - "127.0.0.1:8000:8000"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pylo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-pylo}
@@ -66,6 +72,8 @@ services:
       retries: 3
 
   frontend:
+    security_opt:
+      - no-new-privileges:true
     build:
       context: ./frontend
     ports:
@@ -78,6 +86,8 @@ services:
       - pylo_default
 
   postgres:
+    security_opt:
+      - no-new-privileges:true
     image: postgres:16.14-alpine3.23@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pylo}

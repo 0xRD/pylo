@@ -192,3 +192,99 @@ def test_notification_webhook_url_hidden_from_non_admins():
         admin = asyncio.run(settings_api.get_settings(session, AuthUser(username="a", role="admin")))
     assert viewer["notify_webhook_url"] == "" and viewer["notify_webhook_set"] is True
     assert admin["notify_webhook_url"] == "https://hooks.example.test/secret"
+
+
+def test_run_lists_can_omit_logs():
+    from backend.api import pybooks as pybooks_api
+    from backend.api import runs as runs_api
+    from backend.pybooks.models import PyBook
+
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(PyBook(id="p1", name="pb"))
+        for i in range(3):
+            session.add(PyBookRun(id=f"r{i}", pybook_id="p1", status="success", trigger_source="manual",
+                                  stdout="x" * 10_000, output_vars='{"n": 1}',
+                                  started_at=datetime.now(timezone.utc) - timedelta(minutes=i)))
+        session.commit()
+
+        full = asyncio.run(runs_api.list_runs(None, [], 50, 0, True, session))
+        assert full[0].stdout == "x" * 10_000
+
+        summary = asyncio.run(runs_api.list_runs(None, [], 50, 0, False, session))
+        assert [r["id"] for r in summary] == ["r0", "r1", "r2"]
+        assert "stdout" not in summary[0] and "stderr" not in summary[0]
+        assert summary[0]["output_vars"] == '{"n": 1}'
+
+        limited = asyncio.run(pybooks_api.list_pybook_runs("p1", 2, False, session))
+        assert [r["id"] for r in limited] == ["r0", "r1"]
+
+
+def test_gitops_token_sent_as_header_never_stored_in_remote(tmp_path, monkeypatch):
+    import base64
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from backend.api import gitops
+
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(gitops, "GITOPS_DIR", tmp_path / "repo")
+    try:
+        url = f"http://old-token@127.0.0.1:{server.server_port}/config.git"
+        gitops._ensure_repo(url, "main", "s3cret-token")
+    finally:
+        server.shutdown()
+
+    expected = "Basic " + base64.b64encode(b"s3cret-token:").decode()
+    assert seen and all(h == expected for h in seen)
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=tmp_path / "repo",
+                            capture_output=True, text=True).stdout.strip()
+    assert remote == f"http://127.0.0.1:{server.server_port}/config.git"
+    assert "s3cret" not in (tmp_path / "repo" / ".git" / "config").read_text()
+
+
+def test_pybook_script_history_records_diffs_and_restores():
+    from backend.api import pybooks as pb_api
+    from backend.core.auth import AuthUser
+    from backend.pybooks.models import PyBook
+
+    engine = _engine()
+    alice = AuthUser(username="alice", role="admin")
+    with Session(engine) as session:
+        pb = asyncio.run(pb_api.create_pybook(pb_api.PyBookCreate(name="hist", script="a\nb\n"), session, alice))
+        upd = pb_api.PyBookUpdate(script="a\nB\nc\n", commit_message="Fix b, add c")
+        asyncio.run(pb_api.update_pybook(pb.id, upd, session, alice))
+        # Saving identical content does not create an empty version.
+        asyncio.run(pb_api.update_pybook(pb.id, pb_api.PyBookUpdate(script="a\nB\nc\n"), session, alice))
+        # Non-script edits do not create versions.
+        asyncio.run(pb_api.update_pybook(pb.id, pb_api.PyBookUpdate(description="d"), session, alice))
+
+        history = asyncio.run(pb_api.list_versions(pb.id, session))
+        assert [v["version"] for v in history] == [2, 1]
+        assert history[0]["message"] == "Fix b, add c" and history[0]["author"] == "alice"
+        assert (history[0]["additions"], history[0]["deletions"]) == (2, 1)
+
+        # A change written outside the editor (import / GitOps) is captured on next read.
+        row = session.get(PyBook, pb.id)
+        row.script = "external\n"
+        session.add(row)
+        session.commit()
+        history = asyncio.run(pb_api.list_versions(pb.id, session))
+        assert history[0]["version"] == 3 and history[0]["author"] == "system"
+
+        restored = asyncio.run(pb_api.restore_version(pb.id, 1, session, alice))
+        assert restored.script == "a\nb\n"
+        v4 = asyncio.run(pb_api.get_version(pb.id, 4, session))
+        assert v4["message"] == "Restore v1" and v4["script"] == "a\nb\n"

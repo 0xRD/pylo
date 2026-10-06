@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chmod a+r /etc/apt/keyrings/docker.gpg && \
     arch="$(dpkg --print-architecture)" && \
     echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
+    apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin git && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

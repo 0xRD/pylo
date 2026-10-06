@@ -50,7 +50,7 @@ class Entry(SQLModel, table=True):
     external_id: Optional[str] = None
     data: str = "{}"
     raw_data: str = "{}"
-    created_at: datetime = Field(default_factory=_now)
+    created_at: datetime = Field(default_factory=_now, index=True)
     updated_at: datetime = Field(default_factory=_now)
 # trigger_event added via migration
 

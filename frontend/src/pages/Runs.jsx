@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { fmtDateTime, parseUTC } from '../utils/dates'
 import RunStatusBadge from '../components/RunStatusBadge'
 import { runsApi } from '../api/pybooks'
+import { useRunDetail } from '../hooks/useRunDetail'
 import { useUi } from '../context/UiContext'
 
 const workflowRunsApi = {
@@ -47,7 +48,8 @@ function VarsPanel({ vars }) {
   )
 }
 
-function PyBookRunDetail({ run }) {
+function PyBookRunDetail({ run: summary }) {
+  const run = useRunDetail(summary)
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-[#343746] bg-[#282a36] px-4 py-3">
@@ -81,7 +83,8 @@ function PyBookRunDetail({ run }) {
               <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stderr}</pre>
             </div>
           )}
-          {!run.stdout && !run.stderr && <p className="text-xs italic text-gray-600">This run did not emit stdout or stderr.</p>}
+          {run._loading && <p className="text-xs italic text-gray-600">Loading logs…</p>}
+          {!run._loading && !run.stdout && !run.stderr && <p className="text-xs italic text-gray-600">This run did not emit stdout or stderr.</p>}
         </div>
         <div className="space-y-4 min-w-0">
           <div>

@@ -11,6 +11,7 @@ Git repo layout:
   workflows/<slug>.json   ← nodes reference pybooks by name slug, not UUID
 """
 
+import base64
 import json
 import logging
 import os
@@ -57,41 +58,57 @@ def _ss(session: Session, key: str, value: str) -> None:
 
 # ── Git helpers ───────────────────────────────────────────────────────────────
 
-def _url_with_token(url: str, token: str) -> str:
-    """Inject token into HTTPS URL: https://token@host/path."""
-    if not token or not url.startswith("http"):
+def _auth_env(token: str) -> dict:
+    """Git auth via environment-only config, so the token never lands in
+    .git/config, process arguments, or git's error messages."""
+    if not token:
+        return {}
+    # Same credential semantics as the former https://<token>@host URLs.
+    basic = base64.b64encode(f"{token}:".encode()).decode()
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.extraHeader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+    }
+
+
+def _strip_credentials(url: str) -> str:
+    """Drop any user:password@ from an HTTPS URL (also cleans remotes written by older versions)."""
+    if not url.startswith("http"):
         return url
     parsed = urlparse(url)
-    netloc = f"{token}@{parsed.hostname}"
+    netloc = parsed.hostname or ""
     if parsed.port:
         netloc += f":{parsed.port}"
     return urlunparse(parsed._replace(netloc=netloc))
 
 
-def _git(args: list, cwd: pathlib.Path = GITOPS_DIR, check: bool = True, extra_env: dict = None):
+def _git(args: list, cwd: pathlib.Path | None = None, check: bool = True, extra_env: dict = None):
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(extra_env or {})}
-    r = subprocess.run(["git"] + args, cwd=str(cwd), capture_output=True, text=True, env=env)
+    r = subprocess.run(["git"] + args, cwd=str(cwd or GITOPS_DIR), capture_output=True, text=True, env=env)
     if check and r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or r.stdout.strip() or f"git {args[0]} failed")
     return r
 
 
-def _ensure_repo(url_with_token: str, branch: str) -> None:
+def _ensure_repo(url: str, branch: str, token: str = "") -> None:
     """Clone if not present, then fetch latest from remote."""
     GITOPS_DIR.parent.mkdir(parents=True, exist_ok=True)
+    url = _strip_credentials(url)
+    auth = _auth_env(token)
 
     if not (GITOPS_DIR / ".git").exists():
-        r = _git(["clone", url_with_token, str(GITOPS_DIR)], cwd=GITOPS_DIR.parent, check=False)
+        r = _git(["clone", url, str(GITOPS_DIR)], cwd=GITOPS_DIR.parent, check=False, extra_env=auth)
         if r.returncode != 0:
             # Possibly empty repo — init locally and add remote
             GITOPS_DIR.mkdir(exist_ok=True)
             _git(["init"], check=False)
-            _git(["remote", "add", "origin", url_with_token], check=False)
+            _git(["remote", "add", "origin", url], check=False)
     else:
-        _git(["remote", "set-url", "origin", url_with_token], check=False)
+        _git(["remote", "set-url", "origin", url], check=False)
 
     # Fetch (may fail silently for brand-new empty repos)
-    _git(["fetch", "origin"], check=False)
+    _git(["fetch", "origin"], check=False, extra_env=auth)
 
     # Checkout the target branch (tracking remote if available)
     r = _git(["checkout", "-B", branch, f"origin/{branch}"], check=False)
@@ -320,7 +337,7 @@ async def git_status(
     branch = _gs(session, "git_branch") or "main"
 
     try:
-        _ensure_repo(_url_with_token(url, token), branch)
+        _ensure_repo(url, branch, token)
     except Exception as exc:
         return {"environment": env, "configured": True, "error": str(exc),
                 "pending_count": 0, "remote_ahead": False}
@@ -369,7 +386,7 @@ async def git_diff(
     branch = _gs(session, "git_branch") or "main"
 
     try:
-        _ensure_repo(_url_with_token(url, token), branch)
+        _ensure_repo(url, branch, token)
     except Exception as exc:
         raise HTTPException(500, f"Git error: {exc}")
 
@@ -414,10 +431,8 @@ async def git_commit(
     committer_name = _gs(session, "git_committer_name") or "Pylo"
     committer_email = _gs(session, "git_committer_email") or "pylo@localhost"
 
-    url_auth = _url_with_token(url, token)
-
     try:
-        _ensure_repo(url_auth, branch)
+        _ensure_repo(url, branch, token)
     except Exception as exc:
         raise HTTPException(500, f"Git error: {exc}")
 
@@ -493,7 +508,7 @@ async def git_commit(
         if r.returncode == 0:
             raise HTTPException(400, "No changes to commit (objects are identical to repo)")
         _git(["commit", "-m", body.message or "Pylo config update"], extra_env=git_env)
-        _git(["push", "origin", branch], extra_env=git_env)
+        _git(["push", "origin", branch], extra_env={**git_env, **_auth_env(token)})
         sha_r = _git(["rev-parse", "--short", "HEAD"], extra_env=git_env)
         sha = sha_r.stdout.strip()
     except HTTPException:
@@ -534,7 +549,7 @@ async def git_sync(
     branch = _gs(session, "git_branch") or "main"
 
     try:
-        _ensure_repo(_url_with_token(url, token), branch)
+        _ensure_repo(url, branch, token)
     except Exception as exc:
         raise HTTPException(500, f"Git error: {exc}")
 
