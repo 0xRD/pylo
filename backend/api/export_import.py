@@ -24,8 +24,9 @@ from backend.core.auth import AuthUser, require_admin, verify_token
 from backend.core.settings_model import SystemSetting
 from backend.database import get_session
 from backend.objects.models import Blueprint, Entry
-from backend.pybooks.models import PyBook
+from backend.pybooks.models import PyBook, PyBookVersion
 from backend.pybooks.store import write_script
+from backend.pybooks.versions import latest_version, record_version
 from backend.workflows.models import Workflow
 
 logger = logging.getLogger(__name__)
@@ -173,7 +174,8 @@ def _blueprint_export_data(session: Session, bp: Blueprint, include_entries: boo
     return data
 
 
-def _pybook_export_data(pb: PyBook) -> dict:
+def _pybook_export_data(pb: PyBook, history: list[dict] | None = None) -> dict:
+    extra = {"history": history} if history is not None else {}
     return {
         "pylo_export": "pybook",
         "version": 1,
@@ -192,7 +194,46 @@ def _pybook_export_data(pb: PyBook) -> dict:
             "network_policy": pb.network_policy,
             "allowed_hosts": pb.allowed_hosts,
         }),
+        **extra,
     }
+
+
+def _pybook_history(session: Session, pybook_id: str) -> list[dict]:
+    versions = session.exec(
+        select(PyBookVersion).where(PyBookVersion.pybook_id == pybook_id).order_by(PyBookVersion.version)
+    ).all()
+    return [{
+        "version": v.version, "script": v.script, "message": v.message, "author": v.author,
+        "additions": v.additions, "deletions": v.deletions,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+    } for v in versions]
+
+
+def _restore_history(session: Session, pybook_id: str, history, script: str) -> None:
+    """Re-create a backed-up script history, then record the restored script.
+
+    The history is only restored onto a PyBook that has none yet (new instance or
+    new PyBook); an existing history is kept and the restore is appended to it.
+    """
+    if isinstance(history, list) and latest_version(session, pybook_id) is None:
+        seen: set[int] = set()
+        for item in history:
+            if not isinstance(item, dict) or not isinstance(item.get("version"), int) or item["version"] in seen:
+                continue
+            seen.add(item["version"])
+            try:
+                created = datetime.fromisoformat(item["created_at"]) if item.get("created_at") else None
+            except (TypeError, ValueError):
+                created = None
+            session.add(PyBookVersion(
+                id=str(uuid.uuid4()), pybook_id=pybook_id, version=item["version"],
+                script=str(item.get("script") or ""), message=str(item.get("message") or ""),
+                author=str(item.get("author") or "system"),
+                additions=int(item.get("additions") or 0), deletions=int(item.get("deletions") or 0),
+                **({"created_at": created} if created else {}),
+            ))
+        session.flush()
+    record_version(session, pybook_id, script or "", author="system", message="Restored from backup")
 
 
 def _workflow_export_data(session: Session, wf: Workflow, embed_pybooks: bool = True) -> dict:
@@ -240,12 +281,14 @@ def _upsert_pybook(session: Session, data: dict, now: datetime) -> tuple[str | N
         existing.updated_at = now
         session.add(existing)
         write_script(existing.id, existing.script)
+        _restore_history(session, existing.id, data.get("history"), existing.script)
         return original_id, existing.id
 
     new_id = original_id if original_id and not session.get(PyBook, original_id) else str(uuid.uuid4())
     pb = PyBook(id=new_id, name=name, created_at=now, updated_at=now, **fields)
     session.add(pb)
     write_script(pb.id, pb.script)
+    _restore_history(session, pb.id, data.get("history"), pb.script)
     return original_id, pb.id
 
 
@@ -392,7 +435,8 @@ def _build_full_zip(
         pb_used: set = set()
         for pb in pybooks:
             slug = _unique_name(pb_used, _safe_filename(pb.name, pb.id), pb.id)
-            zf.writestr(f"pybooks/{slug}.json", json.dumps(_pybook_export_data(pb), indent=2))
+            zf.writestr(f"pybooks/{slug}.json", json.dumps(
+                _pybook_export_data(pb, history=_pybook_history(session, pb.id)), indent=2))
         wf_used: set = set()
         for wf in workflows:
             slug = _unique_name(wf_used, _safe_filename(wf.name, wf.id), wf.id)

@@ -61,9 +61,13 @@ class FailureLimiter:
             self._failures.clear()
 
 
-# 10 failures per account or 30 per client IP within 15 minutes.
+# Within 15 minutes: 10 failures per account from one client IP, 30 per client
+# IP overall, and 100 per account across all IPs. Keying the tight account limit
+# by IP means a third party cannot lock a user out with a few bad passwords; the
+# loose account-wide cap still slows brute force spread over many addresses.
 login_limiter = FailureLimiter(max_failures=10, window_seconds=900)
 ip_limiter = FailureLimiter(max_failures=30, window_seconds=900)
+account_limiter = FailureLimiter(max_failures=100, window_seconds=900)
 
 
 def client_ip(request: Request) -> str:

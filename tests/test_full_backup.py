@@ -109,3 +109,25 @@ def test_full_backup_import_creates_pybook(client):
     pybooks = client.get("/api/pybooks").json()
     restored = next(pb for pb in pybooks if pb["name"] == "Backup Demo")
     assert restored["script"] == "print('restored')"
+
+
+def test_full_backup_round_trips_pybook_history(client):
+    pb = client.post("/api/pybooks", json={"name": "History Demo", "script": "print(1)\n"}).json()
+    client.put(f"/api/pybooks/{pb['id']}", json={"script": "print(2)\n", "commit_message": "second"})
+
+    with zipfile.ZipFile(io.BytesIO(client.get("/api/export/full").content)) as zf:
+        exported = json.loads(zf.read("pybooks/History_Demo.json"))
+    assert [v["message"] for v in exported["history"]] == ["Initial version", "second"]
+
+    # Restore onto an instance where the PyBook does not exist yet.
+    client.delete(f"/api/pybooks/{pb['id']}")
+    exported["script"] = "print(3)\n"
+    response = client.post("/api/import/full?confirm=RESTORE",
+                           content=_backup_zip({"pybooks/History_Demo.json": exported}),
+                           headers={"Content-Type": "application/zip"})
+    assert response.status_code == 200
+
+    versions = client.get(f"/api/pybooks/{pb['id']}/versions").json()
+    assert [(v["version"], v["message"]) for v in versions] == [
+        (3, "Restored from backup"), (2, "second"), (1, "Initial version"),
+    ]
