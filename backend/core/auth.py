@@ -8,7 +8,8 @@ import secrets
 from fastapi import Cookie, Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 from sqlmodel import Session, select
 
 from backend.config import settings
