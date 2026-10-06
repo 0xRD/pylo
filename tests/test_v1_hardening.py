@@ -218,3 +218,38 @@ def test_run_lists_can_omit_logs():
 
         limited = asyncio.run(pybooks_api.list_pybook_runs("p1", 2, False, session))
         assert [r["id"] for r in limited] == ["r0", "r1"]
+
+
+def test_gitops_token_sent_as_header_never_stored_in_remote(tmp_path, monkeypatch):
+    import base64
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from backend.api import gitops
+
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(gitops, "GITOPS_DIR", tmp_path / "repo")
+    try:
+        url = f"http://old-token@127.0.0.1:{server.server_port}/config.git"
+        gitops._ensure_repo(url, "main", "s3cret-token")
+    finally:
+        server.shutdown()
+
+    expected = "Basic " + base64.b64encode(b"s3cret-token:").decode()
+    assert seen and all(h == expected for h in seen)
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=tmp_path / "repo",
+                            capture_output=True, text=True).stdout.strip()
+    assert remote == f"http://127.0.0.1:{server.server_port}/config.git"
+    assert "s3cret" not in (tmp_path / "repo" / ".git" / "config").read_text()

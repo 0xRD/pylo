@@ -10,8 +10,8 @@ These are documented trade-offs in the current release. Deploy accordingly.
 - **Blueprint fetch SSRF guard is subject to DNS rebinding.** Hostnames are resolved and checked before the request, and every redirect hop is re-validated, but the HTTP client resolves the host again when it connects. Keep `PYLO_ALLOW_PRIVATE_FETCH=false` and restrict who can author Blueprints.
 - **Scoped API keys are not per-resource.** `pybooks:trigger` can trigger any PyBook, and `entries:write` can write any Blueprint's Entries.
 - **Run tokens may be passed as a WebSocket query parameter**, which can end up in proxy access logs. Prefer the cookie or header paths in front-end proxies.
-- **GitOps stores the repository token in the remote URL** of the local working copy. Use a fine-grained token limited to the config repository.
 - **Login throttling is in-memory.** It resets when the backend restarts and assumes a single backend process.
+- **Build-time frontend tooling** (Tailwind CSS 3 and its file-watching dependencies) has open denial-of-service advisories. They affect only `npm run build`/`dev` on untrusted input, not the shipped app. Migrating to Tailwind 4 clears them.
 
 ## Planned
 
