@@ -126,3 +126,13 @@ def test_cancel_endpoint_and_enriched_run_detail(engine):
         detail = asyncio.run(wf_api.get_workflow_run("w1", "r1", session))
     node = detail["node_runs"][0]
     assert (node["node_label"], node["pybook_name"], node["script_version"]) == ("Enrich IP", "Enrich", 2)
+
+
+def test_cancelling_a_running_run_sets_ended_at(engine):
+    from backend.api import workflows as wf_api
+    from backend.core.auth import AuthUser
+
+    _setup(engine, [{"id": "n1", "pybookId": "p1"}], [], status="running")
+    with Session(engine) as session:
+        asyncio.run(wf_api.cancel_workflow_run("r1", session, AuthUser(username="admin", role="admin")))
+        assert session.get(WorkflowRun, "r1").ended_at is not None
