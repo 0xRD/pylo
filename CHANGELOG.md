@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- **PyBook script history** (GitLab-style): every save, restore, import or sync records a version with author, message and +/− line counts. A History panel shows the timeline; selecting a version opens a side-by-side or inline diff ("changes since the previous version" or "compare with editor") with one-click restore (restores are new versions, nothing is deleted). Each run records the script version it executed, linked from the run console. New endpoints: `GET /api/pybooks/{id}/versions`, `GET …/versions/{n}`, `POST …/versions/{n}/restore`.
+- **PyBook editor**: optional change description on save, `Ctrl/Cmd+S` to save, `Ctrl/Cmd+Enter` to save and run with the current payload, a status bar (saved state, current version, cursor position), sticky scroll and bracket colouring, and a prompt before switching away from unsaved changes.
+
+### Fixed
+- The PyBook editor was editable in production mode and for viewers (only the Save button was hidden); it is now read-only there.
+- The run console adapts to its own width, so logs stay readable when a side panel is open.
+
 ### Security
 - Replaced `python-jose` (unpatched CVE; pulled in vulnerable `ecdsa`/`pyasn1`) with PyJWT, upgraded FastAPI/Starlette, DOMPurify and react-router. `pip-audit` and `npm audit --omit=dev` report no known vulnerabilities.
 - The GitOps token is sent as an HTTP header via environment-only git config instead of being embedded in the remote URL, so it no longer appears in `.git/config`, process arguments, or git error messages. Existing remotes are cleaned on the next sync.

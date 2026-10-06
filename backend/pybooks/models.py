@@ -47,3 +47,19 @@ class PyBookRun(SQLModel, table=True):
     output_vars: str = "{}"           # JSON dict populated by pylo.set_output()
     retry_count: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     max_retries: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
+    script_version: Optional[int] = None  # PyBookVersion.version that executed
+
+
+class PyBookVersion(SQLModel, table=True):
+    """Immutable snapshot of a PyBook script, recorded whenever it changes."""
+    __tablename__ = "pybook_version"
+
+    id: str = Field(primary_key=True)
+    pybook_id: str = Field(index=True)
+    version: int                       # 1, 2, 3… per PyBook
+    script: str = ""
+    message: str = ""
+    author: str = "system"
+    additions: int = 0                 # lines added vs. the previous version
+    deletions: int = 0                 # lines removed vs. the previous version
+    created_at: datetime = Field(default_factory=_now, index=True)

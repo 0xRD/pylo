@@ -11,6 +11,7 @@ import { useGitops } from "../context/GitopsContext"
 import { fmtDateTime } from "../utils/dates"
 import { exportApi, importApi, readImportFile } from "../api/exportImport"
 import ImportConflictModal from "../components/ImportConflictModal"
+import { HistoryPanel, VersionDiffView, timeAgo } from "../components/PyBookHistory"
 import {
   BookOpen,
   Braces,
@@ -19,10 +20,12 @@ import {
   Code2,
   Copy,
   FileText,
+  History,
   HelpCircle,
   Play,
   Plus,
   RotateCcw,
+  Save,
   Search,
   Settings2,
   Sparkles,
@@ -372,7 +375,7 @@ payload = pylo.get_payload()
 entry_id = payload.get("entry_id")
 entry_data = payload.get("entry_data", {})`
 
-function RunPanel({ pybook, onClose, isAdmin }) {
+function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled, onOpenVersion }) {
   const [runs, setRuns] = useState([])
   const [selectedRun, setSelectedRun] = useState(null)
   const shownRun = useRunDetail(selectedRun)
@@ -433,6 +436,27 @@ function RunPanel({ pybook, onClose, isAdmin }) {
     }
   }
 
+  // Ctrl/Cmd+Enter in the editor: run with the current payload once the console is open.
+  // The ref guards against effects firing twice (React StrictMode re-runs them).
+  const autoRanRef = useRef(false)
+  useEffect(() => {
+    if (!autoRun) { autoRanRef.current = false; return }
+    if (autoRanRef.current) return
+    autoRanRef.current = true
+    onAutoRunHandled?.()
+    handleRunWithPayload()
+  }, [autoRun])
+
+  // Lay out by the console's own width (side panels can make it narrow).
+  const panelRef = useRef(null)
+  const [wide, setWide] = useState(true)
+  useEffect(() => {
+    if (!panelRef.current || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 1000))
+    observer.observe(panelRef.current)
+    return () => observer.disconnect()
+  }, [])
+
   const reuseSelectedPayload = () => {
     if (!selectedRun?.trigger_payload) return
     try { setPayloadText(JSON.stringify(JSON.parse(selectedRun.trigger_payload), null, 2)) }
@@ -443,7 +467,7 @@ function RunPanel({ pybook, onClose, isAdmin }) {
   const vars = selectedRun ? parseRunVars(selectedRun) : []
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-t border-[#343746] bg-[#191a21]/95">
+    <div ref={panelRef} className="flex h-full min-h-0 flex-col border-t border-[#343746] bg-[#191a21]/95">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#343746] px-5 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-base font-semibold text-[#f8f8f2]">
@@ -469,7 +493,9 @@ function RunPanel({ pybook, onClose, isAdmin }) {
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+      <div className={"grid min-h-0 flex-1 gap-4 p-4 " + (wide
+        ? "overflow-hidden grid-cols-[260px_minmax(0,1fr)_360px]"
+        : "overflow-y-auto grid-cols-[200px_minmax(0,1fr)] grid-rows-[minmax(16rem,1fr)_auto]")}>
         <section className="flex min-h-0 flex-col overflow-hidden rounded border border-[#343746] bg-[#20222c]">
           <div className="shrink-0 border-b border-[#343746] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#6272a4]">Recent runs</div>
           {runs.length === 0 ? (
@@ -486,7 +512,16 @@ function RunPanel({ pybook, onClose, isAdmin }) {
                     {run.duration_ms != null && <span className="text-[10px] text-[#6272a4]">{run.duration_ms}ms</span>}
                   </div>
                   <p className="mt-1 truncate text-[11px] text-[#8b8fa3]">{fmtDateTime(run.started_at)}</p>
-                  <p className="mt-1 truncate text-[10px] text-[#6272a4]">{run.trigger_source}</p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="truncate text-[10px] text-[#6272a4]">{run.trigger_source}</p>
+                    {run.script_version != null && (
+                      <span role="link" title="Show the script version this run executed"
+                        onClick={e => { e.stopPropagation(); onOpenVersion?.(run.script_version) }}
+                        className="shrink-0 rounded bg-[#343746] px-1.5 font-mono text-[10px] text-[#8be9fd] hover:bg-[#44475a]">
+                        v{run.script_version}
+                      </span>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -560,7 +595,7 @@ function RunPanel({ pybook, onClose, isAdmin }) {
           )}
         </section>
 
-        <section className="min-h-0 overflow-y-auto rounded border border-[#343746] bg-[#20222c] p-4">
+        <section className={"min-h-0 overflow-y-auto rounded border border-[#343746] bg-[#20222c] p-4" + (wide ? "" : " col-span-2")}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[#8be9fd]">
               New input payload
@@ -1033,6 +1068,14 @@ export default function PyBooks() {
   const [showDocs, setShowDocs] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
   const [showAIPrompt, setShowAIPrompt] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [versions, setVersions] = useState([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+  const [diffVersion, setDiffVersion] = useState(null)
+  const [commitMessage, setCommitMessage] = useState("")
+  const [cursor, setCursor] = useState({ line: 1, column: 1 })
+  const [autoRun, setAutoRun] = useState(false)
+  const [saveError, setSaveError] = useState("")
   const [showTriggerEdit, setShowTriggerEdit] = useState(false)
   const [triggerDraft, setTriggerDraft] = useState(null)
   const [importConflicts, setImportConflicts] = useState(null)
@@ -1084,6 +1127,15 @@ export default function PyBooks() {
   }, [])
 
   const scriptChanged = selected && script !== (selected.script || "")
+  const canEdit = isAdmin && !isProd
+
+  const loadVersions = (pybookId) => {
+    setVersionsLoading(true)
+    return pybooksApi.listVersions(pybookId)
+      .then(setVersions)
+      .catch(() => setVersions([]))
+      .finally(() => setVersionsLoading(false))
+  }
 
   useEffect(() => {
     if (!scriptChanged) return
@@ -1093,7 +1145,13 @@ export default function PyBooks() {
   }, [scriptChanged])
 
   const selectPybook = (pb) => {
+    if (scriptChanged && pb.id !== selected?.id && !confirm(`Discard unsaved changes to "${selected.name}"?`)) return
     setSelected(pb)
+    setDiffVersion(null)
+    setCommitMessage("")
+    setSaveError("")
+    setVersions([])
+    loadVersions(pb.id)
     setScript(pb.script || "")
     setShowNew(false)
     setShowConfig(false)
@@ -1122,12 +1180,41 @@ export default function PyBooks() {
   }
 
   const handleSave = async () => {
-    if (!selected) return
+    if (!selected || !canEdit || !scriptChanged || saving) return
     setSaving(true)
+    setSaveError("")
     try {
-      const updated = await pybooksApi.update(selected.id, { script })
-      setSelected(updated); load()
+      const updated = await pybooksApi.update(selected.id, { script, commit_message: commitMessage })
+      setSelected(updated); setCommitMessage(""); load(); loadVersions(updated.id)
+    } catch (err) {
+      setSaveError(err.message || "Save failed")
+      throw err
     } finally { setSaving(false) }
+  }
+
+  const handleSaveAndRun = async () => {
+    if (!selected || !isAdmin) return
+    if (scriptChanged && canEdit) {
+      try { await handleSave() } catch { return }
+    }
+    setShowRuns(true); setShowDocs(false); setShowConfig(false)
+    setAutoRun(true)
+  }
+
+  const openVersion = (version) => {
+    setDiffVersion(version)
+    setShowHistory(true); setShowDocs(false); setShowConfig(false)
+  }
+
+  const handleRestore = async (version) => {
+    if (!selected) return
+    const warning = scriptChanged ? " Your unsaved changes will be lost." : ""
+    if (!confirm(`Restore v${version} as the current script? A new version is recorded, nothing is deleted.${warning}`)) return
+    try {
+      const updated = await pybooksApi.restoreVersion(selected.id, version)
+      setSelected(updated); setScript(updated.script || ""); setDiffVersion(null)
+      load(); loadVersions(updated.id)
+    } catch (err) { setSaveError(err.message || "Restore failed") }
   }
 
   const handleSaveTags = async (tags) => {
@@ -1327,7 +1414,7 @@ export default function PyBooks() {
           <div className="flex flex-col flex-1 overflow-hidden">
             {/* Toolbar */}
             <div className="flex items-center gap-3 px-5 py-3 border-b border-[#343746] bg-[#20222c] shrink-0 flex-wrap">
-              <div className="min-w-0 flex-1">
+              <div className="min-w-[10rem] flex-1">
                 <div className="flex items-center gap-2">
                   <span className={"w-2 h-2 rounded-full shrink-0 " + (selected.is_active ? "bg-[#50fa7b]" : "bg-[#6272a4]")} />
                   <span className="text-sm font-semibold truncate text-[#f8f8f2]">{selected.name}</span>
@@ -1344,12 +1431,18 @@ export default function PyBooks() {
                 <ClipboardList className="h-3.5 w-3.5" />
                 Runs
               </button>
-              <button onClick={() => { setShowDocs(s => !s); setShowRuns(false); setShowConfig(false) }}
+              <button onClick={() => { setShowHistory(s => !s); setShowDocs(false); setShowConfig(false) }}
+                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showHistory ? "bg-[#ffb86c] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
+                <History className="h-3.5 w-3.5" />
+                History
+                {versions[0] && <span className={"font-mono text-[10px] " + (showHistory ? "" : "text-[#6272a4]")}>v{versions[0].version}</span>}
+              </button>
+              <button onClick={() => { setShowDocs(s => !s); setShowRuns(false); setShowConfig(false); setShowHistory(false) }}
                 className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showDocs ? "bg-[#bd93f9] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
                 <FileText className="h-3.5 w-3.5" />
                 SDK
               </button>
-              <button onClick={() => { setShowConfig(s => !s); setShowRuns(false); setShowDocs(false) }}
+              <button onClick={() => { setShowConfig(s => !s); setShowRuns(false); setShowDocs(false); setShowHistory(false) }}
                 className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showConfig ? "bg-[#bd93f9] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
                 <Settings2 className="h-3.5 w-3.5" />
                 Settings
@@ -1365,11 +1458,23 @@ export default function PyBooks() {
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete
               </button>
-              {scriptChanged && !isProd && (
-                <button onClick={handleSave} disabled={saving || !isAdmin}
-                  className="text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
-                  {saving ? "Saving..." : "Save"}
-                </button>
+              {scriptChanged && canEdit && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={commitMessage}
+                    onChange={e => setCommitMessage(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") handleSave().catch(() => {}) }}
+                    placeholder="Describe your change (optional)"
+                    maxLength={200}
+                    className="w-56 rounded border border-[#343746] bg-[#191a21] px-2 py-1.5 text-xs text-[#f8f8f2] outline-none placeholder-[#6272a4] focus:border-[#50fa7b]"
+                  />
+                  <button onClick={() => handleSave().catch(() => {})} disabled={saving}
+                    title="Save (Ctrl/Cmd+S)"
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
+                    <Save className="h-3.5 w-3.5" />
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                </div>
               )}
               {isProd && (
                 <span className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 px-2.5 py-1 rounded">
@@ -1451,9 +1556,52 @@ export default function PyBooks() {
               )}
             </div>
 
-            <div className="min-h-0 flex-1">
-              <CodeEditor value={script} onChange={setScript} height="100%" />
-            </div>
+            {diffVersion ? (
+              <VersionDiffView
+                key={`${selected.id}-${diffVersion}`}
+                pybookId={selected.id}
+                version={diffVersion}
+                versions={versions}
+                currentScript={script}
+                canRestore={canEdit && diffVersion !== versions[0]?.version}
+                onRestore={handleRestore}
+                onClose={() => setDiffVersion(null)}
+              />
+            ) : (
+              <>
+                <div className="min-h-0 flex-1">
+                  <CodeEditor
+                    value={script}
+                    onChange={v => setScript(v ?? "")}
+                    height="100%"
+                    readOnly={!canEdit}
+                    onSave={() => handleSave().catch(() => {})}
+                    onRun={handleSaveAndRun}
+                    onCursor={setCursor}
+                  />
+                </div>
+                {/* Status bar */}
+                <div className="flex shrink-0 items-center gap-4 border-t border-[#343746] bg-[#151720] px-4 py-1 text-[11px] text-[#6272a4]">
+                  {!canEdit ? (
+                    <span className="text-[#f1fa8c]">Read-only</span>
+                  ) : scriptChanged ? (
+                    <span className="text-[#ffb86c]">● Unsaved changes</span>
+                  ) : (
+                    <span className="text-[#50fa7b]">✓ Saved</span>
+                  )}
+                  {saveError && <span className="truncate text-[#ff5555]" title={saveError}>{saveError}</span>}
+                  {versions[0] && (
+                    <button onClick={() => openVersion(versions[0].version)} className="hover:text-[#8be9fd]"
+                      title={`${versions[0].message} — ${versions[0].author}`}>
+                      v{versions[0].version} · {versions[0].author} · {timeAgo(versions[0].created_at)}
+                    </button>
+                  )}
+                  <span className="ml-auto">Ln {cursor.line}, Col {cursor.column}</span>
+                  <span className="hidden md:inline">{canEdit ? "Ctrl/Cmd+S save · " : ""}Ctrl/Cmd+Enter {canEdit ? "save & run" : "run"}</span>
+                  <span>Python</span>
+                </div>
+              </>
+            )}
             {showRuns && (
               <>
                 <div
@@ -1464,11 +1612,21 @@ export default function PyBooks() {
                   <div className="h-0.5 w-10 rounded bg-[#44475a] group-hover:bg-[#6272a4]" />
                 </div>
                 <div className="shrink-0 overflow-hidden" style={{ height: runsHeight }}>
-                  <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin} />
+                  <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin}
+                    autoRun={autoRun} onAutoRunHandled={() => setAutoRun(false)} onOpenVersion={openVersion} />
                 </div>
               </>
             )}
           </div>
+          {showHistory && (
+            <HistoryPanel
+              versions={versions}
+              loading={versionsLoading}
+              activeVersion={diffVersion}
+              onSelect={v => setDiffVersion(d => d === v ? null : v)}
+              onClose={() => { setShowHistory(false); setDiffVersion(null) }}
+            />
+          )}
           {showDocs && (
             <DocsPanel onClose={() => setShowDocs(false)} />
           )}

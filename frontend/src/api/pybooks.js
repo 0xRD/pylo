@@ -28,6 +28,9 @@ export const pybooksApi = {
     req("POST", `/pybooks/${id}/run`, { trigger_source: triggerSource, trigger_payload: payload }),
   build: (id) => req("POST", `/pybooks/${id}/build`),
   getRuns: (id) => req("GET", `/pybooks/${id}/runs?include_output=false`),
+  listVersions: (id) => req("GET", `/pybooks/${id}/versions`),
+  getVersion: (id, version) => req("GET", `/pybooks/${id}/versions/${version}`),
+  restoreVersion: (id, version) => req("POST", `/pybooks/${id}/versions/${version}/restore`),
 }
 
 export const runsApi = {

@@ -14,7 +14,9 @@ from backend.core.auth import AuthUser, verify_token
 from backend.core import queue_manager
 from backend.database import get_session, engine
 from backend.pybooks.models import PyBook, PyBookRun
+from backend.pybooks.models import PyBookVersion
 from backend.pybooks.store import write_script, get_script_path
+from backend.pybooks.versions import current_version_number, record_version, sync_version
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pybooks", tags=["pybooks"], dependencies=[Depends(verify_token)])
@@ -47,6 +49,7 @@ class PyBookUpdate(BaseModel):
     tags: Optional[str] = None
     network_policy: Optional[str] = None
     allowed_hosts: Optional[str] = None
+    commit_message: Optional[str] = None  # recorded in the script history when `script` changes
 
 
 class RunTrigger(BaseModel):
@@ -76,6 +79,8 @@ async def _execute_run(pybook_id: str, run_id: str):
             return
 
         run.status = "running"
+        sync_version(session, pb)
+        run.script_version = current_version_number(session, pybook_id)
         session.add(run)
         session.commit()
 
@@ -188,6 +193,7 @@ async def create_pybook(
     pb = PyBook(id=str(uuid.uuid4()), **body.model_dump(), created_at=now, updated_at=now)
     write_script(pb.id, pb.script)
     session.add(pb)
+    record_version(session, pb.id, pb.script, author=current_user.username, message="Initial version")
     log_activity(session, "pybook.created", actor=current_user.username,
                  resource_type="pybook", resource_id=pb.id, resource_name=pb.name)
     session.commit()
@@ -213,12 +219,16 @@ async def update_pybook(
     pb = session.get(PyBook, pybook_id)
     if not pb:
         raise HTTPException(status_code=404, detail="PyBook not found")
-    updated = body.model_dump(exclude_none=True)
+    updated = body.model_dump(exclude_none=True, exclude={"commit_message"})
+    if body.script is not None:
+        sync_version(session, pb)  # capture any out-of-band change before overwriting it
     for field, value in updated.items():
         setattr(pb, field, value)
     pb.updated_at = datetime.now(timezone.utc)
     if body.script is not None:
         write_script(pb.id, body.script)
+        record_version(session, pb.id, body.script, author=current_user.username,
+                       message=body.commit_message or "")
     session.add(pb)
     log_activity(session, "pybook.updated", actor=current_user.username,
                  resource_type="pybook", resource_id=pybook_id, resource_name=pb.name,
@@ -244,6 +254,8 @@ async def delete_pybook(
     runs = session.exec(select(PyBookRun).where(PyBookRun.pybook_id == pybook_id)).all()
     for run in runs:
         session.delete(run)
+    for version in session.exec(select(PyBookVersion).where(PyBookVersion.pybook_id == pybook_id)).all():
+        session.delete(version)
     shutil.rmtree(get_script_path(pybook_id).parent, ignore_errors=True)
     session.delete(pb)
     log_activity(session, "pybook.deleted", actor=current_user.username,
@@ -320,3 +332,66 @@ async def list_pybook_runs(
         .limit(limit)
     )
     return run_rows(session, stmt, include_output)
+
+
+# ── Script version history ────────────────────────────────────────────────────
+
+def _version_summary(v: PyBookVersion) -> dict:
+    return {
+        "version": v.version, "message": v.message, "author": v.author,
+        "additions": v.additions, "deletions": v.deletions,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+    }
+
+
+@router.get("/{pybook_id}/versions")
+async def list_versions(pybook_id: str, session: Session = Depends(get_session)):
+    pb = session.get(PyBook, pybook_id)
+    if not pb:
+        raise HTTPException(status_code=404, detail="PyBook not found")
+    if sync_version(session, pb):
+        session.commit()
+    versions = session.exec(
+        select(PyBookVersion).where(PyBookVersion.pybook_id == pybook_id).order_by(PyBookVersion.version.desc())
+    ).all()
+    return [_version_summary(v) for v in versions]
+
+
+def _get_version(session: Session, pybook_id: str, version: int) -> PyBookVersion:
+    v = session.exec(
+        select(PyBookVersion).where(PyBookVersion.pybook_id == pybook_id, PyBookVersion.version == version)
+    ).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return v
+
+
+@router.get("/{pybook_id}/versions/{version}")
+async def get_version(pybook_id: str, version: int, session: Session = Depends(get_session)):
+    v = _get_version(session, pybook_id, version)
+    return {**_version_summary(v), "script": v.script}
+
+
+@router.post("/{pybook_id}/versions/{version}/restore")
+async def restore_version(
+    pybook_id: str,
+    version: int,
+    session: Session = Depends(get_session),
+    current_user: AuthUser = Depends(verify_token),
+):
+    pb = session.get(PyBook, pybook_id)
+    if not pb:
+        raise HTTPException(status_code=404, detail="PyBook not found")
+    v = _get_version(session, pybook_id, version)
+    sync_version(session, pb)
+    pb.script = v.script
+    pb.updated_at = datetime.now(timezone.utc)
+    write_script(pb.id, v.script)
+    session.add(pb)
+    record_version(session, pb.id, v.script, author=current_user.username, message=f"Restore v{version}")
+    log_activity(session, "pybook.updated", actor=current_user.username,
+                 resource_type="pybook", resource_id=pybook_id, resource_name=pb.name,
+                 detail={"changed_fields": ["script"], "restored_version": version})
+    session.commit()
+    session.refresh(pb)
+    return pb
