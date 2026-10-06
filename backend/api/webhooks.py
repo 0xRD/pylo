@@ -50,3 +50,44 @@ async def receive_webhook(
     from backend.api.pybooks import _execute_run
     queue_manager.enqueue(pybook_id, run.id)
     return {"run_id": run.id, "status": "accepted"}
+
+
+@router.post("/workflows/{workflow_id}")
+async def receive_workflow_webhook(
+    workflow_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Start a workflow whose trigger type is "webhook"; the JSON body becomes its payload."""
+    from backend.workflows.models import Workflow, WorkflowRun
+    from backend.workflows.validator import validate_dag
+
+    wf = session.get(Workflow, workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not wf.is_active:
+        raise HTTPException(status_code=400, detail="Workflow is inactive")
+    if wf.trigger_type != "webhook":
+        raise HTTPException(status_code=400, detail="Workflow is not configured for webhook triggers")
+    if validate_dag(wf.nodes, wf.edges, session):
+        raise HTTPException(status_code=422, detail="Workflow has validation errors")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {"data": payload}
+
+    run = WorkflowRun(
+        id=str(uuid.uuid4()),
+        workflow_id=workflow_id,
+        status="queued",
+        trigger_source="webhook",
+        trigger_payload=json.dumps(payload),
+        started_at=datetime.now(timezone.utc),
+    )
+    session.add(run)
+    session.commit()
+    queue_manager.enqueue_workflow(run.id)
+    return {"run_id": run.id, "status": "accepted"}

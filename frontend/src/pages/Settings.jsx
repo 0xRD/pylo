@@ -33,7 +33,7 @@ const apiKeysApi = {
   }),
 }
 
-const API_KEY_SCOPES = ['blueprints:read', 'entries:read', 'entries:write', 'pybooks:trigger', 'runs:read']
+const API_KEY_SCOPES = ['blueprints:read', 'entries:read', 'entries:write', 'pybooks:trigger', 'workflows:trigger', 'runs:read']
 
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`

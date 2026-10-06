@@ -60,6 +60,8 @@ _SCOPE_RULES = (
     ("GET", re.compile(r"^/api/blueprints(?:/[^/]+)?$"), "blueprints:read"),
     ("POST", re.compile(r"^/api/pybooks/[^/]+/run$"), "pybooks:trigger"),
     ("POST", re.compile(r"^/api/webhooks/[^/]+$"), "pybooks:trigger"),
+    ("POST", re.compile(r"^/api/webhooks/workflows/[^/]+$"), "workflows:trigger"),
+    ("POST", re.compile(r"^/api/workflows/[^/]+/run$"), "workflows:trigger"),
     ("GET", re.compile(r"^/api/runs(?:/[^/]+)?$"), "runs:read"),
     ("GET", re.compile(r"^/api/runs/queue$"), "runs:read"),
 )
