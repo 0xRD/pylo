@@ -1,8 +1,8 @@
 import { useRef } from 'react'
 import Editor, { DiffEditor, loader } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
+import * as monaco from 'monaco-editor/editor/editor.api'
+import editorWorker from 'monaco-editor/editor/editor.worker?worker'
+import 'monaco-editor/languages/definitions/python/register'
 
 globalThis.MonacoEnvironment = {
   getWorker() {
