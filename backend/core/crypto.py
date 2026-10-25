@@ -58,4 +58,4 @@ def resolve_secret_templates(text: str, secrets_map: dict[str, str]) -> str:
     def replacer(m):
         name = m.group(1)
         return secrets_map.get(name, m.group(0))
-    return re.sub(r'\{\{secret:([^}]+)\}\}', replacer, text)
+    return re.sub(r'\{\{secret:([^{}]+)\}\}', replacer, text)

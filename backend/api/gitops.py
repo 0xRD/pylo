@@ -440,15 +440,26 @@ async def git_commit(
     db = _db_state(session)
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    def _safe_path(folder: str, slug: str) -> str:
+        if folder not in ("blueprints", "pybooks", "workflows") or \
+                not re.fullmatch(r"[A-Za-z0-9_.-]+", slug or ""):
+            raise HTTPException(400, f"Invalid slug: {slug!r}")
+        base = os.path.realpath(str(GITOPS_DIR))
+        full = os.path.realpath(os.path.join(base, folder, f"{slug}.json"))
+        if not full.startswith(base + os.sep):
+            raise HTTPException(400, f"Invalid slug: {slug!r}")
+        return full
+
     def _write(folder: str, slug: str, data: dict):
-        p = GITOPS_DIR / folder
-        p.mkdir(exist_ok=True)
-        (p / f"{slug}.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        full = _safe_path(folder, slug)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write(json.dumps(data, indent=2, ensure_ascii=False))
 
     def _delete(folder: str, slug: str):
-        p = GITOPS_DIR / folder / f"{slug}.json"
-        if p.exists():
-            p.unlink()
+        full = _safe_path(folder, slug)
+        if os.path.exists(full):
+            os.remove(full)
 
     written = 0
 

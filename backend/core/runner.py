@@ -73,7 +73,7 @@ def _collect_secrets(pybook_id: str, run_id: str, required_secrets: list[str]) -
                 env[f"SECRET_{name}"] = decrypt(secret.encrypted_value)
                 injected_names.append(name)
             else:
-                logger.warning("Secret '%s' not found — skipping injection", name)
+                logger.warning("PyBook %s references a secret that was not found — skipping injection", pybook_id)
         if injected_names:
             log_activity(
                 session,

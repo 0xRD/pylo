@@ -1,5 +1,8 @@
 const BASE = "/api"
 
+// Encode a value interpolated into a URL path so it cannot alter the path structure
+const seg = (v) => encodeURIComponent(String(v))
+
 function headers(withBody = false) {
   const h = {}
   if (withBody) h["Content-Type"] = "application/json"
@@ -21,16 +24,16 @@ async function req(method, path, body) {
 export const pybooksApi = {
   list: () => req("GET", "/pybooks"),
   create: (data) => req("POST", "/pybooks", data),
-  get: (id) => req("GET", `/pybooks/${id}`),
-  update: (id, data) => req("PUT", `/pybooks/${id}`, data),
-  delete: (id) => req("DELETE", `/pybooks/${id}`),
+  get: (id) => req("GET", `/pybooks/${seg(id)}`),
+  update: (id, data) => req("PUT", `/pybooks/${seg(id)}`, data),
+  delete: (id) => req("DELETE", `/pybooks/${seg(id)}`),
   run: (id, payload = {}, triggerSource = "manual") =>
-    req("POST", `/pybooks/${id}/run`, { trigger_source: triggerSource, trigger_payload: payload }),
-  build: (id) => req("POST", `/pybooks/${id}/build`),
-  getRuns: (id) => req("GET", `/pybooks/${id}/runs?include_output=false`),
-  listVersions: (id) => req("GET", `/pybooks/${id}/versions`),
-  getVersion: (id, version) => req("GET", `/pybooks/${id}/versions/${version}`),
-  restoreVersion: (id, version) => req("POST", `/pybooks/${id}/versions/${version}/restore`),
+    req("POST", `/pybooks/${seg(id)}/run`, { trigger_source: triggerSource, trigger_payload: payload }),
+  build: (id) => req("POST", `/pybooks/${seg(id)}/build`),
+  getRuns: (id) => req("GET", `/pybooks/${seg(id)}/runs?include_output=false`),
+  listVersions: (id) => req("GET", `/pybooks/${seg(id)}/versions`),
+  getVersion: (id, version) => req("GET", `/pybooks/${seg(id)}/versions/${seg(version)}`),
+  restoreVersion: (id, version) => req("POST", `/pybooks/${seg(id)}/versions/${seg(version)}/restore`),
 }
 
 export const runsApi = {
@@ -43,6 +46,6 @@ export const runsApi = {
     p.set("include_output", "false")
     return req("GET", `/runs?${p}`)
   },
-  get: (id) => req("GET", `/runs/${id}`),
+  get: (id) => req("GET", `/runs/${seg(id)}`),
   queueStats: () => req("GET", "/runs/queue"),
 }
