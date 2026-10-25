@@ -409,7 +409,7 @@ export default function Settings() {
                 type="number" min={1} max={365} value={activityRetention}
                 onChange={e => setActivityRetention(Number(e.target.value))}
                 disabled={!isAdmin}
-                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500 disabled:opacity-50"
               />
             </label>
             <label className="block">
@@ -418,7 +418,7 @@ export default function Settings() {
                 type="number" min={0} max={3650} value={runRetention}
                 onChange={e => setRunRetention(Number(e.target.value))}
                 disabled={!isAdmin}
-                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                className="mt-1 w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500 disabled:opacity-50"
               />
             </label>
           </div>
@@ -440,15 +440,15 @@ export default function Settings() {
               value={notifyUrl}
               onChange={e => setNotifyUrl(e.target.value)}
               placeholder="https://hooks.slack.com/services/…"
-              className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 font-mono focus:outline-hidden focus:border-indigo-500"
             />
             <div className="flex items-center gap-2">
               <button onClick={handleSaveNotify} disabled={notifyStatus.busy || notifyUrl === (settings?.notify_webhook_url ?? '')}
-                className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded">
+                className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-sm">
                 Save
               </button>
               <button onClick={handleTestNotify} disabled={notifyStatus.busy || !settings?.notify_webhook_url}
-                className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 rounded">
+                className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 rounded-sm">
                 Send test
               </button>
               {notifyStatus.message && (
@@ -473,7 +473,7 @@ export default function Settings() {
                 value={apiKeyName}
                 onChange={e => setApiKeyName(e.target.value)}
                 placeholder="Integration name"
-                className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500"
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {API_KEY_SCOPES.map(scope => (
@@ -491,27 +491,27 @@ export default function Settings() {
               <button
                 onClick={handleCreateApiKey}
                 disabled={apiKeyBusy || !apiKeyName.trim() || apiKeyScopes.length === 0}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-xs font-medium transition-colors">
                 {apiKeyBusy ? 'Creating…' : 'Create API key'}
               </button>
               {createdApiKey && (
-                <div className="bg-green-950/40 border border-green-900 rounded px-3 py-2">
+                <div className="bg-green-950/40 border border-green-900 rounded-sm px-3 py-2">
                   <p className="text-xs text-green-300 mb-1">Copy this token now. It will not be shown again.</p>
                   <code className="block break-all text-xs text-green-100 font-mono">{createdApiKey}</code>
                 </div>
               )}
-              {apiKeyError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded px-3 py-2">{apiKeyError}</p>}
+              {apiKeyError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded-sm px-3 py-2">{apiKeyError}</p>}
             </div>
 
             <div className="border-t border-gray-800 pt-4 space-y-2">
               {apiKeys.length === 0 ? (
                 <p className="text-xs text-gray-600">No scoped API keys yet.</p>
               ) : apiKeys.map(key => (
-                <div key={key.id} className="flex items-center gap-3 bg-gray-950 border border-gray-800 rounded px-3 py-2">
+                <div key={key.id} className="flex items-center gap-3 bg-gray-950 border border-gray-800 rounded-sm px-3 py-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-200 truncate">{key.name}</span>
-                      {!key.is_active && <span className="text-[10px] text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded">revoked</span>}
+                      {!key.is_active && <span className="text-[10px] text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded-sm">revoked</span>}
                     </div>
                     <div className="text-[10px] text-gray-600 mt-1">
                       {key.scopes.join(', ')} · last used {key.last_used_at ? fmtDate(key.last_used_at) : 'never'}
@@ -533,7 +533,7 @@ export default function Settings() {
         {isAdmin && (
           <div className="flex items-center gap-3">
             <button onClick={handleSave} disabled={saving || !isDirty}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
               {saving ? 'Saving…' : 'Apply'}
             </button>
             {saved && <span className="text-xs text-green-400">Saved — takes effect immediately</span>}
@@ -572,7 +572,7 @@ export default function Settings() {
                     onChange={e => setSecretsPassphrase(e.target.value)}
                     placeholder="Enter a strong passphrase…"
                     disabled={backupBusy}
-                    className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500 disabled:opacity-50"
                   />
                 </div>
               )}
@@ -580,12 +580,12 @@ export default function Settings() {
               <button
                 onClick={handleDownloadBackup}
                 disabled={backupBusy || (includeSecrets && secretsPassphrase.length < 8)}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-xs font-medium transition-colors">
                 {backupBusy ? 'Working…' : 'Download backup'}
               </button>
 
               {backupMessage && <p className="text-xs text-green-400">{backupMessage}</p>}
-              {backupError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded px-3 py-2">{backupError}</p>}
+              {backupError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded-sm px-3 py-2">{backupError}</p>}
             </div>
 
             {/* Restore section */}
@@ -598,7 +598,7 @@ export default function Settings() {
                   accept=".zip,application/zip"
                   disabled={restoreBusy}
                   onChange={e => setBackupFile(e.target.files?.[0] ?? null)}
-                  className="block w-full text-xs text-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-800 file:px-3 file:py-1.5 file:text-xs file:text-gray-200 hover:file:bg-gray-700 disabled:opacity-50"
+                  className="block w-full text-xs text-gray-400 file:mr-3 file:rounded-sm file:border-0 file:bg-gray-800 file:px-3 file:py-1.5 file:text-xs file:text-gray-200 hover:file:bg-gray-700 disabled:opacity-50"
                 />
               </div>
               <div>
@@ -612,7 +612,7 @@ export default function Settings() {
                   onChange={e => setRestorePassphrase(e.target.value)}
                   placeholder="Leave empty if secrets are not included"
                   disabled={restoreBusy}
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500 disabled:opacity-50"
                 />
               </div>
               <div>
@@ -621,17 +621,17 @@ export default function Settings() {
                   value={restoreConfirm}
                   onChange={e => setRestoreConfirm(e.target.value)}
                   disabled={restoreBusy}
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500 disabled:opacity-50"
                 />
               </div>
               <button
                 onClick={handleImportBackup}
                 disabled={restoreBusy || !backupFile || restoreConfirm !== 'RESTORE'}
-                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-sm text-xs font-medium transition-colors">
                 Import backup
               </button>
               {restoreMessage && <p className="text-xs text-green-400">{restoreMessage}</p>}
-              {restoreError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded px-3 py-2">{restoreError}</p>}
+              {restoreError && <p className="text-xs text-red-400 bg-red-950/50 border border-red-900 rounded-sm px-3 py-2">{restoreError}</p>}
             </div>
           </div>
         )}
@@ -643,7 +643,7 @@ export default function Settings() {
               <h2 className="text-sm font-semibold text-gray-200">Scheduled auto-backup</h2>
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
                 Automatically save backups to disk on a schedule. Secrets are never included in auto-backups.
-                Files are stored in <code className="text-gray-400 bg-gray-800 px-1 py-0.5 rounded text-[10px]">objects_storage/backups/</code>.
+                Files are stored in <code className="text-gray-400 bg-gray-800 px-1 py-0.5 rounded-sm text-[10px]">objects_storage/backups/</code>.
               </p>
             </div>
 
@@ -658,7 +658,7 @@ export default function Settings() {
                   value={backupCron}
                   onChange={e => setBackupCron(e.target.value)}
                   placeholder="0 2 * * *"
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm font-mono text-gray-200 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
 
@@ -682,13 +682,13 @@ export default function Settings() {
                 <button
                   onClick={handleSaveSchedule}
                   disabled={scheduleSaving}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-xs font-medium transition-colors">
                   {scheduleSaving ? 'Saving…' : 'Save schedule'}
                 </button>
                 <button
                   onClick={handleRunNow}
                   disabled={runNowBusy}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-xs font-medium transition-colors">
+                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-sm text-xs font-medium transition-colors">
                   {runNowBusy ? 'Running…' : 'Backup now'}
                 </button>
                 {scheduleSaved && <span className="text-xs text-green-400">Schedule saved</span>}
@@ -711,7 +711,7 @@ export default function Settings() {
               ) : (
                 <div className="space-y-1.5">
                   {history.map(f => (
-                    <div key={f.filename} className="flex items-center gap-3 bg-gray-950 border border-gray-800 rounded px-3 py-2">
+                    <div key={f.filename} className="flex items-center gap-3 bg-gray-950 border border-gray-800 rounded-sm px-3 py-2">
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-mono text-gray-300 truncate">{f.filename}</div>
                         <div className="text-[10px] text-gray-600 mt-0.5">{fmtDate(f.created_at)} · {fmtBytes(f.size)}</div>
@@ -761,7 +761,7 @@ export default function Settings() {
                       className="accent-indigo-500"
                     />
                     <span className="text-sm text-gray-200 capitalize">{e}</span>
-                    {e === 'prod' && <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">read-only config</span>}
+                    {e === 'prod' && <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded-sm">read-only config</span>}
                   </label>
                 ))}
               </div>
@@ -774,7 +774,7 @@ export default function Settings() {
                 value={gitRepoUrl}
                 onChange={e => setGitRepoUrl(e.target.value)}
                 placeholder="https://github.com/org/pylo-config"
-                className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500"
               />
             </div>
 
@@ -786,7 +786,7 @@ export default function Settings() {
                   value={gitBranch}
                   onChange={e => setGitBranch(e.target.value)}
                   placeholder="main"
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
               <div>
@@ -801,7 +801,7 @@ export default function Settings() {
                   value={gitToken}
                   onChange={e => setGitToken(e.target.value)}
                   placeholder={gitTokenSet ? 'Leave blank to keep current' : 'GitHub / GitLab token…'}
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -814,7 +814,7 @@ export default function Settings() {
                   value={gitCommitterName}
                   onChange={e => setGitCommitterName(e.target.value)}
                   placeholder="Pylo"
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
               <div>
@@ -824,7 +824,7 @@ export default function Settings() {
                   value={gitCommitterEmail}
                   onChange={e => setGitCommitterEmail(e.target.value)}
                   placeholder="pylo@localhost"
-                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-sm px-3 py-2 text-sm text-gray-200 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -833,7 +833,7 @@ export default function Settings() {
               <button
                 onClick={handleSaveGitConfig}
                 disabled={gitSaving}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs font-medium transition-colors"
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-xs font-medium transition-colors"
               >
                 {gitSaving ? 'Saving…' : 'Save git config'}
               </button>
@@ -848,9 +848,9 @@ export default function Settings() {
           <h2 className="text-sm font-semibold text-gray-200 mb-1">Configuration note</h2>
           <p className="text-xs text-gray-500 leading-relaxed">
             Default values can also be set via environment variables:{' '}
-            <code className="text-gray-300 bg-gray-800 px-1 py-0.5 rounded">PYLO_MAX_CONCURRENT_RUNS</code>{' '}
+            <code className="text-gray-300 bg-gray-800 px-1 py-0.5 rounded-sm">PYLO_MAX_CONCURRENT_RUNS</code>{' '}
             and{' '}
-            <code className="text-gray-300 bg-gray-800 px-1 py-0.5 rounded">JWT_EXPIRE_HOURS</code>.
+            <code className="text-gray-300 bg-gray-800 px-1 py-0.5 rounded-sm">JWT_EXPIRE_HOURS</code>.
             Changes made here are persisted in the database and override the environment variable.
           </p>
         </div>

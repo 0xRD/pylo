@@ -35,7 +35,7 @@ export default function EntryCard({ entry, blueprintName, selected = false, onSe
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-xs text-[#6272a4] font-mono shrink-0">{entry.id.slice(0, 8)}</span>
           {blueprintName && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-[#282a36] text-[#8be9fd] truncate">{blueprintName}</span>
+            <span className="text-xs px-1.5 py-0.5 rounded-sm bg-[#282a36] text-[#8be9fd] truncate">{blueprintName}</span>
           )}
         </div>
         <span className="text-xs text-[#6272a4] shrink-0 ml-2">

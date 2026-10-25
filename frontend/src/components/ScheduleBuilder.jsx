@@ -51,7 +51,7 @@ export default function ScheduleBuilder({ value, onChange }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex rounded overflow-hidden border border-gray-700 w-fit text-xs">
+      <div className="flex rounded-sm overflow-hidden border border-gray-700 w-fit text-xs">
         {['interval', 'scheduled'].map(m => (
           <button key={m} type="button" onClick={() => setMode(m)}
             className={"px-3 py-1.5 transition-colors " + (mode === m ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700")}>
@@ -64,9 +64,9 @@ export default function ScheduleBuilder({ value, onChange }) {
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400">Every</span>
           <input type="number" min="1" value={interval} onChange={e => setInterval(e.target.value)}
-            className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-center focus:outline-none focus:border-indigo-500" />
+            className="w-16 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm text-center focus:outline-hidden focus:border-indigo-500" />
           <select value={unit} onChange={e => setUnit(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500">
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -79,13 +79,13 @@ export default function ScheduleBuilder({ value, onChange }) {
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400">At</span>
             <input type="time" value={time} onChange={e => setTime(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500" />
+              className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500" />
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xs text-gray-400">On</span>
             {DAYS.map(d => (
               <button key={d} type="button" onClick={() => toggleDay(d)}
-                className={"px-2 py-0.5 rounded text-xs border transition-colors " +
+                className={"px-2 py-0.5 rounded-sm text-xs border transition-colors " +
                   (days.includes(d)
                     ? "bg-indigo-600 border-indigo-500 text-white"
                     : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500")}>

@@ -44,7 +44,7 @@ export default function Setup() {
           </div>
 
           {error && (
-            <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2">
+            <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-sm px-3 py-2">
               {error}
             </div>
           )}
@@ -56,7 +56,7 @@ export default function Setup() {
               autoComplete="username"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm text-gray-100 focus:outline-hidden focus:border-indigo-500"
               required
             />
           </div>
@@ -68,7 +68,7 @@ export default function Setup() {
               autoComplete="new-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm text-gray-100 focus:outline-hidden focus:border-indigo-500"
               required
             />
           </div>
@@ -80,7 +80,7 @@ export default function Setup() {
               autoComplete="new-password"
               value={confirm}
               onChange={e => setConfirm(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm text-gray-100 focus:outline-hidden focus:border-indigo-500"
               required
             />
           </div>
@@ -88,7 +88,7 @@ export default function Setup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors"
+            className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors"
           >
             {loading ? 'Creating…' : 'Create admin account'}
           </button>

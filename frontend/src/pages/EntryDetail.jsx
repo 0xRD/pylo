@@ -114,11 +114,11 @@ export default function EntryDetail() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={goBack}
-            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-gray-400 transition-colors">
+            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-sm text-gray-400 transition-colors">
             ← Back
           </button>
           <button onClick={handleDelete} disabled={!isAdmin}
-            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed rounded text-gray-400 hover:text-red-300 transition-colors">
+            className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-gray-400 hover:text-red-300 transition-colors">
             Delete
           </button>
         </div>
@@ -160,7 +160,7 @@ export default function EntryDetail() {
                         <input
                           value={currentVal}
                           onChange={e => setEditValues(ev => ({ ...ev, [k]: e.target.value }))}
-                          className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-sm focus:outline-hidden focus:border-indigo-500"
                         />
                       ) : (
                         <span className="text-gray-100 break-all">
@@ -176,12 +176,12 @@ export default function EntryDetail() {
           {hasMutable && isAdmin && (
             <div className="mt-4 flex items-center gap-3">
               <button onClick={handleSave} disabled={saving || !hasEdits}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors">
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
               {hasEdits && (
                 <button onClick={() => setEditValues({})}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-sm text-sm transition-colors">
                   Discard
                 </button>
               )}

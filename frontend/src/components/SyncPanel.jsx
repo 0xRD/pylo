@@ -6,7 +6,7 @@ import { useGitops } from "../context/GitopsContext";
 function FieldDiff({ fields }) {
   if (!fields || fields.length === 0) return null;
   return (
-    <div className="mt-2 rounded border border-[#44475a] bg-[#1e1f29] text-xs font-mono divide-y divide-[#44475a]">
+    <div className="mt-2 rounded-sm border border-[#44475a] bg-[#1e1f29] text-xs font-mono divide-y divide-[#44475a]">
       {fields.map((f) => (
         <div key={f.field} className="px-3 py-1 grid grid-cols-[140px_1fr_1fr] gap-2 items-start">
           <span className="text-[#6272a4] truncate">{f.field}</span>
@@ -22,15 +22,15 @@ function ObjectCard({ obj, changeType, selected, onToggle }) {
   const [open, setOpen] = useState(false);
 
   const badge = {
-    new: <span className="text-[10px] font-semibold bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">NEW</span>,
-    modified: <span className="text-[10px] font-semibold bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">MODIFIED</span>,
-    deleted: <span className="text-[10px] font-semibold bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">DELETED IN GIT</span>,
+    new: <span className="text-[10px] font-semibold bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-sm">NEW</span>,
+    modified: <span className="text-[10px] font-semibold bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-sm">MODIFIED</span>,
+    deleted: <span className="text-[10px] font-semibold bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-sm">DELETED IN GIT</span>,
   };
 
   const isWarning = changeType === "deleted";
 
   return (
-    <div className={`rounded border ${isWarning ? "border-red-500/30 bg-red-500/5" : "border-[#44475a] bg-[#282a36]"}`}>
+    <div className={`rounded-sm border ${isWarning ? "border-red-500/30 bg-red-500/5" : "border-[#44475a] bg-[#282a36]"}`}>
       <div className="flex items-center gap-2 px-3 py-2">
         {!isWarning && (
           <input
@@ -181,7 +181,7 @@ export default function SyncPanel({ onClose }) {
             </div>
           )}
           {error && (
-            <div className="rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2 mb-4">
+            <div className="rounded-sm bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2 mb-4">
               {error}
             </div>
           )}
@@ -217,7 +217,7 @@ export default function SyncPanel({ onClose }) {
               />
               {/* Items only in local DB (not in repo) — flagged as warnings */}
               {(diff.blueprints.new.length + diff.pybooks.new.length + diff.workflows.new.length) > 0 && (
-                <div className="mt-4 rounded border border-yellow-500/30 bg-yellow-500/5 px-4 py-3">
+                <div className="mt-4 rounded-sm border border-yellow-500/30 bg-yellow-500/5 px-4 py-3">
                   <div className="flex items-center gap-2 text-yellow-400 text-sm font-semibold mb-1">
                     <AlertTriangle size={14} />
                     Local-only objects (not in git)
@@ -238,14 +238,14 @@ export default function SyncPanel({ onClose }) {
         {diff && hasApplicable && (
           <div className="shrink-0 border-t border-[#44475a] px-5 py-4 space-y-3">
             {error && (
-              <div className="rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2">
+              <div className="rounded-sm bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2">
                 {error}
               </div>
             )}
             <button
               onClick={handleSync}
               disabled={syncing || (selBps.size + selPbs.size + selWfs.size === 0)}
-              className="w-full flex items-center justify-center gap-2 bg-[#50fa7b] hover:bg-[#69ff94] text-[#282a36] font-semibold py-2 rounded transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-[#50fa7b] hover:bg-[#69ff94] text-[#282a36] font-semibold py-2 rounded-sm transition-colors disabled:opacity-50"
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <GitPullRequest size={16} />}
               {syncing ? "Applying…" : "Apply Selected Changes"}

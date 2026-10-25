@@ -24,7 +24,7 @@ function JsonNode({ label, data, path, onSelect, depth }) {
           ? <button type="button" onClick={() => setOpen(o => !o)} className="text-gray-600 w-3 text-xs shrink-0 hover:text-gray-400">{open ? '▾' : '▸'}</button>
           : <span className="w-3 shrink-0" />}
         <span className="text-blue-400 text-xs font-mono shrink-0">{label}</span>
-        {!isObj && <><span className="text-gray-600 text-xs mx-0.5">:</span><span className="text-green-300 text-xs font-mono truncate max-w-[28rem]">{preview}</span></>}
+        {!isObj && <><span className="text-gray-600 text-xs mx-0.5">:</span><span className="text-green-300 text-xs font-mono truncate max-w-md">{preview}</span></>}
         {isObj && !open && <span className="text-gray-600 text-xs ml-1">{preview}</span>}
         <button type="button" onClick={() => onSelect(path)} title={"Use path: " + path}
           className="ml-1 text-indigo-500 hover:text-indigo-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -216,23 +216,23 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <p className="text-red-400 text-sm bg-red-950 px-3 py-2 rounded">{error}</p>}
+      {error && <p className="text-red-400 text-sm bg-red-950 px-3 py-2 rounded-sm">{error}</p>}
 
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs text-gray-400 mb-1">Name *</label>
           <input value={form.name} onChange={e => set('name', e.target.value)} required
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Description</label>
           <input value={form.description || ''} onChange={e => set('description', e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
         </div>
       </div>
 
       <label className="flex items-center gap-3 cursor-pointer select-none">
-        <input type="checkbox" checked={!!form.is_manual} onChange={e => set('is_manual', e.target.checked)} className="rounded border-gray-600" />
+        <input type="checkbox" checked={!!form.is_manual} onChange={e => set('is_manual', e.target.checked)} className="rounded-sm border-gray-600" />
         <span className="text-sm text-gray-300">Manual blueprint<HelpTip text="Manual blueprints have no API source. Entries are created and managed directly in the UI — useful for shared variables, rule toggles, or allow/blocklists across PyBooks." /></span>
         <span className="text-xs text-gray-600">Entries are created manually — no API source needed</span>
       </label>
@@ -243,19 +243,19 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
           <div className="flex gap-2">
             <div className="flex flex-1 gap-2">
               <input value={form.source_url || ''} onChange={e => set('source_url', e.target.value)} placeholder="https://api.example.com/data"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
               <select value={form.source_method} onChange={e => set('source_method', e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                className="bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500">
                 <option>GET</option><option>POST</option>
               </select>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer whitespace-nowrap">
-                <input type="checkbox" checked={autoParsePreview} onChange={e => setAutoParsePreview(e.target.checked)} className="rounded border-gray-600" />
+                <input type="checkbox" checked={autoParsePreview} onChange={e => setAutoParsePreview(e.target.checked)} className="rounded-sm border-gray-600" />
                 Auto-map JSON
               </label>
               <button type="button" onClick={handlePreview} disabled={!form.source_url || previewing}
-                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 rounded text-sm transition-colors shrink-0">
+                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 rounded-sm text-sm transition-colors shrink-0">
                 {previewing ? 'Testing…' : 'Test'}
               </button>
             </div>
@@ -266,7 +266,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
           <label className="block text-xs text-gray-400 font-medium">Authentication</label>
           <div className="flex items-center gap-2 flex-wrap">
             <select value={authType} onChange={e => { setAuthType(e.target.value); setAuthSecret('') }}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+              className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500">
               <option value="none">No auth</option>
               <option value="bearer">Bearer Token</option>
               <option value="apikey">API Key (header)</option>
@@ -275,10 +275,10 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
             {authType !== 'none' && (<>
               {authType === 'apikey' && (
                 <input value={authKeyHeader} onChange={e => setAuthKeyHeader(e.target.value)} placeholder="Header name"
-                  className="w-36 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500" />
+                  className="w-36 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500" />
               )}
               <select value={authSecret} onChange={e => setAuthSecret(e.target.value)}
-                className="flex-1 min-w-32 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+                className="flex-1 min-w-32 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500">
                 <option value="">— select secret —</option>
                 {secrets.map(s => <option key={s.id} value={s.name}>{s.name}{s.description ? ` · ${s.description}` : ''}</option>)}
               </select>
@@ -299,12 +299,12 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
           <div>
             <label className="block text-xs text-gray-400 mb-1">Additional Headers (JSON)<HelpTip text="Any extra HTTP headers beyond authentication, as a JSON object. The auth header above is added automatically." /></label>
             <textarea value={form.source_headers} onChange={e => set('source_headers', e.target.value)} rows={3}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm font-mono focus:outline-hidden focus:border-indigo-500" />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Body (JSON, POST only)<HelpTip text="Request body sent when method is POST, as a JSON object. Ignored for GET requests." /></label>
             <textarea value={form.source_body} onChange={e => set('source_body', e.target.value)} rows={3}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm font-mono focus:outline-hidden focus:border-indigo-500" />
           </div>
         </div>
 
@@ -312,7 +312,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
           <div className="flex items-center justify-between">
             <label className="block text-xs text-gray-400 font-medium">Response parsing<HelpTip text="Use Items path for wrapped list responses such as $.data or $.items. Pagination is only needed when the API requires multiple requests." /></label>
             <select value={form.pagination_type || 'none'} onChange={e => set('pagination_type', e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+              className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500">
               {PAGINATION_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </div>
@@ -321,7 +321,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
             <label className="block text-xs text-gray-500 mb-1">Items path</label>
             <input value={form.pagination_items_path || ''} onChange={e => set('pagination_items_path', e.target.value)}
               placeholder="$.data or $.items"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:border-indigo-500" />
             <p className="text-xs text-gray-600 mt-1">For responses like {`{ success, count, data: [...] }`}, set Items path to <code>$.data</code>. Field mappings are then relative to each item.</p>
           </div>
 
@@ -331,19 +331,19 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
                 <label className="block text-xs text-gray-500 mb-1">Parameter name</label>
                 <input value={form.pagination_param || ''} onChange={e => set('pagination_param', e.target.value)}
                   placeholder={form.pagination_type === 'cursor' ? 'cursor' : form.pagination_type === 'offset' ? 'offset' : 'page'}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:border-indigo-500" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Max pages</label>
                 <input type="number" min="1" max="500" value={form.pagination_max_pages || 50} onChange={e => set('pagination_max_pages', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500" />
               </div>
               {form.pagination_type === 'cursor' && (
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Next cursor path</label>
                   <input value={form.pagination_path || ''} onChange={e => set('pagination_path', e.target.value)}
                     placeholder="$.next_cursor"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+                    className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:border-indigo-500" />
                 </div>
               )}
             </div>
@@ -355,22 +355,22 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Entry limit per fetch</label>
                 <input type="number" min="1" value={form.fetch_entry_limit || ''} onChange={e => set('fetch_entry_limit', e.target.value)} placeholder="No limit"
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Retry count</label>
                 <input type="number" min="0" max="5" value={form.fetch_retry_count ?? 0} onChange={e => set('fetch_retry_count', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Retry delay seconds</label>
                 <input type="number" min="0" max="300" value={form.fetch_retry_delay_seconds ?? 2} onChange={e => set('fetch_retry_delay_seconds', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">On fail PyBook</label>
                 <select value={form.fetch_on_fail_pybook_id || ''} onChange={e => set('fetch_on_fail_pybook_id', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500">
                   <option value="">None</option>
                   {pybooks.map(pb => <option key={pb.id} value={pb.id}>{pb.name}</option>)}
                 </select>
@@ -379,7 +379,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
           </div>
         </div>
 
-        {previewError && <div className="p-3 bg-red-950 border border-red-800 rounded text-xs text-red-300">{previewError}</div>}
+        {previewError && <div className="p-3 bg-red-950 border border-red-800 rounded-sm text-xs text-red-300">{previewError}</div>}
         {previewResult && (
           <div className="p-4 bg-gray-950 border border-gray-700 rounded-lg space-y-3">
             <div className="flex flex-wrap items-center gap-3">
@@ -388,11 +388,11 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
               <span className="text-xs text-gray-600 lg:ml-auto">{focusedRow !== null ? `Click a path to fill row ${focusedRow + 1}` : 'Click a path to add a new mapping'}</span>
             </div>
             <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <div className="min-w-0 min-h-0 rounded border border-gray-800 bg-gray-900/50 p-3">
+              <div className="min-w-0 min-h-0 rounded-sm border border-gray-800 bg-gray-900/50 p-3">
                 <div className="text-xs text-gray-500 mb-2 shrink-0">Response sample</div>
                 <JsonTree data={previewResult.sample} onSelect={handlePathSelect} />
               </div>
-              <div className="rounded border border-gray-800 bg-gray-900/50 p-3 space-y-3">
+              <div className="rounded-sm border border-gray-800 bg-gray-900/50 p-3 space-y-3">
                 <div>
                   <div className="text-xs text-gray-500 mb-1">Detected items path</div>
                   <div className="text-xs font-mono text-cyan-300 break-all">{previewResult.recommended_items_path || (previewResult.is_list ? 'Response is already a list' : 'None detected')}</div>
@@ -405,7 +405,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
                 )}
                 {(previewResult.recommended_items_path || previewResult.auto_mappings?.length > 0) && (
                   <button type="button" onClick={() => applyPreviewSuggestions(previewResult)}
-                    className="w-full px-3 py-2 bg-indigo-700 hover:bg-indigo-600 rounded text-xs font-medium transition-colors">
+                    className="w-full px-3 py-2 bg-indigo-700 hover:bg-indigo-600 rounded-sm text-xs font-medium transition-colors">
                     Apply detected parsing
                   </button>
                 )}
@@ -419,7 +419,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
           <div className="flex items-center justify-between">
             <label className="block text-xs text-gray-400 font-medium">Auto-fetch schedule<HelpTip text="Set a recurring schedule for automatic fetching. Choose an interval or a fixed time with specific days of the week." /></label>
             <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer shrink-0">
-              <input type="checkbox" checked={!!form.fetch_is_active} onChange={e => set('fetch_is_active', e.target.checked)} className="rounded border-gray-600" />
+              <input type="checkbox" checked={!!form.fetch_is_active} onChange={e => set('fetch_is_active', e.target.checked)} className="rounded-sm border-gray-600" />
               Active
             </label>
           </div>
@@ -434,16 +434,16 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
             <label className="block text-xs text-gray-500 mb-1">Max entries</label>
             <input type="number" min="1" value={form.max_entries || ''} onChange={e => set('max_entries', e.target.value)}
               placeholder="No limit"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500" />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Retention time</label>
             <div className="flex gap-1.5">
               <input type="number" min="1" value={retentionValue} onChange={e => setRetentionValue(e.target.value)}
                 placeholder="No limit"
-                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500" />
               <select value={retentionUnit} onChange={e => setRetentionUnit(e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500">
                 {RETENTION_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
@@ -475,23 +475,23 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
         <div className="space-y-1.5">
           {mappings.map((m, i) => (
             <div key={i} onClick={() => setFocusedRow(i)}
-              className={"grid grid-cols-12 gap-2 items-center rounded p-0.5 cursor-pointer " + (focusedRow === i ? "bg-indigo-950/40 ring-1 ring-indigo-700" : "hover:bg-gray-900")}>
+              className={"grid grid-cols-12 gap-2 items-center rounded-sm p-0.5 cursor-pointer " + (focusedRow === i ? "bg-indigo-950/40 ring-1 ring-indigo-700" : "hover:bg-gray-900")}>
               <button type="button" onClick={e => { e.stopPropagation(); setKeyField(i) }}
-                className={"col-span-1 flex items-center justify-center h-7 rounded text-sm transition-colors " + (m.is_key ? "text-yellow-400 bg-yellow-900/30 border border-yellow-700" : "text-gray-600 hover:text-gray-400 border border-transparent hover:border-gray-700")}>
+                className={"col-span-1 flex items-center justify-center h-7 rounded-sm text-sm transition-colors " + (m.is_key ? "text-yellow-400 bg-yellow-900/30 border border-yellow-700" : "text-gray-600 hover:text-gray-400 border border-transparent hover:border-gray-700")}>
                 {m.is_key ? "★" : "☆"}
               </button>
               <input value={m.source_path} onChange={e => setMapping(i, 'source_path', e.target.value)} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder="$.id"
-                className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
+                className={"col-span-3 bg-gray-800 border rounded-sm px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:border-indigo-500 " + (m.is_key ? "border-yellow-800" : "border-gray-700")} />
               <input value={m.field_name} onChange={e => { setMapping(i, 'field_name', e.target.value); setRowErrors(r => ({ ...r, [i]: false })) }} onClick={e => { e.stopPropagation(); setFocusedRow(i) }} placeholder={m.is_key ? "e.g. alert_id" : "field_name"}
-                className={"col-span-3 bg-gray-800 border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 " + (rowErrors[i] && !m.field_name.trim() ? "border-red-600" : m.is_key ? "border-yellow-800" : "border-gray-700")} />
+                className={"col-span-3 bg-gray-800 border rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500 " + (rowErrors[i] && !m.field_name.trim() ? "border-red-600" : m.is_key ? "border-yellow-800" : "border-gray-700")} />
               <select value={m.field_type} onChange={e => setMapping(i, 'field_type', e.target.value)}
-                className="col-span-2 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                className="col-span-2 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500">
                 {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
               {form.mutable_mode === 'per_field' && (
                 <button type="button" onClick={e => { e.stopPropagation(); setMapping(i, 'mutable', !m.mutable) }}
                   title={m.mutable ? 'Editable by users' : 'Read-only'}
-                  className={"col-span-1 flex items-center justify-center h-7 rounded text-xs transition-colors " + (m.mutable ? "text-green-400 bg-green-900/30 border border-green-700" : "text-gray-600 border border-transparent hover:border-gray-700")}>
+                  className={"col-span-1 flex items-center justify-center h-7 rounded-sm text-xs transition-colors " + (m.mutable ? "text-green-400 bg-green-900/30 border border-green-700" : "text-gray-600 border border-transparent hover:border-gray-700")}>
                   {m.mutable ? '✏' : '–'}
                 </button>
               )}
@@ -508,7 +508,7 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
         <div className="flex items-center justify-between">
           <label className="text-xs text-gray-400 font-medium">Entry mutability<HelpTip text="Controls whether entries can be edited after creation. 'None' is read-only. 'All fields' makes every field editable. 'Per field' lets you mark specific fields as editable." /></label>
           <select value={form.mutable_mode || 'none'} onChange={e => set('mutable_mode', e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs focus:outline-hidden focus:border-indigo-500">
             <option value="none">None (read-only)</option>
             <option value="all">All fields editable</option>
             <option value="per_field">Per field</option>
@@ -521,10 +521,10 @@ export default function BlueprintForm({ initial, onSave, onCancel, readOnly = fa
 
       <div className="flex gap-3 pt-2">
         <button type="submit" disabled={saving || readOnly}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
           {saving ? 'Saving…' : readOnly ? 'Read-only (prod)' : 'Save'}
         </button>
-        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
+        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-sm text-sm transition-colors">
           Cancel
         </button>
       </div>

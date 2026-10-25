@@ -6,7 +6,7 @@ import { useGitops } from "../context/GitopsContext";
 function FieldDiff({ fields }) {
   if (!fields || fields.length === 0) return null;
   return (
-    <div className="mt-2 rounded border border-[#44475a] bg-[#1e1f29] text-xs font-mono divide-y divide-[#44475a]">
+    <div className="mt-2 rounded-sm border border-[#44475a] bg-[#1e1f29] text-xs font-mono divide-y divide-[#44475a]">
       {fields.map((f) => (
         <div key={f.field} className="px-3 py-1 grid grid-cols-[140px_1fr_1fr] gap-2 items-start">
           <span className="text-[#6272a4] truncate">{f.field}</span>
@@ -36,7 +36,7 @@ function ObjectSection({ title, items, type, selected, onToggle }) {
       <div className="text-xs font-semibold text-[#6272a4] uppercase tracking-wider mb-1">{title}</div>
       <div className="space-y-1">
         {items.map((obj) => (
-          <div key={obj.slug} className="rounded border border-[#44475a] bg-[#282a36]">
+          <div key={obj.slug} className="rounded-sm border border-[#44475a] bg-[#282a36]">
             <div className="flex items-center gap-2 px-3 py-2">
               <input
                 type="checkbox"
@@ -157,7 +157,7 @@ export default function CommitPanel({ onClose }) {
             </div>
           )}
           {error && (
-            <div className="rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2 mb-4">
+            <div className="rounded-sm bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2 mb-4">
               {error}
             </div>
           )}
@@ -225,17 +225,17 @@ export default function CommitPanel({ onClose }) {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Commit message…"
-              className="w-full bg-[#282a36] border border-[#44475a] rounded px-3 py-2 text-sm text-[#f8f8f2] placeholder-[#6272a4] focus:outline-none focus:border-[#bd93f9]"
+              className="w-full bg-[#282a36] border border-[#44475a] rounded-sm px-3 py-2 text-sm text-[#f8f8f2] placeholder-[#6272a4] focus:outline-hidden focus:border-[#bd93f9]"
             />
             {error && (
-              <div className="rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2">
+              <div className="rounded-sm bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2">
                 {error}
               </div>
             )}
             <button
               onClick={handleCommit}
               disabled={committing}
-              className="w-full flex items-center justify-center gap-2 bg-[#bd93f9] hover:bg-[#caa9fb] text-[#282a36] font-semibold py-2 rounded transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-[#bd93f9] hover:bg-[#caa9fb] text-[#282a36] font-semibold py-2 rounded-sm transition-colors disabled:opacity-50"
             >
               {committing ? <Loader2 size={16} className="animate-spin" /> : <GitCommit size={16} />}
               {committing ? "Committing…" : "Commit & Push"}
