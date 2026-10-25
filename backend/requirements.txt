@@ -15,5 +15,5 @@ respx==0.23.1
 PyJWT==2.15.1
 bcrypt==4.2.1
 
-packaging==24.2
+packaging==26.3
 psycopg[binary]==3.2.9
