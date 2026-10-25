@@ -183,7 +183,7 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
         try:
             secrets = json.loads(pb.required_secrets or "[]")
         except (json.JSONDecodeError, ValueError):
-            logger.warning("PyBook %s has invalid required_secrets JSON: %s", pb.id, pb.required_secrets)
+            logger.warning("PyBook %s has invalid required_secrets JSON", pb.id)
             secrets = []
 
     started = datetime.now(timezone.utc)

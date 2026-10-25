@@ -122,8 +122,9 @@ _RESERVED = {'and', 'or', 'not'}
 
 # fullmatch: entire segment must be a field expression
 _FIELD_EXPR = re.compile(
-    r'(?P<field>[a-zA-Z_]\w*)\s*(?P<op>=|!=|contains)\s*'
-    r'(?:"(?P<qval>[^"]*?)"|(?P<val>\S+))',
+    # possessive quantifiers (3.11+) keep matching linear: no backtracking into \w*/\s*
+    r'(?P<field>[a-zA-Z_]\w*+)\s*+(?P<op>=|!=|contains)\s*+'
+    r'(?:"(?P<qval>[^"]*)"|(?P<val>\S+))',
     re.IGNORECASE,
 )
 
@@ -139,7 +140,9 @@ def _parse_query(raw: str) -> tuple[list[tuple], str]:
         return [], ''
 
     # re.split with a capturing group keeps the separators at odd indices
-    parts = re.split(r'\s+(AND|OR)\s+', raw.strip(), flags=re.IGNORECASE)
+    # (single leading \s: surplus whitespace stays in the neighbouring part, which is
+    # stripped below; avoids the quadratic \s+ scan on long runs of spaces)
+    parts = re.split(r'\s(AND|OR)\s+', raw.strip(), flags=re.IGNORECASE)
 
     filters: list[tuple] = []
     fts_parts: list[str] = []
@@ -603,14 +606,16 @@ def _resolved_private_fetch_host(hostname: str, port: int | None) -> bool:
     return False
 
 
-def _validate_fetch_url(url: str) -> None:
+def _validate_fetch_url(url: str) -> str:
+    """Validate a Blueprint fetch URL and return the validated, normalised URL."""
     parsed = urlparse(url or "")
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise HTTPException(status_code=400, detail="Blueprint fetch URL must be http(s)")
-    if settings.PYLO_ALLOW_PRIVATE_FETCH:
-        return
-    if _is_private_fetch_host(parsed.hostname) or _resolved_private_fetch_host(parsed.hostname, parsed.port):
+    if not settings.PYLO_ALLOW_PRIVATE_FETCH and (
+        _is_private_fetch_host(parsed.hostname) or _resolved_private_fetch_host(parsed.hostname, parsed.port)
+    ):
         raise HTTPException(status_code=400, detail="Private, local, and link-local fetch targets are blocked")
+    return urlunparse(parsed)
 
 
 def _url_with_params(url: str, params: dict | None) -> str:
@@ -630,7 +635,7 @@ async def _request_with_ssrf_guard(client: httpx.AsyncClient, method: str, url: 
     for _ in range(4):
         request_url = _url_with_params(current_url, extra_params)
         extra_params = None
-        _validate_fetch_url(request_url)
+        request_url = _validate_fetch_url(request_url)
         response = await client.request(current_method, request_url, follow_redirects=False, **request_kwargs)
         if response.status_code not in {301, 302, 303, 307, 308}:
             return response

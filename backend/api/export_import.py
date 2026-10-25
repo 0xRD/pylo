@@ -581,6 +581,18 @@ async def export_full_backup_with_secrets(
 
 # ── Saved backup management ───────────────────────────────────────────────────
 
+
+def _safe_backup_path(filename: str) -> str:
+    """Resolve a backup filename inside BACKUPS_DIR, rejecting traversal."""
+    if not re.match(r"^pylo_backup_[\w.-]+\.zip$", filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    base = os.path.realpath(str(BACKUPS_DIR))
+    full = os.path.realpath(os.path.join(base, filename))
+    if not full.startswith(base + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    return full
+
+
 @router.get("/backup/history")
 async def list_backup_history(
     current_user: AuthUser = Depends(require_admin),
@@ -606,11 +618,8 @@ async def download_saved_backup(
     current_user: AuthUser = Depends(require_admin),
 ):
     """Download a specific auto-saved backup file."""
-    # Sanitize: only allow simple filenames, no path traversal
-    if not re.match(r"^pylo_backup_[\w.-]+\.zip$", filename):
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    path = BACKUPS_DIR / filename
-    if not path.exists():
+    path = _safe_backup_path(filename)
+    if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Backup file not found")
 
     def _iter_file():
@@ -631,12 +640,10 @@ async def delete_saved_backup(
     current_user: AuthUser = Depends(require_admin),
 ):
     """Delete a specific auto-saved backup file."""
-    if not re.match(r"^pylo_backup_[\w.-]+\.zip$", filename):
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    path = BACKUPS_DIR / filename
-    if not path.exists():
+    path = _safe_backup_path(filename)
+    if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Backup file not found")
-    path.unlink()
+    os.remove(path)
 
 
 @router.post("/backup/now", status_code=201)
