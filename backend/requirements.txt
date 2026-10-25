@@ -1,6 +1,6 @@
 fastapi==0.142.2
 starlette==1.7.0
-uvicorn[standard]==0.34.2
+uvicorn[standard]==0.54.0
 sqlmodel==0.0.22
 pydantic-settings==2.9.1
 docker==7.1.0
