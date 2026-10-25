@@ -79,35 +79,35 @@ function ChangePasswordModal({ onClose }) {
       <div className="bg-gray-900 border border-gray-800 rounded-lg w-full max-w-sm p-6 space-y-4">
         <h2 className="text-sm font-semibold text-gray-200">Change password</h2>
 
-        {error && <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2">{error}</div>}
-        {saved && <div className="text-xs text-green-400 bg-green-900/20 border border-green-800 rounded px-3 py-2">Password changed.</div>}
+        {error && <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-sm px-3 py-2">{error}</div>}
+        {saved && <div className="text-xs text-green-400 bg-green-900/20 border border-green-800 rounded-sm px-3 py-2">Password changed.</div>}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Current password</label>
             <input type="password" value={current} onChange={e => setCurrent(e.target.value)}
               autoComplete="current-password"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500" required />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm text-gray-100 focus:outline-hidden focus:border-indigo-500" required />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">New password</label>
             <input type="password" value={next} onChange={e => setNext(e.target.value)}
               autoComplete="new-password"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500" required />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm text-gray-100 focus:outline-hidden focus:border-indigo-500" required />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Confirm new password</label>
             <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
               autoComplete="new-password"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500" required />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm text-gray-100 focus:outline-hidden focus:border-indigo-500" required />
           </div>
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={loading || saved}
-              className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+              className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
               {loading ? 'Saving…' : 'Save'}
             </button>
             <button type="button" onClick={onClose}
-              className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
+              className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 rounded-sm text-sm transition-colors">
               Cancel
             </button>
           </div>
@@ -162,7 +162,7 @@ export default function Sidebar() {
               <button
                 onClick={toggleSidebar}
                 title="Collapse sidebar"
-                className="grid h-7 w-7 place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors"
+                className="grid h-7 w-7 place-items-center rounded-sm text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors"
               >
                 <ChevronsLeft size={16} />
               </button>
@@ -172,7 +172,7 @@ export default function Sidebar() {
             <button
               onClick={toggleSidebar}
               title="Expand sidebar"
-              className="mt-3 grid h-7 w-full place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors"
+              className="mt-3 grid h-7 w-full place-items-center rounded-sm text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors"
             >
               <ChevronsRight size={16} />
             </button>
@@ -182,11 +182,11 @@ export default function Sidebar() {
         {/* Prod environment banner */}
         {isProd && (
           collapsed ? (
-            <div title="Production — read-only" className="mx-auto mt-3 grid h-8 w-8 place-items-center rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+            <div title="Production — read-only" className="mx-auto mt-3 grid h-8 w-8 place-items-center rounded-sm bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
               <GitBranch size={14} />
             </div>
           ) : (
-            <div className="mx-3 mt-3 px-3 py-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-semibold flex items-center gap-2">
+            <div className="mx-3 mt-3 px-3 py-2 rounded-sm bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-semibold flex items-center gap-2">
               <GitBranch size={12} />
               Production — read-only
             </div>
@@ -253,13 +253,13 @@ export default function Sidebar() {
           {collapsed ? (
             <div className="flex flex-col items-center gap-2">
               <button onClick={toggleDensity} title={compact ? 'Comfortable density' : 'Compact density'}
-                className="grid h-8 w-8 place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors">
+                className="grid h-8 w-8 place-items-center rounded-sm text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors">
                 <Gauge size={15} />
               </button>
-              <span title={`${user?.username} — ${user?.role}`} className="grid h-8 w-8 place-items-center rounded bg-[#282a36] text-[#50fa7b]">
+              <span title={`${user?.username} — ${user?.role}`} className="grid h-8 w-8 place-items-center rounded-sm bg-[#282a36] text-[#50fa7b]">
                 <Shield size={14} />
               </span>
-              <button onClick={handleLogout} title="Sign out" className="grid h-8 w-8 place-items-center rounded text-[#6272a4] hover:bg-[#282a36] hover:text-[#ff79c6] transition-colors">
+              <button onClick={handleLogout} title="Sign out" className="grid h-8 w-8 place-items-center rounded-sm text-[#6272a4] hover:bg-[#282a36] hover:text-[#ff79c6] transition-colors">
                 <LogOut size={15} />
               </button>
             </div>
@@ -267,7 +267,7 @@ export default function Sidebar() {
             <div className="rounded-md bg-[#282a36] border border-[#343746] px-3 py-3 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded bg-[#191a21] text-[#50fa7b]">
+                  <span className="grid h-7 w-7 place-items-center rounded-sm bg-[#191a21] text-[#50fa7b]">
                     <Shield size={14} />
                   </span>
                   <div className="min-w-0">

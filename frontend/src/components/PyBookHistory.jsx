@@ -34,7 +34,7 @@ export function HistoryPanel({ versions, loading, activeVersion, onSelect, onClo
           History
           <span className="text-xs font-normal text-[#6272a4]">{versions.length} versions</span>
         </div>
-        <button onClick={onClose} className="rounded p-1 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Close history">
+        <button onClick={onClose} className="rounded-sm p-1 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Close history">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -53,8 +53,8 @@ export function HistoryPanel({ versions, loading, activeVersion, onSelect, onClo
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-[#f8f8f2]" title={v.message}>{v.message}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#6272a4]">
-                  <span className="rounded bg-[#343746] px-1.5 font-mono text-[#8be9fd]">v{v.version}</span>
-                  {i === 0 && <span className="rounded bg-[#50fa7b]/15 px-1.5 text-[#50fa7b]">current</span>}
+                  <span className="rounded-sm bg-[#343746] px-1.5 font-mono text-[#8be9fd]">v{v.version}</span>
+                  {i === 0 && <span className="rounded-sm bg-[#50fa7b]/15 px-1.5 text-[#50fa7b]">current</span>}
                   <span className="truncate">{v.author}</span>
                   <span title={fmtDateTime(v.created_at)}>{timeAgo(v.created_at)}</span>
                   <DiffStat additions={v.additions} deletions={v.deletions} />
@@ -95,7 +95,7 @@ export function VersionDiffView({ pybookId, version, versions, currentScript, ca
 
   const tab = (value, label) => (
     <button onClick={() => setMode(value)}
-      className={'rounded px-2.5 py-1 text-xs transition-colors ' + (mode === value ? 'bg-[#44475a] text-[#8be9fd]' : 'text-[#8b8fa3] hover:bg-[#282a36]')}>
+      className={'rounded-sm px-2.5 py-1 text-xs transition-colors ' + (mode === value ? 'bg-[#44475a] text-[#8be9fd]' : 'text-[#8b8fa3] hover:bg-[#282a36]')}>
       {label}
     </button>
   )
@@ -105,7 +105,7 @@ export function VersionDiffView({ pybookId, version, versions, currentScript, ca
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[#343746] bg-[#20222c] px-5 py-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-[#f8f8f2]">
-            <span className="mr-2 rounded bg-[#343746] px-1.5 font-mono text-xs text-[#8be9fd]">v{version}</span>
+            <span className="mr-2 rounded-sm bg-[#343746] px-1.5 font-mono text-xs text-[#8be9fd]">v{version}</span>
             {meta?.message}
           </p>
           {meta && (
@@ -114,20 +114,20 @@ export function VersionDiffView({ pybookId, version, versions, currentScript, ca
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1 rounded bg-[#191a21] p-0.5">
+        <div className="flex items-center gap-1 rounded-sm bg-[#191a21] p-0.5">
           {tab('changes', previous ? `Changes since v${previous}` : 'Initial content')}
           {tab('current', 'Compare with editor')}
         </div>
-        <button onClick={() => setInline(v => !v)} className="rounded bg-[#282a36] px-2.5 py-1 text-xs text-[#8b8fa3] hover:bg-[#343746]">
+        <button onClick={() => setInline(v => !v)} className="rounded-sm bg-[#282a36] px-2.5 py-1 text-xs text-[#8b8fa3] hover:bg-[#343746]">
           {inline ? 'Side by side' : 'Inline'}
         </button>
         {canRestore && (
           <button onClick={() => onRestore(version)}
-            className="inline-flex items-center gap-1.5 rounded bg-[#ffb86c] px-2.5 py-1 text-xs font-semibold text-[#191a21] hover:bg-[#ffc98f]">
+            className="inline-flex items-center gap-1.5 rounded-sm bg-[#ffb86c] px-2.5 py-1 text-xs font-semibold text-[#191a21] hover:bg-[#ffc98f]">
             <RotateCcw className="h-3.5 w-3.5" /> Restore this version
           </button>
         )}
-        <button onClick={onClose} className="rounded p-1 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Back to editor">
+        <button onClick={onClose} className="rounded-sm p-1 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Back to editor">
           <X className="h-4 w-4" />
         </button>
       </div>

@@ -221,7 +221,7 @@ export default function Entries() {
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-[#6272a4]">Sort</span>
             <select value={sortValue} onChange={e => handleSortChange(e.target.value)}
-              className="rounded-md border border-[#343746] bg-[#191a21] px-2 py-1 text-xs text-[#f8f8f2] outline-none focus:border-[#bd93f9]">
+              className="rounded-md border border-[#343746] bg-[#191a21] px-2 py-1 text-xs text-[#f8f8f2] outline-hidden focus:border-[#bd93f9]">
               {sortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
@@ -255,7 +255,7 @@ export default function Entries() {
           value={draftQuery}
           onChange={e => setDraftQuery(e.target.value)}
           placeholder="Search entries…"
-          className="flex-1 bg-[#191a21] border border-[#343746] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#bd93f9] placeholder:text-[#6272a4]"
+          className="flex-1 bg-[#191a21] border border-[#343746] rounded-md px-3 py-2 text-sm focus:outline-hidden focus:border-[#bd93f9] placeholder:text-[#6272a4]"
         />
         <SearchHelp />
         <button type="submit"
@@ -277,7 +277,7 @@ export default function Entries() {
           <div className="flex flex-wrap items-center justify-end gap-3">
             <span className="text-xs text-[#8be9fd]">{selectedCount} selected</span>
             <select value={runPybookId} onChange={e => setRunPybookId(e.target.value)}
-              className="rounded-md border border-[#343746] bg-[#0f1117] px-2 py-1.5 text-xs text-[#f8f8f2] outline-none focus:border-[#8be9fd]">
+              className="rounded-md border border-[#343746] bg-[#0f1117] px-2 py-1.5 text-xs text-[#f8f8f2] outline-hidden focus:border-[#8be9fd]">
               <option value="">Run PyBook…</option>
               {pybooks.map(pb => <option key={pb.id} value={pb.id}>{pb.name}</option>)}
             </select>
@@ -323,14 +323,14 @@ export default function Entries() {
           {totalPages !== null && totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-8">
               <button onClick={() => setOffset(o => Math.max(0, o - pageSize))} disabled={offset === 0}
-                className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+                className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-sm transition-colors">
                 ←
               </button>
               <span className="text-sm text-gray-400">
                 Page {currentPage} of {totalPages}
               </span>
               <button onClick={() => setOffset(o => o + pageSize)} disabled={currentPage >= totalPages}
-                className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+                className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-sm transition-colors">
                 →
               </button>
             </div>

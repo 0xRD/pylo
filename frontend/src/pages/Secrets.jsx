@@ -45,36 +45,36 @@ export default function Secrets() {
           </p>
         </div>
         <button onClick={() => setShowForm(s => !s)} disabled={!isAdmin}
-          className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
+          className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm transition-colors">
           {showForm ? 'Cancel' : '+ New Secret'}
         </button>
       </div>
 
       {showForm && (
         <form onSubmit={handleCreate} className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
-          {error && <p className="text-red-400 text-sm bg-red-950 px-3 py-2 rounded">{error}</p>}
+          {error && <p className="text-red-400 text-sm bg-red-950 px-3 py-2 rounded-sm">{error}</p>}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-gray-400 mb-1">Name * <span className="text-gray-600">(used as reference)</span></label>
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 required placeholder="virustotal_api_key"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm font-mono focus:outline-hidden focus:border-indigo-500" />
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Description</label>
               <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                 placeholder="VirusTotal API key"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
             </div>
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Value * <span className="text-gray-600">(stored encrypted, never shown again)</span></label>
             <input type="password" value={form.value} onChange={e => setForm(f => ({ ...f, value: e.target.value }))}
               required placeholder="••••••••••••••••"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+              className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
           </div>
           <button type="submit" disabled={saving}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
             {saving ? 'Saving…' : 'Save Secret'}
           </button>
         </form>

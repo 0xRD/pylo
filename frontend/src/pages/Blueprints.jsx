@@ -118,11 +118,11 @@ export default function Blueprints() {
         <div className="flex items-center gap-2">
           {importError && <span className="text-xs text-red-400">{importError}</span>}
           <button onClick={() => importRef.current?.click()} disabled={!isAdmin}
-            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors">
             Import
           </button>
           <button onClick={() => setCreating(true)} disabled={!isAdmin}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors">
             + New Blueprint
           </button>
         </div>
@@ -135,7 +135,7 @@ export default function Blueprints() {
           <p className="text-lg mb-2">No blueprints yet</p>
           <p className="text-sm mb-6">Blueprints define where data comes from and how to map it into entries.</p>
           <button onClick={() => setCreating(true)} disabled={!isAdmin}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors">
             Create your first blueprint
           </button>
         </div>

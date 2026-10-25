@@ -31,7 +31,7 @@ function AddEntryModal({ blueprint, onSave, onClose }) {
       <div className="w-full max-w-md bg-gray-950 border border-gray-800 rounded-xl p-6 shadow-2xl">
         <h2 className="text-base font-semibold text-gray-100 mb-4">Add Entry</h2>
         <form onSubmit={handleSubmit} className="space-y-3">
-          {error && <p className="text-red-400 text-xs bg-red-950 px-3 py-2 rounded">{error}</p>}
+          {error && <p className="text-red-400 text-xs bg-red-950 px-3 py-2 rounded-sm">{error}</p>}
           {fieldMappings.length === 0 ? (
             <p className="text-sm text-gray-500">No field mappings defined. Entries will be stored as empty.</p>
           ) : (
@@ -46,18 +46,18 @@ function AddEntryModal({ blueprint, onSave, onClose }) {
                   onChange={e => setValues(v => ({ ...v, [m.field_name]: e.target.value }))}
                   placeholder={m.field_type}
                   required={m.is_key}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
             ))
           )}
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={saving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
               {saving ? 'Saving…' : 'Add Entry'}
             </button>
             <button type="button" onClick={onClose}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-sm text-sm transition-colors">
               Cancel
             </button>
           </div>
@@ -87,7 +87,7 @@ function Pagination({ page, total, pageSize, onPage }) {
   return (
     <div className="flex items-center justify-center gap-1 mt-6">
       <button onClick={() => onPage(page - 1)} disabled={page === 1}
-        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-sm transition-colors">
         ←
       </button>
       {pages.map((p, i) =>
@@ -103,7 +103,7 @@ function Pagination({ page, total, pageSize, onPage }) {
             </button>
       )}
       <button onClick={() => onPage(page + 1)} disabled={page === totalPages}
-        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors">
+        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-sm transition-colors">
         →
       </button>
     </div>
@@ -367,7 +367,7 @@ export default function BlueprintDetail() {
                   <span>Re-parsed {reparseStatus.total} {reparseStatus.total === 1 ? 'entry' : 'entries'} with the new field mappings.</span>
                   <button
                     onClick={() => { loadEntries(query, 1, pageSize); setPage(1) }}
-                    className="px-2.5 py-1 text-xs bg-green-800 hover:bg-green-700 rounded font-medium transition-colors shrink-0">
+                    className="px-2.5 py-1 text-xs bg-green-800 hover:bg-green-700 rounded-sm font-medium transition-colors shrink-0">
                     Refresh entries
                   </button>
                 </>
@@ -381,10 +381,10 @@ export default function BlueprintDetail() {
           <div className="flex items-center gap-3 mb-4">
             <form onSubmit={handleSearch} className="flex gap-2 flex-1">
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search entries…"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
               <SearchHelp />
               <button type="submit"
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-sm text-sm transition-colors">
                 Search
               </button>
               {query && (
@@ -404,13 +404,13 @@ export default function BlueprintDetail() {
               )}
               {blueprint?.is_manual ? (
                 <button onClick={() => setShowAddEntry(true)} disabled={!isAdmin}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors">
                   + Add entry
                 </button>
               ) : (
                 <button onClick={handleFetch}
                   disabled={!isAdmin || fetching || !blueprint?.source_url}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors">
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors">
                   {fetching ? 'Fetching in background…' : 'Fetch now'}
                 </button>
               )}
@@ -468,12 +468,12 @@ export default function BlueprintDetail() {
       {tab === 'settings' && blueprint && (
         <div className="space-y-8">
           {!isAdmin && (
-            <p className="text-sm text-yellow-600 bg-yellow-900/20 border border-yellow-800 rounded px-4 py-2">
+            <p className="text-sm text-yellow-600 bg-yellow-900/20 border border-yellow-800 rounded-sm px-4 py-2">
               You have read-only access. Contact an admin to modify this blueprint.
             </p>
           )}
           {isProd && (
-            <p className="text-sm text-yellow-500 bg-yellow-900/20 border border-yellow-700 rounded px-4 py-2 mb-4">
+            <p className="text-sm text-yellow-500 bg-yellow-900/20 border border-yellow-700 rounded-sm px-4 py-2 mb-4">
               Production mode — config is read-only. Use Sync from git to apply changes.
             </p>
           )}
@@ -490,7 +490,7 @@ export default function BlueprintDetail() {
               {blueprint.is_manual && (
                 <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
                   <input type="checkbox" checked={includeEntries} onChange={e => setIncludeEntries(e.target.checked)}
-                    className="rounded border-gray-600 accent-indigo-500" />
+                    className="rounded-sm border-gray-600 accent-indigo-500" />
                   Include entries
                 </label>
               )}
@@ -501,7 +501,7 @@ export default function BlueprintDetail() {
                   finally { setExporting(false) }
                 }}
                 disabled={exporting}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
                 {exporting ? 'Exporting…' : 'Export blueprint'}
               </button>
               <span className="text-xs text-gray-600">Downloads a .json file you can import on another Pylo instance.</span>
@@ -517,7 +517,7 @@ export default function BlueprintDetail() {
                 <p className="text-xs text-gray-500 mt-0.5">Removes all fetched entries. The blueprint and its configuration are kept.</p>
               </div>
               <button onClick={handleClearEntries} disabled={clearingEntries || !isAdmin}
-                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors shrink-0 ml-4">
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors shrink-0 ml-4">
                 {clearingEntries ? 'Clearing…' : 'Clear entries'}
               </button>
             </div>
@@ -527,7 +527,7 @@ export default function BlueprintDetail() {
                 <p className="text-xs text-gray-500 mt-0.5">Permanently deletes the blueprint and all its entries. Cannot be undone.</p>
               </div>
               <button onClick={handleDelete} disabled={deleting || !isAdmin}
-                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors shrink-0 ml-4">
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-sm font-medium transition-colors shrink-0 ml-4">
                 {deleting ? 'Deleting…' : 'Delete blueprint'}
               </button>
             </div>

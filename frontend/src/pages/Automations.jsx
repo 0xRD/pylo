@@ -91,7 +91,7 @@ export default function Automations() {
         </div>
         <div className="flex items-center gap-2">
           {/* Type filter */}
-          <div className="flex rounded overflow-hidden border border-gray-700 text-xs">
+          <div className="flex rounded-sm overflow-hidden border border-gray-700 text-xs">
             {['all', 'pybook', 'workflow'].map(t => (
               <button key={t} onClick={() => setTypeFilter(t)}
                 className={`px-3 py-1.5 capitalize transition-colors ${typeFilter === t ? 'bg-indigo-600 text-white' : 'bg-gray-900 text-gray-400 hover:text-gray-200'}`}>
@@ -100,7 +100,7 @@ export default function Automations() {
             ))}
           </div>
           {/* Active filter */}
-          <div className="flex rounded overflow-hidden border border-gray-700 text-xs">
+          <div className="flex rounded-sm overflow-hidden border border-gray-700 text-xs">
             {['active', 'all'].map(f => (
               <button key={f} onClick={() => setFilter(f)}
                 className={`px-3 py-1.5 capitalize transition-colors ${filter === f ? 'bg-indigo-600 text-white' : 'bg-gray-900 text-gray-400 hover:text-gray-200'}`}>

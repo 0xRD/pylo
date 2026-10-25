@@ -295,7 +295,7 @@ export default function Dashboard() {
               <button
                 key={option}
                 onClick={() => setDays(option)}
-                className={`rounded px-3 py-1.5 text-sm transition-colors ${days === option ? 'bg-[#44475a] text-[#f8f8f2]' : 'text-[#a7abc4] hover:text-[#f8f8f2]'}`}
+                className={`rounded-sm px-3 py-1.5 text-sm transition-colors ${days === option ? 'bg-[#44475a] text-[#f8f8f2]' : 'text-[#a7abc4] hover:text-[#f8f8f2]'}`}
               >
                 {option}d
               </button>
@@ -340,7 +340,7 @@ export default function Dashboard() {
               <StackedRunChart data={combinedRuns} h={chartH} />
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#a7abc4]">
                 {Object.entries(STATUS_COLORS).map(([status, color]) => (
-                  <span key={status} className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: color }} />{status}</span>
+                  <span key={status} className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-xs" style={{ backgroundColor: color }} />{status}</span>
                 ))}
               </div>
             </Panel>
@@ -363,7 +363,7 @@ export default function Dashboard() {
                     <Link key={`${run.type}-${run.id}`} to="/runs" className="block rounded-md border border-[#343746] bg-[#282a36] px-3 py-2 hover:border-[#ff79c6]">
                       <div className="flex items-center justify-between gap-3">
                         <span className="truncate text-sm text-[#f8f8f2]">{run.owner_name}</span>
-                        <span className="rounded bg-[#ff5555]/15 px-2 py-0.5 text-xs text-[#ffb8b8]">{run.status}</span>
+                        <span className="rounded-sm bg-[#ff5555]/15 px-2 py-0.5 text-xs text-[#ffb8b8]">{run.status}</span>
                       </div>
                       <div className="mt-1 flex items-center justify-between text-xs text-[#6272a4]">
                         <span>{run.type} / {run.trigger_source}</span>
@@ -386,7 +386,7 @@ export default function Dashboard() {
                           <span className="truncate text-[#f8f8f2]">{item.name}</span>
                           <span className="text-[#a7abc4]">{numberFmt(item.entries)}</span>
                         </div>
-                        <div className="h-2 rounded bg-[#282a36]"><div className="h-2 rounded bg-[#8be9fd]" style={{ width: `${Math.max(4, (item.entries / max) * 100)}%` }} /></div>
+                        <div className="h-2 rounded-sm bg-[#282a36]"><div className="h-2 rounded-sm bg-[#8be9fd]" style={{ width: `${Math.max(4, (item.entries / max) * 100)}%` }} /></div>
                       </Link>
                     )
                   })}

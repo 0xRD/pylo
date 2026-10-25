@@ -56,7 +56,7 @@ function ResourceLink({ event }) {
 function DetailPanel({ detail }) {
   if (!detail || Object.keys(detail).length === 0) return null
   return (
-    <pre className="mt-2 ml-4 bg-gray-950 border border-gray-800 rounded p-2 text-xs text-gray-400 font-mono whitespace-pre-wrap overflow-auto max-h-48">
+    <pre className="mt-2 ml-4 bg-gray-950 border border-gray-800 rounded-sm p-2 text-xs text-gray-400 font-mono whitespace-pre-wrap overflow-auto max-h-48">
       {JSON.stringify(detail, null, 2)}
     </pre>
   )
@@ -76,7 +76,7 @@ function EventRow({ event }) {
         <span className="text-xs text-gray-500 w-16 shrink-0" title={fmtDateTime(event.created_at)}>
           {relativeTime(event.created_at)}
         </span>
-        <span className={`text-xs px-2 py-0.5 rounded border font-medium shrink-0 ${badgeClass}`}>
+        <span className={`text-xs px-2 py-0.5 rounded-sm border font-medium shrink-0 ${badgeClass}`}>
           {event.category}
         </span>
         <span className="text-xs font-mono text-gray-300 shrink-0">{event.event_type}</span>
@@ -269,7 +269,7 @@ export default function Activity() {
             <select
               value={filters.event_type}
               onChange={e => setFilter('event_type', e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-indigo-500"
+              className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs text-gray-300 focus:outline-hidden focus:border-indigo-500"
             >
               <option value="">All event types</option>
               {availableTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -280,7 +280,7 @@ export default function Activity() {
               placeholder="event_type (e.g. pybook.run)"
               value={filters.event_type}
               onChange={e => setFilter('event_type', e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-indigo-500 w-52"
+              className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-hidden focus:border-indigo-500 w-52"
             />
           )}
 
@@ -290,7 +290,7 @@ export default function Activity() {
             placeholder="actor"
             value={filters.actor}
             onChange={e => setFilter('actor', e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-indigo-500 w-32"
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-hidden focus:border-indigo-500 w-32"
           />
 
           {/* Resource name */}
@@ -299,7 +299,7 @@ export default function Activity() {
             placeholder="resource name (e.g. Lol Drivers)"
             value={filters.resource_name}
             onChange={e => setFilter('resource_name', e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-indigo-500 w-52"
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-hidden focus:border-indigo-500 w-52"
           />
 
           {/* Resource ID */}
@@ -308,7 +308,7 @@ export default function Activity() {
             placeholder="resource ID (UUID)"
             value={filters.resource_id}
             onChange={e => setFilter('resource_id', e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-indigo-500 w-44"
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-hidden focus:border-indigo-500 w-44"
           />
 
           {/* Date range presets */}
@@ -325,7 +325,7 @@ export default function Activity() {
               setFilter('from', fromMap[val] || '')
             }}
             defaultValue=""
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-indigo-500"
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs text-gray-300 focus:outline-hidden focus:border-indigo-500"
           >
             <option value="">All time</option>
             <option value="1h">Last hour</option>
@@ -351,7 +351,7 @@ export default function Activity() {
           <button
             onClick={loadMore}
             disabled={loadingMore}
-            className="text-xs px-4 py-2 bg-gray-800 border border-gray-700 rounded hover:border-gray-500 text-gray-400 disabled:opacity-50 transition-colors"
+            className="text-xs px-4 py-2 bg-gray-800 border border-gray-700 rounded-sm hover:border-gray-500 text-gray-400 disabled:opacity-50 transition-colors"
           >
             {loadingMore ? 'Loading…' : `Load more (${total - items.length} remaining)`}
           </button>

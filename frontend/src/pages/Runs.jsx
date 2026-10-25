@@ -39,7 +39,7 @@ function VarsPanel({ vars }) {
   return (
     <div>
       <p className="text-xs text-gray-400 mb-1.5">Variables</p>
-      <div className="bg-gray-950 border border-gray-800 rounded divide-y divide-gray-800">
+      <div className="bg-gray-950 border border-gray-800 rounded-sm divide-y divide-gray-800">
         {entries.map(([k, v]) => (
           <div key={k} className="flex gap-3 px-3 py-1.5 text-xs">
             <span className="text-indigo-400 font-mono shrink-0">{k}</span>
@@ -77,13 +77,13 @@ function PyBookRunDetail({ run: summary }) {
           {run.stdout && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-green-300 mb-1">stdout</p>
-              <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-green-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stdout}</pre>
+              <pre className="bg-gray-950 border border-gray-800 rounded-sm p-3 text-xs font-mono text-green-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stdout}</pre>
             </div>
           )}
           {run.stderr && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-red-300 mb-1">stderr</p>
-              <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stderr}</pre>
+              <pre className="bg-gray-950 border border-gray-800 rounded-sm p-3 text-xs font-mono text-red-300 whitespace-pre-wrap overflow-auto max-h-80">{run.stderr}</pre>
             </div>
           )}
           {run._loading && <p className="text-xs italic text-gray-600">Loading logs…</p>}
@@ -92,7 +92,7 @@ function PyBookRunDetail({ run: summary }) {
         <div className="space-y-4 min-w-0">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300 mb-1">Input payload</p>
-            <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-xs font-mono text-cyan-200 whitespace-pre-wrap overflow-auto max-h-64">{formatJson(run.trigger_payload || '{}')}</pre>
+            <pre className="bg-gray-950 border border-gray-800 rounded-sm p-3 text-xs font-mono text-cyan-200 whitespace-pre-wrap overflow-auto max-h-64">{formatJson(run.trigger_payload || '{}')}</pre>
           </div>
           <VarsPanel vars={run.output_vars} />
         </div>
@@ -125,7 +125,7 @@ function WorkflowRunDetail({ run }) {
         <span className="text-xs text-gray-500">{run.trigger_source}</span>
         {run.duration_ms != null && <span className="text-xs text-gray-600">{run.duration_ms}ms</span>}
         {cancellable && (
-          <button onClick={cancel} className="ml-auto rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-900/60">
+          <button onClick={cancel} className="ml-auto rounded-sm bg-red-900/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-900/60">
             Cancel run
           </button>
         )}
@@ -141,14 +141,14 @@ function WorkflowRunDetail({ run }) {
           <p className="text-xs text-gray-400 mb-2">Node runs</p>
           <div className="space-y-2">
             {detail.node_runs.map(nr => (
-              <div key={nr.id} className="bg-gray-950 border border-gray-800 rounded p-3 text-xs space-y-1.5">
+              <div key={nr.id} className="bg-gray-950 border border-gray-800 rounded-sm p-3 text-xs space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div className="flex min-w-0 items-center gap-2">
                     <RunStatusBadge status={nr.status} />
                     <span className="truncate text-gray-300">{nr.node_label || nr.pybook_name || nr.node_id}</span>
                     {nr.node_type && nr.node_type !== 'pybook' && <span className="text-gray-600">{nr.node_type}</span>}
                     {nr.script_version != null && (
-                      <span className="rounded bg-gray-800 px-1.5 font-mono text-[10px] text-cyan-300" title="PyBook script version that ran">v{nr.script_version}</span>
+                      <span className="rounded-sm bg-gray-800 px-1.5 font-mono text-[10px] text-cyan-300" title="PyBook script version that ran">v{nr.script_version}</span>
                     )}
                   </div>
                   {nr.duration_ms != null && <span className="text-gray-600">{nr.duration_ms}ms</span>}
@@ -267,12 +267,12 @@ export default function Runs() {
             {/* Scope clear */}
             {(scopePybookId || scopeWorkflowId) && (
               <button onClick={clearScope}
-                className="text-xs px-2 py-1 rounded border border-indigo-700 text-indigo-400 hover:text-indigo-200 hover:border-indigo-500 transition-colors bg-transparent cursor-pointer">
+                className="text-xs px-2 py-1 rounded-sm border border-indigo-700 text-indigo-400 hover:text-indigo-200 hover:border-indigo-500 transition-colors bg-transparent cursor-pointer">
                 Clear scope
               </button>
             )}
             {/* Type filter */}
-            <div className="flex rounded overflow-hidden border border-gray-700 text-xs">
+            <div className="flex rounded-sm overflow-hidden border border-gray-700 text-xs">
               {TYPES.map(t => (
                 <button key={t} onClick={() => handleTypeChange(t)}
                   className={`px-3 py-1.5 capitalize transition-colors ${runType === t ? 'bg-indigo-600 text-white' : 'bg-gray-900 text-gray-400 hover:text-gray-200'}`}>
@@ -316,7 +316,7 @@ export default function Runs() {
             </div>
             <div className="flex gap-0.5 h-2 rounded-full overflow-hidden bg-gray-800">
               {Array.from({ length: stats.max_concurrent }).map((_, i) => (
-                <div key={i} className={`flex-1 rounded-sm transition-colors ${i < stats.running ? 'bg-blue-500' : 'bg-gray-700'}`} />
+                <div key={i} className={`flex-1 rounded-xs transition-colors ${i < stats.running ? 'bg-blue-500' : 'bg-gray-700'}`} />
               ))}
             </div>
           </div>

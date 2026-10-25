@@ -75,7 +75,7 @@ function RequiredSecretsSelect({ value, onChange, secrets = [], disabled = false
       <label className="block text-xs text-gray-400 mb-1">
         Required API keys / secrets <span className="text-gray-600">(stored secrets)</span>
       </label>
-      <div className="min-h-10 rounded border border-gray-700 bg-gray-800 p-2">
+      <div className="min-h-10 rounded-sm border border-gray-700 bg-gray-800 p-2">
         {secrets.length === 0 ? (
           <p className="text-xs text-gray-600">No stored secrets yet. Add API keys in Secrets first.</p>
         ) : (
@@ -89,7 +89,7 @@ function RequiredSecretsSelect({ value, onChange, secrets = [], disabled = false
                   onClick={() => toggle(secret.name)}
                   disabled={disabled}
                   title={active ? `Remove ${secret.name}` : `Inject ${secret.name}`}
-                  className={`inline-flex max-w-full items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? 'border-indigo-500 bg-indigo-950/70 text-indigo-200' : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-gray-200'}`}
+                  className={`inline-flex max-w-full items-center gap-1.5 rounded-sm border px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? 'border-indigo-500 bg-indigo-950/70 text-indigo-200' : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-gray-200'}`}
                 >
                   <span className="truncate">{secret.name}</span>
                   {active && <X className="h-3 w-3 shrink-0" />}
@@ -108,7 +108,7 @@ function InlineHelp({ text }) {
   return (
     <span className="group relative inline-flex align-middle">
       <HelpCircle className="h-3.5 w-3.5 text-gray-500" />
-      <span className="pointer-events-none absolute left-1/2 top-5 z-20 hidden w-64 -translate-x-1/2 rounded border border-gray-700 bg-gray-950 p-2 text-xs leading-relaxed text-gray-300 shadow-xl group-hover:block">
+      <span className="pointer-events-none absolute left-1/2 top-5 z-20 hidden w-64 -translate-x-1/2 rounded-sm border border-gray-700 bg-gray-950 p-2 text-xs leading-relaxed text-gray-300 shadow-xl group-hover:block">
         {text}
       </span>
     </span>
@@ -141,13 +141,13 @@ function TriggerConditionBuilder({ value, onChange }) {
       {conditions.map((cond, i) => (
         <div key={i} className="flex gap-2 items-center">
           <input value={cond.field} onChange={e => setC(i, 'field', e.target.value)} placeholder="field"
-            className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+            className="w-24 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-xs font-mono focus:outline-hidden focus:border-indigo-500" />
           <select value={cond.operator} onChange={e => setC(i, 'operator', e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-indigo-500">
             {TRIGGER_OPERATORS.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
           </select>
           <input value={cond.value} onChange={e => setC(i, 'value', e.target.value)} placeholder="value"
-            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-indigo-500" />
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-xs font-mono focus:outline-hidden focus:border-indigo-500" />
           <button type="button" onClick={() => remove(i)} className="text-gray-600 hover:text-red-400 text-sm shrink-0">×</button>
         </div>
       ))}
@@ -164,7 +164,7 @@ function BlueprintTriggerConfig({ triggerConfig, onChange, blueprints }) {
         <div className="flex-1 min-w-40">
           <label className="block text-xs text-gray-400 mb-1">Blueprint</label>
           <select value={cfg.blueprint_id || ''} onChange={e => set('blueprint_id', e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500">
             <option value="">— select blueprint —</option>
             {blueprints.map(bp => <option key={bp.id} value={bp.id}>{bp.name}</option>)}
           </select>
@@ -172,7 +172,7 @@ function BlueprintTriggerConfig({ triggerConfig, onChange, blueprints }) {
         <div>
           <label className="block text-xs text-gray-400 mb-1">Event</label>
           <select value={cfg.trigger_event || 'on_create'} onChange={e => set('trigger_event', e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500">
             <option value="on_create">On new entry</option>
             <option value="on_create_or_update">On new or updated entry</option>
           </select>
@@ -230,7 +230,7 @@ function TagInput({ tags, onChange }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5 items-center bg-[#191a21] border border-[#343746] rounded px-2 py-1.5 min-h-9 focus-within:border-[#8be9fd] transition-colors">
+    <div className="flex flex-wrap gap-1.5 items-center bg-[#191a21] border border-[#343746] rounded-sm px-2 py-1.5 min-h-9 focus-within:border-[#8be9fd] transition-colors">
       {tags.map(t => (
         <TagChip key={t} tag={t} onRemove={tag => onChange(tags.filter(x => x !== tag))} />
       ))}
@@ -240,7 +240,7 @@ function TagInput({ tags, onChange }) {
         onKeyDown={handleKey}
         onBlur={add}
         placeholder={tags.length === 0 ? 'Add tags… (press Enter)' : ''}
-        className="bg-transparent outline-none text-xs text-[#f8f8f2] placeholder-[#6272a4] flex-1 min-w-20"
+        className="bg-transparent outline-hidden text-xs text-[#f8f8f2] placeholder-[#6272a4] flex-1 min-w-20"
       />
     </div>
   )
@@ -269,17 +269,17 @@ function NewPyBookForm({ onSave, onCancel, blueprints = [], secrets = [] }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-2xl">
-      {error && <p className="text-red-400 text-sm bg-red-950 px-3 py-2 rounded">{error}</p>}
+      {error && <p className="text-red-400 text-sm bg-red-950 px-3 py-2 rounded-sm">{error}</p>}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs text-gray-400 mb-1">Name *</label>
           <input value={form.name} onChange={e => set("name", e.target.value)} required
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Trigger type</label>
           <select value={form.trigger_type} onChange={e => set("trigger_type", e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500">
             {TRIGGER_TYPES.map(t => <option key={t}>{t}</option>)}
           </select>
         </div>
@@ -306,7 +306,7 @@ function NewPyBookForm({ onSave, onCancel, blueprints = [], secrets = [] }) {
       <div>
         <label className="block text-xs text-gray-400 mb-1">Description</label>
         <input value={form.description} onChange={e => set("description", e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+          className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:border-indigo-500" />
       </div>
       <div>
         <label className="block text-xs text-gray-400 mb-1">Tags</label>
@@ -317,7 +317,7 @@ function NewPyBookForm({ onSave, onCancel, blueprints = [], secrets = [] }) {
           <label className="block text-xs text-gray-400 mb-1">Dependencies (JSON array)</label>
           <input value={form.dependencies} onChange={e => set("dependencies", e.target.value)}
             placeholder='["pandas", "boto3"]'
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-sm font-mono focus:outline-hidden focus:border-indigo-500" />
         </div>
         <div>
           <RequiredSecretsSelect
@@ -329,22 +329,22 @@ function NewPyBookForm({ onSave, onCancel, blueprints = [], secrets = [] }) {
       </div>
       <div className="flex items-center gap-2">
         <input type="checkbox" id="is_sub" checked={form.is_sub_pybook}
-          onChange={e => set("is_sub_pybook", e.target.checked)} className="rounded border-gray-600" />
+          onChange={e => set("is_sub_pybook", e.target.checked)} className="rounded-sm border-gray-600" />
         <label htmlFor="is_sub" className="text-sm text-gray-300">Sub-PyBook (callable by other PyBooks)</label>
       </div>
       <div>
         <label className="block text-xs text-gray-400 mb-1">Initial script</label>
-        <div className="border border-gray-700 rounded overflow-hidden">
+        <div className="border border-gray-700 rounded-sm overflow-hidden">
           <CodeEditor value={form.script} onChange={v => set("script", v || "")} height="300px" />
         </div>
       </div>
       <div className="flex gap-3">
         <button type="submit" disabled={saving}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
           {saving ? "Creating..." : "Create PyBook"}
         </button>
         <button type="button" onClick={onCancel}
-          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition-colors">Cancel</button>
+          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-sm text-sm transition-colors">Cancel</button>
       </div>
     </form>
   )
@@ -478,16 +478,16 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => handleRun()} disabled={running || !isAdmin}
-            className="inline-flex items-center gap-1.5 rounded bg-[#50fa7b] px-3 py-2 text-xs font-semibold text-[#191a21] transition-colors hover:bg-[#69ff94] disabled:cursor-not-allowed disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 rounded-sm bg-[#50fa7b] px-3 py-2 text-xs font-semibold text-[#191a21] transition-colors hover:bg-[#69ff94] disabled:cursor-not-allowed disabled:opacity-50">
             <Play className="h-3.5 w-3.5" />
             {running ? "Starting..." : "Run empty"}
           </button>
           <button onClick={handleRunWithPayload} disabled={running || !isAdmin}
-            className="inline-flex items-center gap-1.5 rounded bg-[#8be9fd] px-3 py-2 text-xs font-semibold text-[#191a21] transition-colors hover:bg-[#a4f1ff] disabled:cursor-not-allowed disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 rounded-sm bg-[#8be9fd] px-3 py-2 text-xs font-semibold text-[#191a21] transition-colors hover:bg-[#a4f1ff] disabled:cursor-not-allowed disabled:opacity-50">
             <Braces className="h-3.5 w-3.5" />
             Run payload
           </button>
-          <button onClick={onClose} className="rounded p-2 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Close runs">
+          <button onClick={onClose} className="rounded-sm p-2 text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2]" title="Close runs">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -496,7 +496,7 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
       <div className={"grid min-h-0 flex-1 gap-4 p-4 " + (wide
         ? "overflow-hidden grid-cols-[260px_minmax(0,1fr)_360px]"
         : "overflow-y-auto grid-cols-[200px_minmax(0,1fr)] grid-rows-[minmax(16rem,1fr)_auto]")}>
-        <section className="flex min-h-0 flex-col overflow-hidden rounded border border-[#343746] bg-[#20222c]">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-sm border border-[#343746] bg-[#20222c]">
           <div className="shrink-0 border-b border-[#343746] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#6272a4]">Recent runs</div>
           {runs.length === 0 ? (
             <p className="p-4 text-xs italic text-[#6272a4]">No runs yet.</p>
@@ -505,7 +505,7 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
               {runs.map(run => (
                 <button key={run.id}
                   onClick={() => { setSelectedRun(run); if (!TERMINAL.has(run.status)) connectWs(run.id) }}
-                  className={"w-full rounded border px-3 py-2 text-left transition-colors " + (selectedRun?.id === run.id ? "border-[#bd93f9] bg-[#282a36]" : "border-[#343746] bg-[#191a21] hover:border-[#6272a4]")}
+                  className={"w-full rounded-sm border px-3 py-2 text-left transition-colors " + (selectedRun?.id === run.id ? "border-[#bd93f9] bg-[#282a36]" : "border-[#343746] bg-[#191a21] hover:border-[#6272a4]")}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <RunStatusBadge status={run.status} />
@@ -517,7 +517,7 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
                     {run.script_version != null && (
                       <span role="link" title="Show the script version this run executed"
                         onClick={e => { e.stopPropagation(); onOpenVersion?.(run.script_version) }}
-                        className="shrink-0 rounded bg-[#343746] px-1.5 font-mono text-[10px] text-[#8be9fd] hover:bg-[#44475a]">
+                        className="shrink-0 rounded-sm bg-[#343746] px-1.5 font-mono text-[10px] text-[#8be9fd] hover:bg-[#44475a]">
                         v{run.script_version}
                       </span>
                     )}
@@ -528,12 +528,12 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
           )}
         </section>
 
-        <section className="min-h-0 overflow-y-auto rounded border border-[#343746] bg-[#191a21] p-4">
+        <section className="min-h-0 overflow-y-auto rounded-sm border border-[#343746] bg-[#191a21] p-4">
           {!selectedRun ? (
             <p className="text-xs italic text-[#6272a4]">Select a run to view logs.</p>
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-[#343746] bg-[#282a36] px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#343746] bg-[#282a36] px-3 py-2">
                 <div className="flex items-center gap-2">
                   <RunStatusBadge status={selectedRun.status} />
                   <span className="text-xs text-[#8b8fa3]">{selectedRun.trigger_source}</span>
@@ -545,14 +545,14 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
               {shownRun.stdout && (
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#50fa7b]">stdout</p>
-                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{shownRun.stdout}</pre>
+                  <pre className="max-h-112 overflow-auto whitespace-pre-wrap rounded-sm border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#50fa7b]">{shownRun.stdout}</pre>
                 </div>
               )}
 
               {shownRun.stderr && (
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#ff5555]">stderr</p>
-                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{shownRun.stderr}</pre>
+                  <pre className="max-h-112 overflow-auto whitespace-pre-wrap rounded-sm border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#ff5555]">{shownRun.stderr}</pre>
                 </div>
               )}
 
@@ -568,7 +568,7 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
                   <Braces className="h-3.5 w-3.5" />
                   Input payload
                 </p>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#8be9fd]">{formatJson(selectedRun.trigger_payload || '{}')}</pre>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-sm border border-[#343746] bg-[#0f1117] p-3 font-mono text-xs text-[#8be9fd]">{formatJson(selectedRun.trigger_payload || '{}')}</pre>
               </div>
 
               <div>
@@ -577,13 +577,13 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
                   Output variables
                 </p>
                 {vars.length === 0 ? (
-                  <div className="rounded border border-dashed border-[#343746] bg-[#20222c] p-4 text-xs text-[#6272a4]">
+                  <div className="rounded-sm border border-dashed border-[#343746] bg-[#20222c] p-4 text-xs text-[#6272a4]">
                     No output variables exported. Use pylo.set_output("key", value) to publish them.
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {vars.map(([k, v]) => (
-                      <div key={k} className="rounded border border-[#343746] bg-[#20222c] px-3 py-2">
+                      <div key={k} className="rounded-sm border border-[#343746] bg-[#20222c] px-3 py-2">
                         <p className="font-mono text-xs text-[#bd93f9]">{k}</p>
                         <p className="mt-1 break-all font-mono text-xs text-[#f8f8f2]">{JSON.stringify(v)}</p>
                       </div>
@@ -595,14 +595,14 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
           )}
         </section>
 
-        <section className={"min-h-0 overflow-y-auto rounded border border-[#343746] bg-[#20222c] p-4" + (wide ? "" : " col-span-2")}>
+        <section className={"min-h-0 overflow-y-auto rounded-sm border border-[#343746] bg-[#20222c] p-4" + (wide ? "" : " col-span-2")}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[#8be9fd]">
               New input payload
               <span title="JSON input injected into the PyBook as TRIGGER_PAYLOAD. Recommended access: payload = pylo.get_payload(). Output variables are separate and are created with pylo.set_output()." className="grid h-4 w-4 cursor-help place-items-center rounded-full border border-[#6272a4] text-[10px] text-[#6272a4]">?</span>
             </label>
             <button onClick={reuseSelectedPayload} disabled={!selectedRun}
-              className="inline-flex items-center justify-center gap-1.5 rounded bg-[#282a36] px-2 py-1 text-xs text-[#a7abc4] hover:bg-[#343746] disabled:opacity-40">
+              className="inline-flex items-center justify-center gap-1.5 rounded-sm bg-[#282a36] px-2 py-1 text-xs text-[#a7abc4] hover:bg-[#343746] disabled:opacity-40">
               <RotateCcw className="h-3.5 w-3.5" />
               Reuse
             </button>
@@ -611,7 +611,7 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
             value={payloadText}
             onChange={e => setPayloadText(e.target.value)}
             rows={4}
-            className="min-h-24 w-full rounded border border-[#343746] bg-[#0f1117] px-3 py-2 font-mono text-xs text-[#f8f8f2] outline-none focus:border-[#8be9fd]"
+            className="min-h-24 w-full rounded-sm border border-[#343746] bg-[#0f1117] px-3 py-2 font-mono text-xs text-[#f8f8f2] outline-hidden focus:border-[#8be9fd]"
             placeholder='{"blueprint_id":"...","entry_id":"...","entry_data":{}}'
           />
           {payloadError && <p className="mt-2 text-xs text-[#ff5555]">{payloadError}</p>}
@@ -620,7 +620,7 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
           <div className="grid grid-cols-2 gap-2">
             {PAYLOAD_TEMPLATES.map(template => (
               <button key={template.label} onClick={() => applyTemplate(template.value)}
-                className="rounded border border-[#343746] bg-[#282a36] px-3 py-2 text-left text-xs text-[#f8f8f2] hover:border-[#8be9fd]">
+                className="rounded-sm border border-[#343746] bg-[#282a36] px-3 py-2 text-left text-xs text-[#f8f8f2] hover:border-[#8be9fd]">
                 {template.label}
               </button>
             ))}
@@ -651,10 +651,10 @@ function CodeSnippet({ code }) {
   }
   return (
     <div className="relative group">
-      <pre className="bg-gray-950 border border-gray-800 rounded p-2.5 text-xs font-mono text-green-300 whitespace-pre overflow-auto leading-relaxed">{code}</pre>
+      <pre className="bg-gray-950 border border-gray-800 rounded-sm p-2.5 text-xs font-mono text-green-300 whitespace-pre overflow-auto leading-relaxed">{code}</pre>
       <button
         onClick={copy}
-        className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-500 hover:text-gray-300 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-500 hover:text-gray-300 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <Copy className="h-3 w-3" />
         {copied ? 'Copied!' : 'Copy'}
@@ -683,7 +683,7 @@ function DocsPanel({ onClose }) {
       <div className="flex-1 overflow-y-auto p-4 space-y-6 text-xs text-gray-400">
 
         <DocSection title="Reading the trigger payload">
-          <p>Run input arrives as JSON in <code className="text-indigo-300 bg-gray-800 px-1 rounded">TRIGGER_PAYLOAD</code>. Prefer the SDK helper so every PyBook uses the same pattern:</p>
+          <p>Run input arrives as JSON in <code className="text-indigo-300 bg-gray-800 px-1 rounded-sm">TRIGGER_PAYLOAD</code>. Prefer the SDK helper so every PyBook uses the same pattern:</p>
           <CodeSnippet code={`import pylo_sdk as pylo
 
 payload = pylo.get_payload()
@@ -694,7 +694,7 @@ score = payload.get("vt_score", 0)`} />
         </DocSection>
 
         <DocSection title="Exporting output variables">
-          <p>Publish values for downstream workflow nodes to consume via edge payload mappings (<code className="text-indigo-300 bg-gray-800 px-1 rounded">$.vars.key</code>). Export one at a time or all locals at once:</p>
+          <p>Publish values for downstream workflow nodes to consume via edge payload mappings (<code className="text-indigo-300 bg-gray-800 px-1 rounded-sm">$.vars.key</code>). Export one at a time or all locals at once:</p>
           <CodeSnippet code={`import pylo_sdk as pylo
 
 # One at a time
@@ -745,7 +745,7 @@ value = entry["data"]["field_name"]`} />
         </DocSection>
 
         <DocSection title="Available environment variables">
-          <div className="rounded border border-gray-800 overflow-hidden">
+          <div className="rounded-sm border border-gray-800 overflow-hidden">
             {[
               ["TRIGGER_PAYLOAD", "JSON string with trigger input"],
               ["PYLO_RUN_ID",     "Current run UUID"],
@@ -825,16 +825,16 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
         <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {error && <p className="text-red-400 text-xs bg-red-950 px-3 py-2 rounded">{error}</p>}
+        {error && <p className="text-red-400 text-xs bg-red-950 px-3 py-2 rounded-sm">{error}</p>}
         <div>
           <label className="block text-xs text-gray-400 mb-1">Name</label>
           <input value={form.name} onChange={e => set('name', e.target.value)} disabled={!isAdmin}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500 disabled:opacity-50" />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Description</label>
           <input value={form.description} onChange={e => set('description', e.target.value)} disabled={!isAdmin}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500 disabled:opacity-50" />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">
@@ -842,7 +842,7 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
           </label>
           <input value={form.dependencies} onChange={e => set('dependencies', e.target.value)} disabled={!isAdmin}
             placeholder='["pandas", "boto3"]'
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:border-indigo-500 disabled:opacity-50" />
           <p className="text-xs text-gray-600 mt-1">requests, httpx, pydantic are always available</p>
         </div>
         <div>
@@ -856,7 +856,7 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
         <div>
           <label className="block text-xs text-gray-400 mb-1">Network policy</label>
           <select value={form.network_policy} onChange={e => set('network_policy', e.target.value)} disabled={!isAdmin}
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50">
+            className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500 disabled:opacity-50">
             <option value="default">Default (shared network)</option>
             <option value="none">None (no network access)</option>
             <option value="allowlisted">Allowlisted hosts only</option>
@@ -869,26 +869,26 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
               </label>
               <input value={form.allowed_hosts} onChange={e => set('allowed_hosts', e.target.value)} disabled={!isAdmin}
                 placeholder='["api.abuseipdb.com", "api.github.com"]'
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-xs font-mono focus:outline-hidden focus:border-indigo-500 disabled:opacity-50" />
             </div>
           )}
         </div>
         <div className="flex items-center gap-2">
           <input type="checkbox" id="cfg_is_sub" checked={form.is_sub_pybook}
             disabled={!isAdmin} onChange={e => set('is_sub_pybook', e.target.checked)}
-            className="rounded border-gray-600 disabled:opacity-50" />
+            className="rounded-sm border-gray-600 disabled:opacity-50" />
           <label htmlFor="cfg_is_sub" className="text-sm text-gray-300">
             Sub-PyBook <span className="text-xs text-gray-500">(callable by other PyBooks)</span>
           </label>
         </div>
         {isAdmin && !isProd && (
           <button onClick={handleSave} disabled={saving}
-            className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-sm font-medium transition-colors">
+            className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-sm text-sm font-medium transition-colors">
             {saving ? 'Saving...' : 'Save settings'}
           </button>
         )}
         {isProd && (
-          <p className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded px-3 py-2">
+          <p className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded-sm px-3 py-2">
             Production — read-only
           </p>
         )}
@@ -896,7 +896,7 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
           <p className="text-xs text-[#6272a4] mb-2">Export</p>
           <button
             onClick={async () => { try { await exportApi.pybook(pybook.id) } catch {} }}
-            className="w-full px-3 py-2 bg-[#282a36] hover:bg-[#343746] rounded text-xs text-[#8b8fa3] hover:text-[#f8f8f2] transition-colors text-left">
+            className="w-full px-3 py-2 bg-[#282a36] hover:bg-[#343746] rounded-sm text-xs text-[#8b8fa3] hover:text-[#f8f8f2] transition-colors text-left">
             Download .json
           </button>
         </div>
@@ -1038,7 +1038,7 @@ function AIPromptModal({ onClose }) {
         <div className="px-5 py-4 border-t border-gray-800 shrink-0 flex justify-between items-center">
           <p className="text-xs text-gray-600">Paste into ChatGPT, Claude, Gemini, etc. as a system prompt or first message.</p>
           <button onClick={copy}
-            className={"px-4 py-2 rounded text-sm font-medium transition-colors " + (copied ? "bg-green-700 text-green-100" : "bg-indigo-600 hover:bg-indigo-500")}>
+            className={"px-4 py-2 rounded-sm text-sm font-medium transition-colors " + (copied ? "bg-green-700 text-green-100" : "bg-indigo-600 hover:bg-indigo-500")}>
             {copied ? "Copied!" : "Copy prompt"}
           </button>
         </div>
@@ -1281,12 +1281,12 @@ export default function PyBooks() {
 
   if (loadError) return (
     <div className="flex h-full items-center justify-center bg-[#191a21] text-[#f8f8f2]">
-      <div className="max-w-md rounded border border-[#343746] bg-[#20222c] p-5">
+      <div className="max-w-md rounded-sm border border-[#343746] bg-[#20222c] p-5">
         <h1 className="text-sm font-semibold">PyBooks could not load</h1>
-        <p className="mt-2 break-words text-xs text-[#ff5555]">{loadError}</p>
+        <p className="mt-2 wrap-break-word text-xs text-[#ff5555]">{loadError}</p>
         <button
           onClick={() => { setLoading(true); load() }}
-          className="mt-4 rounded bg-[#bd93f9] px-3 py-2 text-xs font-semibold text-[#191a21] hover:bg-[#caa9fa]"
+          className="mt-4 rounded-sm bg-[#bd93f9] px-3 py-2 text-xs font-semibold text-[#191a21] hover:bg-[#caa9fa]"
         >
           Retry
         </button>
@@ -1326,12 +1326,12 @@ export default function PyBooks() {
           <div className="flex items-center gap-1.5">
             {importError && <span className="text-xs text-red-400 max-w-24 truncate" title={importError}>!</span>}
             <button onClick={() => importRef.current?.click()} disabled={!isAdmin}
-              className="inline-flex items-center gap-1 text-xs bg-[#282a36] hover:bg-[#343746] disabled:opacity-50 disabled:cursor-not-allowed px-2 py-1.5 rounded text-[#8b8fa3]"
+              className="inline-flex items-center gap-1 text-xs bg-[#282a36] hover:bg-[#343746] disabled:opacity-50 disabled:cursor-not-allowed px-2 py-1.5 rounded-sm text-[#8b8fa3]"
               title="Import PyBook from file">
               Import
             </button>
             <button onClick={() => { setShowNew(true); setSelected(null) }} disabled={!isAdmin}
-              className="inline-flex items-center gap-1.5 text-xs bg-[#bd93f9] text-[#191a21] hover:bg-[#caa9fa] disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1.5 rounded font-semibold">
+              className="inline-flex items-center gap-1.5 text-xs bg-[#bd93f9] text-[#191a21] hover:bg-[#caa9fa] disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-sm font-semibold">
               <Plus className="h-3.5 w-3.5" />
               New
             </button>
@@ -1340,13 +1340,13 @@ export default function PyBooks() {
 
         {/* Search */}
         <div className="px-3 py-3 border-b border-[#343746] shrink-0">
-          <div className="flex items-center gap-2 rounded border border-[#343746] bg-[#191a21] px-2.5 py-2 focus-within:border-[#8be9fd]">
+          <div className="flex items-center gap-2 rounded-sm border border-[#343746] bg-[#191a21] px-2.5 py-2 focus-within:border-[#8be9fd]">
             <Search className="h-3.5 w-3.5 text-[#6272a4]" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search PyBooks"
-              className="w-full bg-transparent text-xs text-[#f8f8f2] outline-none placeholder-[#6272a4]"
+              className="w-full bg-transparent text-xs text-[#f8f8f2] outline-hidden placeholder-[#6272a4]"
             />
           </div>
         </div>
@@ -1355,7 +1355,7 @@ export default function PyBooks() {
         <div className="flex gap-1 px-3 py-3 border-b border-[#343746] shrink-0">
           {[['all','All'],['top','Top-level'],['sub','Sub']].map(([v,l]) => (
             <button key={v} onClick={() => setTypeFilter(v)}
-              className={`flex-1 text-xs py-1.5 rounded transition-colors ${typeFilter === v ? 'bg-[#44475a] text-[#8be9fd]' : 'bg-[#20222c] text-[#8b8fa3] hover:bg-[#282a36]'}`}>
+              className={`flex-1 text-xs py-1.5 rounded-sm transition-colors ${typeFilter === v ? 'bg-[#44475a] text-[#8be9fd]' : 'bg-[#20222c] text-[#8b8fa3] hover:bg-[#282a36]'}`}>
               {l}
             </button>
           ))}
@@ -1392,7 +1392,7 @@ export default function PyBooks() {
                 </div>
                 {pbTags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
-                    {pbTags.map(t => <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-[#343746] text-[#8b8fa3]">{t}</span>)}
+                    {pbTags.map(t => <span key={t} className="text-xs px-1.5 py-0.5 rounded-sm bg-[#343746] text-[#8b8fa3]">{t}</span>)}
                   </div>
                 )}
               </div>
@@ -1414,7 +1414,7 @@ export default function PyBooks() {
           <div className="flex flex-col flex-1 overflow-hidden">
             {/* Toolbar */}
             <div className="flex items-center gap-3 px-5 py-3 border-b border-[#343746] bg-[#20222c] shrink-0 flex-wrap">
-              <div className="min-w-[10rem] flex-1">
+              <div className="min-w-40 flex-1">
                 <div className="flex items-center gap-2">
                   <span className={"w-2 h-2 rounded-full shrink-0 " + (selected.is_active ? "bg-[#50fa7b]" : "bg-[#6272a4]")} />
                   <span className="text-sm font-semibold truncate text-[#f8f8f2]">{selected.name}</span>
@@ -1422,39 +1422,39 @@ export default function PyBooks() {
                 <p className="mt-0.5 text-xs text-[#6272a4] truncate">{selected.description || selected.trigger_type}</p>
               </div>
               <button onClick={handleToggleActive} disabled={!isAdmin}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-[#282a36] hover:bg-[#343746] disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-[#282a36] hover:bg-[#343746] disabled:opacity-50 disabled:cursor-not-allowed rounded-sm transition-colors">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {selected.is_active ? "Disable" : "Enable"}
               </button>
               <button onClick={() => { setShowRuns(s => !s); setShowDocs(false); setShowConfig(false) }}
-                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showRuns ? "bg-[#8be9fd] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
+                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-sm transition-colors " + (showRuns ? "bg-[#8be9fd] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
                 <ClipboardList className="h-3.5 w-3.5" />
                 Runs
               </button>
               <button onClick={() => { setShowHistory(s => !s); setShowDocs(false); setShowConfig(false) }}
-                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showHistory ? "bg-[#ffb86c] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
+                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-sm transition-colors " + (showHistory ? "bg-[#ffb86c] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
                 <History className="h-3.5 w-3.5" />
                 History
                 {versions[0] && <span className={"font-mono text-[10px] " + (showHistory ? "" : "text-[#6272a4]")}>v{versions[0].version}</span>}
               </button>
               <button onClick={() => { setShowDocs(s => !s); setShowRuns(false); setShowConfig(false); setShowHistory(false) }}
-                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showDocs ? "bg-[#bd93f9] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
+                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-sm transition-colors " + (showDocs ? "bg-[#bd93f9] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
                 <FileText className="h-3.5 w-3.5" />
                 SDK
               </button>
               <button onClick={() => { setShowConfig(s => !s); setShowRuns(false); setShowDocs(false); setShowHistory(false) }}
-                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded transition-colors " + (showConfig ? "bg-[#bd93f9] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
+                className={"inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-sm transition-colors " + (showConfig ? "bg-[#bd93f9] text-[#191a21]" : "bg-[#282a36] hover:bg-[#343746]")}>
                 <Settings2 className="h-3.5 w-3.5" />
                 Settings
               </button>
               <button onClick={() => setShowAIPrompt(true)}
                 title="Copy AI prompt for writing PyBook scripts"
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-[#282a36] hover:bg-[#343746] hover:text-[#ff79c6] rounded transition-colors">
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-[#282a36] hover:bg-[#343746] hover:text-[#ff79c6] rounded-sm transition-colors">
                 <Sparkles className="h-3.5 w-3.5" />
                 AI Prompt
               </button>
               <button onClick={handleDelete} disabled={!isAdmin}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-[#282a36] hover:bg-[#3a1f2c] disabled:opacity-50 disabled:cursor-not-allowed text-[#8b8fa3] hover:text-[#ff79c6] rounded transition-colors">
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-[#282a36] hover:bg-[#3a1f2c] disabled:opacity-50 disabled:cursor-not-allowed text-[#8b8fa3] hover:text-[#ff79c6] rounded-sm transition-colors">
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete
               </button>
@@ -1466,18 +1466,18 @@ export default function PyBooks() {
                     onKeyDown={e => { if (e.key === "Enter") handleSave().catch(() => {}) }}
                     placeholder="Describe your change (optional)"
                     maxLength={200}
-                    className="w-56 rounded border border-[#343746] bg-[#191a21] px-2 py-1.5 text-xs text-[#f8f8f2] outline-none placeholder-[#6272a4] focus:border-[#50fa7b]"
+                    className="w-56 rounded-sm border border-[#343746] bg-[#191a21] px-2 py-1.5 text-xs text-[#f8f8f2] outline-hidden placeholder-[#6272a4] focus:border-[#50fa7b]"
                   />
                   <button onClick={() => handleSave().catch(() => {})} disabled={saving}
                     title="Save (Ctrl/Cmd+S)"
-                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded-sm font-semibold transition-colors">
                     <Save className="h-3.5 w-3.5" />
                     {saving ? "Saving..." : "Save"}
                   </button>
                 </div>
               )}
               {isProd && (
-                <span className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 px-2.5 py-1 rounded">
+                <span className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700 px-2.5 py-1 rounded-sm">
                   Production — read-only
                 </span>
               )}
@@ -1528,15 +1528,15 @@ export default function PyBooks() {
                     <select
                       value={triggerDraft?.type || 'manual'}
                       onChange={e => setTriggerDraft(d => ({ ...d, type: e.target.value, config: '{}' }))}
-                      className="bg-[#20222c] border border-[#343746] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#8be9fd]"
+                      className="bg-[#20222c] border border-[#343746] rounded-sm px-2 py-1 text-xs focus:outline-hidden focus:border-[#8be9fd]"
                     >
                       {TRIGGER_TYPES.map(t => <option key={t}>{t}</option>)}
                     </select>
                     <div className="flex gap-2 ml-auto">
                       <button onClick={handleSaveTrigger} disabled={!isAdmin}
-                        className="text-xs px-3 py-1 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-colors">Save</button>
+                        className="text-xs px-3 py-1 bg-[#50fa7b] text-[#191a21] hover:bg-[#69ff94] disabled:opacity-50 disabled:cursor-not-allowed rounded-sm font-semibold transition-colors">Save</button>
                       <button onClick={() => { setShowTriggerEdit(false); setTriggerDraft(null) }}
-                        className="text-xs px-3 py-1 bg-[#282a36] hover:bg-[#343746] rounded transition-colors">Cancel</button>
+                        className="text-xs px-3 py-1 bg-[#282a36] hover:bg-[#343746] rounded-sm transition-colors">Cancel</button>
                     </div>
                   </div>
                   {triggerDraft?.type === 'cron' && (
@@ -1609,7 +1609,7 @@ export default function PyBooks() {
                   title="Drag to resize the run console"
                   className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-t border-[#343746] bg-[#20222c] hover:bg-[#282a36]"
                 >
-                  <div className="h-0.5 w-10 rounded bg-[#44475a] group-hover:bg-[#6272a4]" />
+                  <div className="h-0.5 w-10 rounded-sm bg-[#44475a] group-hover:bg-[#6272a4]" />
                 </div>
                 <div className="shrink-0 overflow-hidden" style={{ height: runsHeight }}>
                   <RunPanel pybook={selected} onClose={() => setShowRuns(false)} isAdmin={isAdmin}

@@ -41,10 +41,10 @@ export default function Wiki() {
           <p className="mt-2 max-w-3xl text-sm text-[#6272a4]">A compact reference for how Pylo's main concepts fit together: Blueprints create Entries, PyBooks run code, Workflows chain automation, and Runs tell you what happened.</p>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-          <a href="#blueprints" className="rounded border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">Blueprints</a>
-          <a href="#pybooks" className="rounded border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">PyBooks</a>
-          <a href="#payloads" className="rounded border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">Payloads</a>
-          <a href="#runs" className="rounded border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">Runs</a>
+          <a href="#blueprints" className="rounded-sm border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">Blueprints</a>
+          <a href="#pybooks" className="rounded-sm border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">PyBooks</a>
+          <a href="#payloads" className="rounded-sm border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">Payloads</a>
+          <a href="#runs" className="rounded-sm border border-[#343746] bg-[#191a21] px-3 py-2 text-[#a7abc4] hover:text-[#f8f8f2]">Runs</a>
         </div>
       </div>
 
@@ -63,7 +63,7 @@ export default function Wiki() {
 
       <Section id="pybooks" title="PyBooks" icon={Braces}>
         <p><strong className="text-[#f8f8f2]">PyBooks</strong> are Python scripts that run in isolated Docker containers. They can be run manually, scheduled, triggered by a webhook, triggered by Blueprint entries, or called as Sub-PyBooks.</p>
-        <p>Declare extra pip packages in the PyBook dependencies field when the base runner image does not already provide them. Secrets selected in Required API keys / secrets are injected as environment variables named <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">SECRET_name</code>.</p>
+        <p>Declare extra pip packages in the PyBook dependencies field when the base runner image does not already provide them. Secrets selected in Required API keys / secrets are injected as environment variables named <code className="rounded-sm bg-[#0f1117] px-1 text-[#50fa7b]">SECRET_name</code>.</p>
         <Code>{`import os
 import pylo_sdk as pylo
 
@@ -75,8 +75,8 @@ pylo.set_output("processed", True)`}</Code>
       </Section>
 
       <Section id="payloads" title="Payloads and Variables" icon={Database}>
-        <p><strong className="text-[#f8f8f2]">Payloads are inputs.</strong> Pylo injects them into the container as <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">TRIGGER_PAYLOAD</code>. The recommended helper is <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">pylo.get_payload()</code>.</p>
-        <p><strong className="text-[#f8f8f2]">Output variables are outputs.</strong> Use <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">pylo.set_output()</code> or <code className="rounded bg-[#0f1117] px-1 text-[#50fa7b]">pylo.export_vars(locals())</code> to publish values for workflow edges and run inspection.</p>
+        <p><strong className="text-[#f8f8f2]">Payloads are inputs.</strong> Pylo injects them into the container as <code className="rounded-sm bg-[#0f1117] px-1 text-[#50fa7b]">TRIGGER_PAYLOAD</code>. The recommended helper is <code className="rounded-sm bg-[#0f1117] px-1 text-[#50fa7b]">pylo.get_payload()</code>.</p>
+        <p><strong className="text-[#f8f8f2]">Output variables are outputs.</strong> Use <code className="rounded-sm bg-[#0f1117] px-1 text-[#50fa7b]">pylo.set_output()</code> or <code className="rounded-sm bg-[#0f1117] px-1 text-[#50fa7b]">pylo.export_vars(locals())</code> to publish values for workflow edges and run inspection.</p>
         <Code>{`import pylo_sdk as pylo
 
 payload = pylo.get_payload()
@@ -115,9 +115,9 @@ ioc = payload.get("ioc")`}</Code>
 
       <Section id="quick-links" title="Quick Links" icon={KeyRound}>
         <div className="grid gap-2 text-sm md:grid-cols-3">
-          <Link to="/dashboard" className="rounded border border-[#343746] bg-[#282a36] px-3 py-2 text-[#f8f8f2] hover:border-[#8be9fd]">Dashboard</Link>
-          <Link to="/pybooks" className="rounded border border-[#343746] bg-[#282a36] px-3 py-2 text-[#f8f8f2] hover:border-[#8be9fd]">PyBooks</Link>
-          <Link to="/secrets" className="rounded border border-[#343746] bg-[#282a36] px-3 py-2 text-[#f8f8f2] hover:border-[#8be9fd]">Secrets</Link>
+          <Link to="/dashboard" className="rounded-sm border border-[#343746] bg-[#282a36] px-3 py-2 text-[#f8f8f2] hover:border-[#8be9fd]">Dashboard</Link>
+          <Link to="/pybooks" className="rounded-sm border border-[#343746] bg-[#282a36] px-3 py-2 text-[#f8f8f2] hover:border-[#8be9fd]">PyBooks</Link>
+          <Link to="/secrets" className="rounded-sm border border-[#343746] bg-[#282a36] px-3 py-2 text-[#f8f8f2] hover:border-[#8be9fd]">Secrets</Link>
         </div>
       </Section>
     </div>
