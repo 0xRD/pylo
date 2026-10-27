@@ -3,7 +3,7 @@ starlette==1.7.0
 uvicorn[standard]==0.54.0
 sqlmodel==0.0.22
 pydantic-settings==2.9.1
-docker==7.1.0
+docker==7.2.0
 apscheduler==3.11.3
 jsonpath-ng==1.7.0
 httpx==0.28.1
