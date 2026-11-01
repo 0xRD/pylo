@@ -300,3 +300,12 @@ def test_delete_type_removes_instances(client):
             select(Entry).where(Entry.blueprint_id == blueprint_id)
         ).all()
     assert remaining == []
+
+
+def test_coerce_number_scientific_notation():
+    from backend.objects.parser import _coerce
+    assert _coerce("1e3", "number") == 1000.0
+    assert _coerce("2.5E-3", "number") == 0.0025
+    assert _coerce("42", "number") == 42 and _coerce("1.5", "number") == 1.5
+    assert _coerce(1.5, "number") == 1.5
+    assert _coerce("nan", "number") == "nan" and _coerce("abc", "number") == "abc"

@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,8 +17,13 @@ def _coerce(value: Any, field_type: str) -> Any:
         return str(value)
     if field_type == "number":
         try:
-            return float(value) if "." in str(value) else int(value)
-        except (TypeError, ValueError):
+            return int(str(value))
+        except ValueError:
+            pass
+        try:
+            f = float(str(value))  # also covers '1e3', '2.5E-3'
+            return f if math.isfinite(f) else value  # keep 'nan'/'inf' as strings (not JSON-safe)
+        except ValueError:
             return value
     if field_type == "boolean":
         if isinstance(value, bool):
