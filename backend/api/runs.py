@@ -91,6 +91,7 @@ async def run_status_ws(run_id: str, websocket: WebSocket, token: Optional[str] 
         return
 
     await websocket.accept()
+    last_sent = None
     try:
         while True:
             with Session(engine) as session:
@@ -110,7 +111,10 @@ async def run_status_ws(run_id: str, websocket: WebSocket, token: Optional[str] 
                     "started_at": run.started_at.isoformat() if run.started_at else None,
                     "ended_at": run.ended_at.isoformat() if run.ended_at else None,
                 }
-                await websocket.send_json(payload)
+                # Logs can be large: only push when something actually changed.
+                if payload != last_sent:
+                    await websocket.send_json(payload)
+                    last_sent = payload
                 if run.status in TERMINAL:
                     break
             await asyncio.sleep(0.5)
@@ -128,25 +132,34 @@ async def set_run_output(run_id: str, body: dict, session: Session = Depends(get
         raise HTTPException(status_code=404, detail="Run not found")
     existing = _json.loads(run.output_vars or "{}")
     existing.update(body)
-    run.output_vars = _json.dumps(existing)
+    encoded = _json.dumps(existing)
+    if len(encoded) > 1_000_000:
+        raise HTTPException(status_code=413, detail="Run output variables are limited to 1 MB")
+    run.output_vars = encoded
     session.add(run)
     session.commit()
     return {"ok": True}
 
 @router.delete("/{run_id}")
 async def cancel_run(run_id: str, session: Session = Depends(get_session), current_user: AuthUser = Depends(verify_token)):
-    """Cancel a queued or pending run. Has no effect on running/terminal runs."""
+    """Cancel a run. Queued/pending runs are skipped; a running run has its container killed."""
+    from datetime import datetime, timezone
+    from backend.core.runner import kill_run
+
     _enforce_run_access(current_user, run_id)
     run = session.get(PyBookRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run.status not in ("queued", "pending"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot cancel run in status '{run.status}' — only queued/pending runs can be cancelled",
-        )
+    if run.status in TERMINAL:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel run in status '{run.status}': it already finished")
+    was_running = run.status == "running"
     run.status = "cancelled"
-    run.ended_at = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    if not was_running:
+        run.ended_at = datetime.now(timezone.utc)
     session.add(run)
     session.commit()
+    if was_running:
+        # The executor notices the cancelled status when the container exits
+        # and records the output captured so far.
+        await asyncio.to_thread(kill_run, run_id)
     return {"ok": True, "run_id": run_id, "status": "cancelled"}

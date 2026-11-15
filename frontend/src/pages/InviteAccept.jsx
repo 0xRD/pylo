@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { errorMessage } from '../api/errors'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -16,8 +17,7 @@ async function acceptInvite(token, username, password) {
     body: JSON.stringify({ username, password }),
   })
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || 'Failed to create account')
+    throw new Error(await errorMessage(res, 'Failed to create account'))
   }
   return res.json()
 }

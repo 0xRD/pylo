@@ -23,6 +23,18 @@ def _parse_cron(expr: str):
     return dict(minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week)
 
 
+def is_valid_cron(expr: str | None) -> bool:
+    """True if ``expr`` is a 5-part cron expression APScheduler accepts."""
+    kwargs = _parse_cron(expr or "")
+    if not kwargs:
+        return False
+    try:
+        CronTrigger(**kwargs)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 async def _run_cron_pybook(pybook_id: str):
     from backend.core import queue_manager
 
@@ -131,16 +143,19 @@ def sync_cron_jobs():
             job.remove()
 
     for ot in blueprints:
-        kwargs = _parse_cron(ot.fetch_cron)
-        if not kwargs:
+        # One bad expression must not abort the whole sync (or backend startup).
+        if not is_valid_cron(ot.fetch_cron):
             logger.warning("Invalid fetch_cron for Blueprint %s: %s", ot.id, ot.fetch_cron)
             continue
-        scheduler.add_job(
-            _fetch_cron_blueprint, CronTrigger(**kwargs),
-            args=[ot.id], id=f"cron_obj_{ot.id}",
-            replace_existing=True, misfire_grace_time=60,
-        )
-        logger.info("Scheduled cron fetch Blueprint %s: %s", ot.name, ot.fetch_cron)
+        try:
+            scheduler.add_job(
+                _fetch_cron_blueprint, CronTrigger(**_parse_cron(ot.fetch_cron)),
+                args=[ot.id], id=f"cron_obj_{ot.id}",
+                replace_existing=True, misfire_grace_time=60,
+            )
+            logger.info("Scheduled cron fetch Blueprint %s: %s", ot.name, ot.fetch_cron)
+        except Exception as exc:
+            logger.error("Failed to schedule Blueprint %s: %s", ot.id, exc)
 
     # ── Workflow cron jobs ────────────────────────────────────────────────────
     from backend.workflows.models import Workflow
@@ -176,14 +191,13 @@ TERMINAL_RUN_STATUSES = ("success", "error", "timeout", "cancelled", "dead_lette
 
 
 async def _cleanup_activity_log():
-    from backend.api.settings import get_setting
+    from backend.api.settings import get_int_setting
     from backend.activity.models import ActivityEvent
     from datetime import timedelta
     from sqlmodel import delete
 
     with Session(engine) as session:
-        retention_raw = get_setting(session, "activity_retention_days")
-        days = int(retention_raw or 7)
+        days = get_int_setting(session, "activity_retention_days", 7)
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         result = session.exec(delete(ActivityEvent).where(ActivityEvent.created_at < cutoff))
         session.commit()
@@ -216,10 +230,10 @@ def cleanup_run_history(session: Session, days: int) -> dict:
 
 
 async def _cleanup_run_history():
-    from backend.api.settings import get_setting
+    from backend.api.settings import get_int_setting
 
     with Session(engine) as session:
-        days = int(get_setting(session, "run_retention_days") or 0)
+        days = get_int_setting(session, "run_retention_days", 0)
         deleted = cleanup_run_history(session, days)
     if any(deleted.values()):
         logger.info("Run history cleanup: deleted %s (older than %d days)", deleted, days)
@@ -228,13 +242,13 @@ async def _cleanup_run_history():
 async def _run_auto_backup():
     """Scheduled auto-backup job: saves a ZIP to disk and prunes old files."""
     from backend.api.export_import import save_backup_to_disk, prune_old_backups
-    from backend.api.settings import get_setting
+    from backend.api.settings import get_int_setting
     from backend.activity.logger import log_activity
 
     try:
         with Session(engine) as session:
             filename = save_backup_to_disk(session)
-            retention = int(get_setting(session, "backup_retention") or 7)
+            retention = get_int_setting(session, "backup_retention", 7)
             prune_old_backups(retention)
             log_activity(session, "backup.saved", actor="scheduler",
                          detail={"filename": filename, "trigger": "auto"})
@@ -260,13 +274,12 @@ def sync_backup_job():
         logger.info("Auto-backup: disabled (no cron expression set)")
         return
 
-    kwargs = _parse_cron(cron_expr)
-    if not kwargs:
+    if not is_valid_cron(cron_expr):
         logger.warning("Auto-backup: invalid cron expression '%s', job not scheduled", cron_expr)
         return
 
     scheduler.add_job(
-        _run_auto_backup, CronTrigger(**kwargs),
+        _run_auto_backup, CronTrigger(**_parse_cron(cron_expr)),
         id=JOB_ID, replace_existing=True, misfire_grace_time=3600,
     )
     logger.info("Auto-backup scheduled: %s", cron_expr)

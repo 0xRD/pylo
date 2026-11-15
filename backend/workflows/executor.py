@@ -84,6 +84,21 @@ def _edge_matches(edge: dict, node: dict, status: str, output_vars: dict) -> boo
     return False
 
 
+_node_semaphores: dict[tuple[int, int], asyncio.Semaphore] = {}
+
+
+def _node_slots() -> asyncio.Semaphore:
+    """Semaphore bounding concurrent PyBook containers started by workflow nodes."""
+    from backend.core import queue_manager
+
+    limit = max(1, queue_manager.get_stats().get("max_concurrent") or 5)
+    key = (id(asyncio.get_running_loop()), limit)
+    sem = _node_semaphores.get(key)
+    if sem is None:
+        sem = _node_semaphores[key] = asyncio.Semaphore(limit)
+    return sem
+
+
 def _is_cancelled(workflow_run_id: str) -> bool:
     with Session(engine) as session:
         run = session.get(WorkflowRun, workflow_run_id)
@@ -185,6 +200,12 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
         except (json.JSONDecodeError, ValueError):
             logger.warning("PyBook %s has invalid required_secrets JSON", pb.id)
             secrets = []
+        # A PyBook keeps its own network policy when it runs inside a workflow.
+        network_policy = pb.network_policy or "default"
+        try:
+            allowed_hosts = json.loads(pb.allowed_hosts or "[]")
+        except (json.JSONDecodeError, ValueError):
+            allowed_hosts = []
 
     started = datetime.now(timezone.utc)
     stdout, stderr, exit_code = "", "", -1
@@ -193,26 +214,37 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
 
     for attempt in range(_node_retry_count(node) + 1):
         try:
-            stdout, stderr, exit_code = await run_pybook(
-                pybook_id=pybook_id,
-                run_id=pb_run_id,
-                script_path=script_path,
-                dependencies=deps,
-                required_secrets=secrets,
-                trigger_payload=payload,
-            )
+            # Loop fan-out can create many node runs at once: cap how many
+            # containers one workflow runs in parallel.
+            async with _node_slots():
+                if _is_cancelled(workflow_run_id):
+                    final_status, stderr = "cancelled", "[Workflow run cancelled]"
+                    break
+                stdout, stderr, exit_code = await run_pybook(
+                    pybook_id=pybook_id,
+                    run_id=pb_run_id,
+                    script_path=script_path,
+                    dependencies=deps,
+                    required_secrets=secrets,
+                    trigger_payload=payload,
+                    network_policy=network_policy,
+                    allowed_hosts=allowed_hosts,
+                )
             final_status = "success" if exit_code == 0 else "error"
         except TimeoutError as exc:
             final_status = "timeout"
-            stderr = str(exc)
+            stdout = getattr(exc, "stdout", "")
+            stderr = (getattr(exc, "stderr", "") + f"\n[{exc}]").lstrip("\n")
             exit_code = -1
         except Exception as exc:
             final_status = "error"
             stderr = str(exc)
             exit_code = -1
             logger.exception("Error running node %s attempt %s: %s", node_id, attempt + 1, exc)
-        if final_status == "success" or attempt == _node_retry_count(node):
+        if final_status == "success" or attempt == _node_retry_count(node) or _is_cancelled(workflow_run_id):
             break
+    if final_status != "success" and _is_cancelled(workflow_run_id):
+        final_status = "cancelled"  # its container was killed by the cancel request
 
     ended = datetime.now(timezone.utc)
     with Session(engine) as session:

@@ -42,11 +42,23 @@ cp .env.example .env
 # Edit .env and set SECRET_KEY, ENCRYPTION_KEY (must differ from SECRET_KEY), API_TOKEN,
 # POSTGRES_PASSWORD/DATABASE_URL, and other deployment values. Each key needs 32+ characters:
 #   python3 -c "import secrets; print(secrets.token_hex(32))"
+mkdir -p pybooks_storage objects_storage
+# Linux only: run the backend as the owner of those two directories
+echo "PYLO_UID=$(id -u)" >> .env && echo "PYLO_GID=$(id -g)" >> .env
 docker build -t pylo-runner-base:2026.05 -f docker/pybook-runner/Dockerfile.base docker/pybook-runner/
 docker compose up -d --build
 ```
 
 Keep `.env` private. It contains deployment secrets and must not be committed.
+
+### Upgrading
+
+```bash
+git pull
+bash setup.sh        # safe to re-run: keeps your .env, rebuilds and restarts the stack
+```
+
+`pybooks_storage/` holds PyBook scripts and `objects_storage/` holds auto-backups and the GitOps working copy. Both live next to `docker-compose.yml` and survive rebuilds; include them (and a database dump) in your host backups. Signing in again is required after upgrading to a release that changes session handling.
 
 ## Runtime Services
 
@@ -73,14 +85,17 @@ Secrets can be referenced in Blueprint headers as `{{secret:name}}`; values are 
 
 Entries are instances produced by Blueprints or created manually. They keep raw source data, parsed fields, history, mutable values, and full-text search metadata. Field filters are evaluated server-side so pagination remains correct.
 
-Example field filters:
+Example queries (the search box on any Entries view):
 
 ```text
 severity = "high"
 category contains "malware"
 score >= 80
 status != "closed" AND owner starts_with "secops"
+hostname ends_with ".corp.example" OR mimikatz
 ```
+
+Field filters support `=`, `!=`, `contains`, `starts_with`, `ends_with` and the numeric comparisons `>`, `>=`, `<`, `<=` (non-numeric values never match a numeric comparison). Anything that is not a field filter is full-text search: `a b` (both words), `a OR b`, `a NOT b`, `"exact phrase"` and `prefix*`. Filters and full-text terms can be combined with `AND` / `OR`.
 
 ### PyBooks
 
@@ -99,13 +114,23 @@ matches = pylo.search_entries(payload.get("query", ""))
 pylo.set_output("match_count", len(matches))
 ```
 
-PyBook containers are network-restricted by default. When network access is enabled, allowed hosts are configured as a JSON list of hostnames or domains, for example:
+Each PyBook has a network policy, set in its Settings panel and enforced by Docker networking (not by the script):
+
+| Policy | What the PyBook can reach |
+|---|---|
+| **Default** | The internet and the Pylo API (for the SDK). Never the database or the Docker API. |
+| **Allowlisted** | Only the listed hosts, plus the Pylo API. Everything else is blocked. |
+| **None** | Nothing: the container has no network interface, so the SDK is unavailable too. |
+
+Allowed hosts are a JSON list of hostnames; a hostname also covers its subdomains:
 
 ```json
 ["api.abuseipdb.com", "api.github.com"]
 ```
 
-Use hostnames only, not full URLs. Pylo validates outbound access against this allowlist before the PyBook can reach external services.
+Use hostnames only, not full URLs. An allowlisted PyBook runs on an internal network with no route out. Its only exit is Pylo's egress proxy, which identifies the run by its short-lived token, connects only to that PyBook's allowed hosts and refuses private or internal addresses. `requests`, `httpx`, `urllib` and `curl` pick the proxy up automatically from `HTTPS_PROXY`; code that opens raw sockets is simply blocked. The same policy applies when the PyBook runs as a Workflow node.
+
+Containers run as an unprivileged user with a read-only filesystem, no Linux capabilities, and memory, CPU and process limits. A run that exceeds `PYLO_TIMEOUT_SECONDS` is killed and marked `timeout`.
 
 ### Workflows
 
@@ -118,8 +143,10 @@ Workflow runs are tracked separately from PyBook runs and are also visible in th
 Every PyBook execution is written to the database as `queued` before it is enqueued. The run lifecycle is:
 
 ```text
-queued -> pending -> running -> success | error | timeout
+queued -> pending -> running -> success | error | timeout | cancelled
 ```
+
+Logs stream into the run console while a run is still executing, and stdout and stderr are both kept when a script fails or times out (each capped at 1 MB, keeping the end). Any queued or running run can be cancelled from the run console or the Runs page; cancelling a running run stops its container. Cancelling a Workflow run also stops the nodes that are executing.
 
 The queue is persistent and recovers orphaned runs after backend restarts. Set a failure-notification webhook in Settings to have Pylo POST a JSON message (with a Slack/Mattermost-compatible `text` field) whenever a PyBook or Workflow run ends in `error`, `timeout`, or `dead_letter` after its retries. The message includes the last 500 characters of the run's stderr, so avoid printing secrets in PyBooks. Finished runs are pruned nightly after the retention window configured in Settings (30 days by default, `0` keeps them forever). The default concurrency is 5 simultaneous runs (`PYLO_MAX_CONCURRENT_RUNS`) and can be adjusted live from Settings without restarting the backend.
 
@@ -139,9 +166,13 @@ Security posture:
 - Secrets are encrypted with Fernet and decrypted only at use time.
 - Secret values are never returned by the API after creation.
 - Secret values must not be logged by Pylo internals.
+- Changing or resetting a password signs out every other session of that account, and the last active admin cannot be removed, demoted or disabled.
+- PyBook containers run on dedicated networks that cannot reach the database or the Docker API, and "allowlisted" PyBooks can only leave through an authenticated egress proxy.
+- GitOps remotes must be `https://`, `http://` or `ssh://` URLs; other git transports are refused.
+- Restoring a backup or importing an export cannot write outside PyBook storage, and only known settings are restored.
 - API keys are stored hashed and the raw token is shown only once.
 - Blueprint fetches block private, loopback, link-local, reserved, multicast, and metadata-style targets by default.
-- PyBook network access can be restricted by allowed hosts.
+- PyBook network access can be removed entirely or restricted to allowed hosts (enforced, see PyBooks above).
 - Docker access should be treated as privileged infrastructure.
 
 ## Main Routes

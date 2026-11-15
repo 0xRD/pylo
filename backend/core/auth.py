@@ -66,13 +66,21 @@ def _verify_api_key(token: str, stored_hash: str) -> bool:
     return _hmac.compare_digest(hash_api_key(token), stored_hash)
 
 
-def create_access_token(username: str, role: str, expire_hours: int) -> str:
+def password_fingerprint(hashed_password: str) -> str:
+    """Short keyed digest of a password hash, embedded in session tokens.
+
+    When the password changes the fingerprint changes, so every session issued
+    before the change stops being valid (a stolen cookie dies with the reset).
+    """
+    return _hmac.new(settings.SECRET_KEY.encode(), hashed_password.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def create_access_token(username: str, role: str, expire_hours: int, hashed_password: str | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=expire_hours)
-    return jwt.encode(
-        {"sub": username, "role": role, "exp": expire},
-        settings.SECRET_KEY,
-        algorithm=ALGORITHM,
-    )
+    claims = {"sub": username, "role": role, "exp": expire}
+    if hashed_password:
+        claims["pwd"] = password_fingerprint(hashed_password)
+    return jwt.encode(claims, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
 def create_run_token(run_id: str, pybook_id: str) -> str:
@@ -153,6 +161,9 @@ def auth_user_from_jwt(token: str, session: Session) -> AuthUser | None:
     from backend.users.models import User
     user = session.exec(select(User).where(User.username == username)).first()
     if not user or not user.is_active:
+        return None
+    # Sessions are bound to the password they were created with.
+    if not _hmac.compare_digest(str(payload.get("pwd") or ""), password_fingerprint(user.hashed_password)):
         return None
     return AuthUser(username=user.username, role=user.role)
 

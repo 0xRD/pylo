@@ -33,6 +33,42 @@ router = APIRouter(prefix="/api", tags=["export_import"], dependencies=[Depends(
 
 BACKUPS_DIR = pathlib.Path("/app/objects_storage/backups")
 
+_NETWORK_POLICIES = {"default", "none", "allowlisted"}
+
+# Settings a backup may restore, with the bounds the settings API enforces.
+# Anything else in settings.json (credentials, GitOps state, unknown keys) is ignored.
+_RESTORABLE_INT_SETTINGS = {
+    "max_concurrent_runs": (1, 50),
+    "jwt_expire_hours": (1, 720),
+    "activity_retention_days": (1, 365),
+    "run_retention_days": (0, 3650),
+}
+_RESTORABLE_TEXT_SETTINGS = {"notify_webhook_url", "git_repo_url", "git_branch",
+                             "git_committer_name", "git_committer_email", "environment"}
+# Never written to a backup: encrypted with this instance's key, useless elsewhere.
+_UNEXPORTED_SETTINGS = {"git_token_enc"}
+
+
+def _safe_import_id(value) -> str | None:
+    """Imported ids become directory names and Docker image tags: only keep
+    ids that look like the ones Pylo generates."""
+    from backend.pybooks.store import is_safe_id
+    return value if isinstance(value, str) and is_safe_id(value) else None
+
+
+def _download_headers(prefix: str, name: str, extension: str = "json") -> dict:
+    filename = f"{prefix}_{_safe_filename(name, 'export')}.{extension}"
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
+def _resync_schedules() -> None:
+    """Imported objects may carry cron triggers; schedule them without a restart."""
+    try:
+        from backend.core.scheduler import sync_cron_jobs
+        sync_cron_jobs()
+    except Exception:
+        logger.exception("Could not resync cron jobs after import")
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +94,9 @@ def _pybook_fields_from_export(data: dict) -> dict:
         "trigger_config": data.get("trigger_config", "{}"),
         "required_secrets": data.get("required_secrets", "[]"),
         "tags": data.get("tags", "[]"),
+        # Exports made before these were included keep the default policy.
+        "network_policy": data.get("network_policy") if data.get("network_policy") in _NETWORK_POLICIES else "default",
+        "allowed_hosts": data.get("allowed_hosts") if isinstance(data.get("allowed_hosts"), str) else "[]",
     }
 
 
@@ -149,6 +188,8 @@ def _pybook_export_data(pb: PyBook) -> dict:
             "trigger_config": pb.trigger_config,
             "required_secrets": pb.required_secrets,
             "tags": pb.tags,
+            "network_policy": pb.network_policy,
+            "allowed_hosts": pb.allowed_hosts,
         }),
     }
 
@@ -189,7 +230,7 @@ def _upsert_pybook(session: Session, data: dict, now: datetime) -> tuple[str | N
     if not name:
         return data.get("id"), None
     fields = _pybook_fields_from_export(data)
-    original_id = data.get("id") or data.get("original_id")
+    original_id = _safe_import_id(data.get("id") or data.get("original_id"))
     existing = _get_by_id_or_name(session, PyBook, original_id, name)
     if existing:
         for k, v in fields.items():
@@ -212,7 +253,7 @@ def _upsert_blueprint(session: Session, data: dict, now: datetime) -> tuple[str 
     name = fields.get("name")
     if not name:
         return data.get("id"), None
-    original_id = data.get("id")
+    original_id = _safe_import_id(data.get("id"))
     existing = _get_by_id_or_name(session, Blueprint, original_id, name)
     if existing:
         for k, v in fields.items():
@@ -248,7 +289,7 @@ def _upsert_workflow(session: Session, data: dict, pybook_id_map: dict[str, str]
         "nodes": json.dumps(nodes),
         "edges": data.get("edges", "[]"),
     }
-    original_id = data.get("id")
+    original_id = _safe_import_id(data.get("id"))
     existing = _get_by_id_or_name(session, Workflow, original_id, name)
     if existing:
         for k, v in fields.items():
@@ -292,7 +333,7 @@ def _build_full_zip(
     blueprints = session.exec(select(Blueprint)).all()
     pybooks = session.exec(select(PyBook)).all()
     workflows = session.exec(select(Workflow)).all()
-    settings_rows = session.exec(select(SystemSetting)).all()
+    settings_rows = [r for r in session.exec(select(SystemSetting)).all() if r.key not in _UNEXPORTED_SETTINGS]
 
     manifest = {
         "pylo_export": "full_backup",
@@ -408,16 +449,14 @@ async def export_pybook(
             "trigger_config": pb.trigger_config,
             "required_secrets": pb.required_secrets,
             "tags": pb.tags,
+            "network_policy": pb.network_policy,
+            "allowed_hosts": pb.allowed_hosts,
         }),
     }
     log_activity(session, "pybook.exported", actor=current_user.username,
                  resource_type="pybook", resource_id=pb.id, resource_name=pb.name)
     session.commit()
-    filename = f"pybook_{pb.name.replace(' ', '_')}.json"
-    return JSONResponse(
-        content=data,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return JSONResponse(content=data, headers=_download_headers("pybook", pb.name))
 
 
 @router.get("/blueprints/{blueprint_id}/export")
@@ -468,11 +507,7 @@ async def export_blueprint(
                  resource_type="blueprint", resource_id=bp.id, resource_name=bp.name,
                  detail={"include_entries": include_entries})
     session.commit()
-    filename = f"blueprint_{bp.name.replace(' ', '_')}.json"
-    return JSONResponse(
-        content=data,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return JSONResponse(content=data, headers=_download_headers("blueprint", bp.name))
 
 
 @router.get("/workflows/{workflow_id}/export")
@@ -504,6 +539,8 @@ async def export_workflow(
                     "trigger_config": pb.trigger_config,
                     "required_secrets": pb.required_secrets,
                     "tags": pb.tags,
+                    "network_policy": pb.network_policy,
+                    "allowed_hosts": pb.allowed_hosts,
                 }),
             })
 
@@ -524,11 +561,7 @@ async def export_workflow(
                  resource_type="workflow", resource_id=wf.id, resource_name=wf.name,
                  detail={"embedded_pybooks": len(embedded_pybooks)})
     session.commit()
-    filename = f"workflow_{wf.name.replace(' ', '_')}.json"
-    return JSONResponse(
-        content=data,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return JSONResponse(content=data, headers=_download_headers("workflow", wf.name))
 
 
 # ── Full backup export ────────────────────────────────────────────────────────
@@ -753,32 +786,44 @@ async def import_full_backup(
     for data in blueprints:
         _upsert_blueprint(session, data, now)
     for data in pybooks:
-        old_id, new_id = _upsert_pybook(session, data, now)
-        if old_id and new_id:
+        _, new_id = _upsert_pybook(session, data, now)
+        old_id = data.get("id") or data.get("original_id")
+        if isinstance(old_id, str) and old_id and new_id:
             pybook_id_map[old_id] = new_id
     for data in workflows:
         _upsert_workflow(session, data, pybook_id_map, now)
 
-    # Restore settings (excluding backup_cron / backup_retention to avoid overwriting schedule)
-    skip_keys = {"backup_cron", "backup_retention"}
-    for key, value in imported_settings.items():
-        if not isinstance(key, str) or key in skip_keys:
-            continue
+    # Restore settings: only known keys, validated like the settings API does.
+    # (backup_cron / backup_retention are skipped to keep this instance's schedule.)
+    restored_settings: dict[str, str] = {}
+    if isinstance(imported_settings, dict):
+        for key, value in imported_settings.items():
+            if key in _RESTORABLE_INT_SETTINGS:
+                low, high = _RESTORABLE_INT_SETTINGS[key]
+                try:
+                    restored_settings[key] = str(max(low, min(int(value), high)))
+                except (TypeError, ValueError):
+                    continue
+            elif key in _RESTORABLE_TEXT_SETTINGS and isinstance(value, str):
+                if key == "environment" and value not in ("dev", "prod"):
+                    continue
+                if key == "notify_webhook_url" and value and not value.startswith(("https://", "http://")):
+                    continue
+                restored_settings[key] = value
+    for key, value in restored_settings.items():
         row = session.get(SystemSetting, key)
         if row:
-            row.value = str(value)
+            row.value = value
         else:
-            row = SystemSetting(key=key, value=str(value))
+            row = SystemSetting(key=key, value=value)
         session.add(row)
 
     session.commit()
+    _resync_schedules()
 
-    if "max_concurrent_runs" in imported_settings:
+    if "max_concurrent_runs" in restored_settings:
         from backend.core import queue_manager
-        try:
-            queue_manager.update_limit(int(imported_settings["max_concurrent_runs"]))
-        except (TypeError, ValueError):
-            pass
+        queue_manager.update_limit(int(restored_settings["max_concurrent_runs"]))
 
     # Restore secrets
     secrets_restored = 0
@@ -812,7 +857,7 @@ async def import_full_backup(
             "blueprints": len(blueprints),
             "pybooks": len(pybooks),
             "workflows": len(workflows),
-            "settings": len(imported_settings),
+            "settings": len(restored_settings),
             "secrets": secrets_restored,
         },
     }
@@ -869,6 +914,7 @@ async def import_pybook(
                      detail={"action": "update"})
         session.commit()
         session.refresh(existing)
+        _resync_schedules()
         return existing
 
     pb = PyBook(id=str(uuid.uuid4()), name=name, created_at=now, updated_at=now, **fields)
@@ -879,6 +925,7 @@ async def import_pybook(
                  detail={"action": "create"})
     session.commit()
     session.refresh(pb)
+    _resync_schedules()
     return pb
 
 
@@ -947,6 +994,7 @@ async def import_blueprint(
                      detail={"action": "update"})
         session.commit()
         session.refresh(existing)
+        _resync_schedules()
         return existing
 
     bp = Blueprint(id=str(uuid.uuid4()), created_at=now, **bp_fields)
@@ -958,22 +1006,40 @@ async def import_blueprint(
                  detail={"action": "create"})
     session.commit()
     session.refresh(bp)
+    _resync_schedules()
     return bp
 
 
 def _import_entries(session: Session, blueprint_id: str, entries: list) -> None:
+    from backend.objects.indexer import index_entry
+    from backend.objects.parser import extract_text_content
+
+    def _as_json_text(value) -> str:
+        return value if isinstance(value, str) else json.dumps(value if value is not None else {})
+
     now = datetime.now(timezone.utc)
     for e_data in entries:
+        if not isinstance(e_data, dict):
+            continue
+        data_text = _as_json_text(e_data.get("data", "{}"))
+        external_id = e_data.get("external_id")
         entry = Entry(
             id=str(uuid.uuid4()),
             blueprint_id=blueprint_id,
-            external_id=e_data.get("external_id"),
-            data=e_data.get("data", "{}"),
-            raw_data=e_data.get("raw_data", "{}"),
+            external_id=str(external_id) if external_id is not None else None,
+            data=data_text,
+            raw_data=_as_json_text(e_data.get("raw_data", "{}")),
             created_at=now,
             updated_at=now,
         )
         session.add(entry)
+        session.flush()
+        # Without this, restored entries exist but never show up in search.
+        try:
+            parsed = json.loads(data_text)
+        except ValueError:
+            parsed = {}
+        index_entry(session, entry.id, blueprint_id, extract_text_content(parsed if isinstance(parsed, dict) else {}))
 
 
 @router.post("/workflows/import", status_code=201)
@@ -1089,6 +1155,7 @@ async def import_workflow(
                      detail={"action": "update"})
         session.commit()
         session.refresh(wf_existing)
+        _resync_schedules()
         return wf_existing
 
     new_wf = Workflow(id=str(uuid.uuid4()), created_at=now, updated_at=now, **wf_fields)
@@ -1098,4 +1165,5 @@ async def import_workflow(
                  detail={"action": "create"})
     session.commit()
     session.refresh(new_wf)
+    _resync_schedules()
     return new_wf

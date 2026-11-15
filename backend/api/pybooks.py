@@ -1,5 +1,7 @@
+import asyncio
 import json
 import os
+import re
 import shutil
 import logging
 import uuid
@@ -60,6 +62,73 @@ class RunTrigger(BaseModel):
 
 
 _TERMINAL_STATUSES = {"success", "error", "timeout", "cancelled", "dead_letter"}
+TRIGGER_TYPES = {"manual", "cron", "webhook", "blueprint", "object_event"}
+NETWORK_POLICIES = {"default", "none", "allowlisted"}
+MAX_RUN_RETRIES = 10
+_HOSTNAME_RE = re.compile(r"^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*$")
+
+
+def _json_list_of_str(raw: str, field: str) -> list[str]:
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"{field} must be valid JSON")
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise HTTPException(status_code=422, detail=f"{field} must be a JSON array of strings")
+    return value
+
+
+def _validate_pybook_fields(fields: dict, current: Optional[PyBook] = None) -> None:
+    """Reject malformed PyBook settings at write time instead of failing (or being
+    silently ignored) at run time."""
+    for field in ("dependencies", "required_secrets", "tags"):
+        if fields.get(field) is not None:
+            _json_list_of_str(fields[field], field)
+    if fields.get("dependencies") is not None:
+        from backend.core.image_builder import _validate_dependency
+        for dep in json.loads(fields["dependencies"]):
+            try:
+                _validate_dependency(dep)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+    if fields.get("network_policy") is not None and fields["network_policy"] not in NETWORK_POLICIES:
+        raise HTTPException(status_code=422, detail=f"network_policy must be one of {sorted(NETWORK_POLICIES)}")
+    if fields.get("allowed_hosts") is not None:
+        for host in _json_list_of_str(fields["allowed_hosts"], "allowed_hosts"):
+            if not _HOSTNAME_RE.fullmatch(host.strip()):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"allowed_hosts: '{host}' is not a hostname (use e.g. api.example.com, without scheme or path)",
+                )
+    trigger_type = fields.get("trigger_type")
+    if trigger_type is not None and trigger_type not in TRIGGER_TYPES:
+        raise HTTPException(status_code=422, detail=f"trigger_type must be one of {sorted(TRIGGER_TYPES)}")
+    config = None
+    if fields.get("trigger_config") is not None:
+        try:
+            config = json.loads(fields["trigger_config"])
+            if not isinstance(config, dict):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="trigger_config must be a JSON object")
+    effective_type = trigger_type or (current.trigger_type if current else "manual")
+    if effective_type == "cron" and (trigger_type is not None or config is not None):
+        if config is None:
+            try:
+                config = json.loads((current.trigger_config if current else "") or "{}")
+            except ValueError:
+                config = {}
+        from backend.core.scheduler import is_valid_cron
+        if not is_valid_cron(config.get("cron")):
+            raise HTTPException(status_code=422, detail="Cron trigger needs a valid 5-part cron expression")
+
+
+def _resync_schedules() -> None:
+    from backend.core.scheduler import sync_cron_jobs
+    try:
+        sync_cron_jobs()
+    except Exception:  # scheduling problems must not fail the save itself
+        logger.exception("Could not resync cron jobs")
 
 
 async def _execute_run(pybook_id: str, run_id: str):
@@ -128,7 +197,8 @@ async def _execute_run(pybook_id: str, run_id: str):
         final_status = "success" if exit_code == 0 else "error"
     except TimeoutError as exc:
         final_status = "timeout"
-        stderr = str(exc)
+        stdout = getattr(exc, "stdout", "")
+        stderr = (getattr(exc, "stderr", "") + f"\n[{exc}]").lstrip("\n")
         exit_code = -1
     except Exception as exc:
         final_status = "error"
@@ -138,6 +208,23 @@ async def _execute_run(pybook_id: str, run_id: str):
 
     ended = datetime.now(timezone.utc)
     duration_ms = int((ended - started).total_seconds() * 1000)
+
+    # A cancel request (which also kills the container) wins over the outcome.
+    with Session(engine) as session:
+        run = session.get(PyBookRun, run_id)
+        if run and run.status == "cancelled":
+            run.stdout = stdout
+            run.stderr = (stderr + "\n[Cancelled by user]").lstrip("\n")
+            run.exit_code = exit_code
+            run.ended_at = ended
+            run.duration_ms = duration_ms
+            session.add(run)
+            log_activity(session, "pybook.run", actor=trigger_source,
+                         resource_type="pybook", resource_id=pb_id, resource_name=pb_name,
+                         detail={"run_id": run_id, "exit_code": exit_code,
+                                 "status": "cancelled", "duration_ms": duration_ms})
+            session.commit()
+            return
 
     # Retry logic: on error/timeout, re-enqueue if retries remain
     if final_status in ("error", "timeout") and retry_count < max_retries:
@@ -190,6 +277,7 @@ async def create_pybook(
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(verify_token),
 ):
+    _validate_pybook_fields(body.model_dump())
     now = datetime.now(timezone.utc)
     pb = PyBook(id=str(uuid.uuid4()), **body.model_dump(), created_at=now, updated_at=now)
     write_script(pb.id, pb.script)
@@ -199,6 +287,8 @@ async def create_pybook(
                  resource_type="pybook", resource_id=pb.id, resource_name=pb.name)
     session.commit()
     session.refresh(pb)
+    if pb.trigger_type == "cron":
+        _resync_schedules()
     return pb
 
 
@@ -221,6 +311,7 @@ async def update_pybook(
     if not pb:
         raise HTTPException(status_code=404, detail="PyBook not found")
     updated = body.model_dump(exclude_none=True, exclude={"commit_message"})
+    _validate_pybook_fields(updated, current=pb)
     if body.script is not None:
         sync_version(session, pb)  # capture any out-of-band change before overwriting it
     for field, value in updated.items():
@@ -237,8 +328,7 @@ async def update_pybook(
     session.commit()
     session.refresh(pb)
     if body.trigger_type is not None or body.trigger_config is not None or body.is_active is not None:
-        from backend.core.scheduler import sync_cron_jobs
-        sync_cron_jobs()
+        _resync_schedules()
     return pb
 
 
@@ -257,15 +347,18 @@ async def delete_pybook(
         session.delete(run)
     for version in session.exec(select(PyBookVersion).where(PyBookVersion.pybook_id == pybook_id)).all():
         session.delete(version)
-    script_dir = os.path.realpath(str(get_script_path(pb.id).parent))
+    try:
+        script_dir = os.path.realpath(str(get_script_path(pb.id).parent))
+    except ValueError:
+        script_dir = None  # legacy unsafe id: remove the row, never touch the filesystem
     root = os.path.realpath(str(STORAGE_ROOT))
-    if not script_dir.startswith(root + os.sep):
-        raise HTTPException(status_code=400, detail="Invalid PyBook id")
-    shutil.rmtree(script_dir, ignore_errors=True)
+    if script_dir and script_dir.startswith(root + os.sep):
+        shutil.rmtree(script_dir, ignore_errors=True)
     session.delete(pb)
     log_activity(session, "pybook.deleted", actor=current_user.username,
                  resource_type="pybook", resource_id=pybook_id, resource_name=pb_name)
     session.commit()
+    _resync_schedules()
 
 
 @router.post("/{pybook_id}/run")
@@ -290,7 +383,7 @@ async def run_pybook_endpoint(
         trigger_source=trigger_source,
         trigger_payload=json.dumps(body.trigger_payload),
         started_at=now,
-        max_retries=body.max_retries,
+        max_retries=max(0, min(body.max_retries, MAX_RUN_RETRIES)),
     )
     session.add(run)
     session.commit()
@@ -308,9 +401,12 @@ async def build_pybook_image(pybook_id: str, session: Session = Depends(get_sess
     from backend.core.image_builder import ensure_image
     try:
         deps = json.loads(pb.dependencies or "[]")
-        image_tag = ensure_image(pb.id, deps)
+        # Image builds take minutes: keep them off the event loop.
+        image_tag = await asyncio.to_thread(ensure_image, pb.id, deps)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Image build failed: {exc}")
     pb.docker_image_tag = image_tag
     pb.updated_at = datetime.now(timezone.utc)
     session.add(pb)

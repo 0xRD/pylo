@@ -111,8 +111,8 @@ async def create_workflow(
 async def list_all_workflow_runs(
     workflow_id: Optional[str] = None,
     status: List[str] = Query(default=[]),
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
     stmt = select(WorkflowRun).order_by(WorkflowRun.started_at.desc())
@@ -129,8 +129,8 @@ async def cancel_workflow_run(
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(verify_token),
 ):
-    """Cancel a queued or running workflow run. Nodes already executing finish;
-    no further nodes are started."""
+    """Cancel a queued or running workflow run. Containers of nodes that are
+    executing are killed and no further nodes are started."""
     run = session.get(WorkflowRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -146,6 +146,17 @@ async def cancel_workflow_run(
                  resource_type="workflow", resource_id=run.workflow_id,
                  resource_name=wf.name if wf else None, detail={"run_id": run_id})
     session.commit()
+    if was_running:
+        import asyncio
+        from backend.core.runner import kill_run
+        active = session.exec(
+            select(WorkflowNodeRun).where(
+                WorkflowNodeRun.workflow_run_id == run_id, WorkflowNodeRun.status == "running"
+            )
+        ).all()
+        for node_run in active:
+            if node_run.pybook_run_id:
+                await asyncio.to_thread(kill_run, node_run.pybook_run_id)
     return {"id": run.id, "status": run.status}
 
 

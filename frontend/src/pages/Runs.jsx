@@ -5,6 +5,7 @@ import RunStatusBadge from '../components/RunStatusBadge'
 import { runsApi } from '../api/pybooks'
 import { useRunDetail } from '../hooks/useRunDetail'
 import { useUi } from '../context/UiContext'
+import { useAuth } from '../context/AuthContext'
 
 const workflowRunsApi = {
   list: ({ workflowId, status, limit = 100, offset = 0 } = {}) => {
@@ -51,8 +52,20 @@ function VarsPanel({ vars }) {
   )
 }
 
-function PyBookRunDetail({ run: summary }) {
+function PyBookRunDetail({ run: summary, onChanged }) {
   const run = useRunDetail(summary)
+  const { isAdmin } = useAuth()
+  const [cancelState, setCancelState] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  useEffect(() => { setCancelState('') }, [summary.id])
+  const cancellable = isAdmin && ['queued', 'pending', 'running'].includes(run.status)
+  const cancel = () => {
+    setCancelling(true)
+    runsApi.cancel(run.id)
+      .then(() => { setCancelState('Cancel requested.'); onChanged?.() })
+      .catch(e => setCancelState(e.message))
+      .finally(() => setCancelling(false))
+  }
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-[#343746] bg-[#282a36] px-4 py-3">
@@ -62,6 +75,13 @@ function PyBookRunDetail({ run: summary }) {
             <span className="text-xs text-gray-400">{run.trigger_source}</span>
             {run.exit_code != null && <span className="text-xs text-gray-500">exit {run.exit_code}</span>}
             {run.duration_ms != null && <span className="text-xs text-gray-500">{run.duration_ms}ms</span>}
+            {cancellable && (
+              <button onClick={cancel} disabled={cancelling}
+                className="rounded-sm bg-red-900/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-900/60 disabled:opacity-50">
+                {cancelling ? 'Cancelling…' : 'Cancel run'}
+              </button>
+            )}
+            {cancelState && <span className="text-xs text-gray-400">{cancelState}</span>}
           </div>
           <span className="max-w-full truncate font-mono text-[11px] text-gray-500">{run.id}</span>
         </div>
@@ -115,7 +135,7 @@ function WorkflowRunDetail({ run }) {
   const status = detail?.status || run.status
   const cancellable = ['queued', 'pending', 'running'].includes(status)
   const cancel = () => workflowRunsApi.cancel(run.id)
-    .then(() => { setCancelState('Cancelled — nodes already running will finish.'); return workflowRunsApi.getDetail(run.workflow_id, run.id).then(setDetail) })
+    .then(() => { setCancelState('Cancelled — running nodes are being stopped.'); return workflowRunsApi.getDetail(run.workflow_id, run.id).then(setDetail) })
     .catch(e => setCancelState(e.message))
 
   return (
@@ -367,7 +387,7 @@ export default function Runs() {
           </div>
           {selected._type === 'workflow'
             ? <WorkflowRunDetail run={selected} />
-            : <PyBookRunDetail run={selected} />
+            : <PyBookRunDetail run={selected} onChanged={loadRuns} />
           }
         </div>
       )}

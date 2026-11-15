@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors"
 const BASE = "/api/secrets"
 
 function headers(withBody = false) {
@@ -13,7 +14,7 @@ async function req(method, path, body) {
     headers: headers(!!body),
     body: body ? JSON.stringify(body) : undefined,
   })
-  if (!res.ok) throw new Error((await res.text()) || res.statusText)
+  if (!res.ok) throw new Error(await errorMessage(res))
   if (res.status === 204) return null
   return res.json()
 }

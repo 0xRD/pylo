@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors"
 const BASE = "/api"
 
 // Encode a value interpolated into a URL path so it cannot alter the path structure
@@ -16,7 +17,7 @@ async function req(method, path, body) {
     headers: headers(!!body),
     body: body ? JSON.stringify(body) : undefined,
   })
-  if (!res.ok) throw new Error((await res.text()) || res.statusText)
+  if (!res.ok) throw new Error(await errorMessage(res))
   if (res.status === 204) return null
   return res.json()
 }
@@ -47,5 +48,7 @@ export const runsApi = {
     return req("GET", `/runs?${p}`)
   },
   get: (id) => req("GET", `/runs/${seg(id)}`),
+  // Queued runs are skipped; a running run has its container stopped.
+  cancel: (id) => req("DELETE", `/runs/${seg(id)}`),
   queueStats: () => req("GET", "/runs/queue"),
 }
