@@ -4,6 +4,8 @@ Pylo is a Python automation orchestration platform for SOAR and general-purpose 
 
 Pylo is built for security analysts, DevOps engineers, and code-first automation users who want automation that stays inspectable and scriptable.
 
+![Pylo dashboard with overview counters and run trends](docs/screenshots/dashboard.png)
+
 ## V1 Scope
 
 Pylo V1 focuses on a stable automation core:
@@ -15,6 +17,56 @@ Pylo V1 focuses on a stable automation core:
 - **Runs** provide a persistent async execution queue with live logs, status history, concurrency limits, and orphan recovery after restarts.
 - **Secrets and API keys** are designed for least privilege: secrets are encrypted, decrypted values are never returned, and integration API keys can be scoped.
 - **Operations** include backup/export, restore/import, system settings, user management, audit activity, and a GitOps-style dev-to-prod promotion flow.
+
+## Feature Tour
+
+### Blueprints (API ingestion)
+
+Blueprints are the data sources that fetch records from external REST APIs. Each one is listed here with its type and schedule, and you open it to review its Entries and Settings.
+
+![Blueprints list showing an API blueprint on a schedule and a manual blueprint](docs/screenshots/blueprints.png)
+
+### Entries (search and filters)
+
+Entries hold the normalized records produced by Blueprints. The search box accepts field filters combined with full-text terms, as described in [Core Concepts](#entries).
+
+![Entries view with the query ransomware = Known AND vendor contains micro](docs/screenshots/entries.png)
+
+### PyBooks (editor)
+
+PyBooks are Python scripts that can be triggered by a Blueprint, cron, webhook or a Workflow. The editor shows the selected script, its tags and trigger, and the SDK and Settings actions above the code.
+
+![PyBook editor with the Triage KEV entry script and its trigger settings](docs/screenshots/pybook-editor.png)
+
+### Run console (live logs, cancel)
+
+The Runs button opens the run console below the editor. It lists recent runs with their status and shows the captured stdout and the input payload of the selected run. Queued and running runs can be cancelled from the console.
+
+![PyBook run console with recent successful runs and captured stdout](docs/screenshots/pybook-run-console.png)
+
+### Workflows (visual graph)
+
+Workflows are drawn as a node graph on a canvas. Each node is a PyBook or a condition, and connections are labelled with the branch they follow, such as `success` or `true`.
+
+![Workflow editor showing the KEV ransomware escalation graph](docs/screenshots/workflow-editor.png)
+
+### Runs (unified history)
+
+The Runs page lists PyBook and Workflow runs in one history, with status filters and the queue concurrency. Selecting a row opens its details on the right, including stdout and the input payload.
+
+![Runs page with a PyBook run selected and its details panel open](docs/screenshots/runs.png)
+
+### Secrets
+
+Secrets are stored encrypted and are write-only in the UI: values cannot be read back after creation. The page also shows how to reference a secret from a Blueprint header or as an environment variable in a PyBook.
+
+![Secrets page listing named secrets and usage examples](docs/screenshots/secrets.png)
+
+### Settings
+
+Settings holds the PyBook concurrency limit, session duration, data retention, and the failure-notification webhook.
+
+![Settings page with concurrency, security, retention and failure notification sections](docs/screenshots/settings.png)
 
 ## Quick Start
 
