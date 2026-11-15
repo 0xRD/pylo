@@ -254,6 +254,7 @@ def _patch_runner(monkeypatch, container):
     monkeypatch.setattr(runner.docker, "from_env", lambda: _Client())
     monkeypatch.setattr(runner, "ensure_image", lambda pybook_id, deps: "image:tag")
     monkeypatch.setattr(runner, "_store_live_output", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_run_was_cancelled", lambda run_id: False)
     monkeypatch.setattr(runner, "_POLL_INTERVAL", 0.01)
     return runner
 
@@ -282,6 +283,15 @@ def test_runner_returns_both_streams_and_exit_code_on_failure(monkeypatch):
     assert container.run_kwargs["network_mode"] == "none"
     assert container.run_kwargs["name"] == runner.container_name("run-2")
     assert container.run_kwargs["detach"] is True
+
+
+def test_runner_skips_container_when_cancelled_during_build(monkeypatch):
+    container = _FakeContainer(exits_after=1)
+    runner = _patch_runner(monkeypatch, container)
+    monkeypatch.setattr(runner, "_run_was_cancelled", lambda run_id: True)
+
+    assert runner._run_container_sync("pb", "run-3", [], [], {}, "none", [], timeout=5) == ("", "", -1)
+    assert not hasattr(container, "run_kwargs")  # never started
 
 
 def test_output_is_capped():

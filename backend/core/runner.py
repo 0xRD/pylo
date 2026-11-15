@@ -74,6 +74,7 @@ def _detect_host_paths() -> tuple[str, str]:
 def init_host_paths() -> None:
     global _host_pybooks_path, _host_pylo_sdk_path
     _host_pybooks_path, _host_pylo_sdk_path = _detect_host_paths()
+    cleanup_orphan_containers()
 
 
 def _collect_secrets(pybook_id: str, run_id: str, required_secrets: list[str]) -> dict[str, str]:
@@ -168,6 +169,43 @@ def _store_live_output(run_id: str, stdout: str, stderr: str) -> None:
         logger.debug("Could not store live output for run %s: %s", run_id, exc)
 
 
+def _instance_label() -> str:
+    # Several Pylo stacks can share one Docker daemon; the runner network name is per stack.
+    return settings.DOCKER_NETWORK
+
+
+def cleanup_orphan_containers() -> int:
+    """Remove run containers left behind by a previous backend process.
+
+    Runs interrupted by a restart are marked as failed by the queue manager;
+    their containers must not keep running (or pile up) on the Docker host.
+    """
+    removed = 0
+    try:
+        client = docker.from_env()
+        for container in client.containers.list(all=True, filters={"label": f"pylo.instance={_instance_label()}"}):
+            _remove_container(container)
+            removed += 1
+    except Exception as exc:
+        logger.warning("Could not clean up leftover run containers: %s", exc)
+    if removed:
+        logger.warning("Removed %d leftover run container(s) from a previous backend process", removed)
+    return removed
+
+
+def _run_was_cancelled(run_id: str) -> bool:
+    from backend.database import engine
+    from backend.pybooks.models import PyBookRun
+    from sqlmodel import Session
+
+    try:
+        with Session(engine) as session:
+            run = session.get(PyBookRun, run_id)
+            return bool(run and run.status == "cancelled")
+    except Exception:
+        return False
+
+
 def kill_run(run_id: str) -> bool:
     """Kill the container of an active run. Returns True if a container was killed."""
     try:
@@ -235,13 +273,17 @@ def _run_container_sync(
     except NotFound:
         pass
 
+    # The image build above can take a while: honour a cancel that arrived meanwhile.
+    if _run_was_cancelled(run_id):
+        return "", "", -1
+
     timeout = timeout or settings.PYLO_TIMEOUT_SECONDS
     try:
         container = client.containers.run(
             image=image_tag,
             command=["python", "/pybook/main.py"],
             name=name,
-            labels={"pylo.run_id": run_id, "pylo.pybook_id": pybook_id},
+            labels={"pylo.run_id": run_id, "pylo.pybook_id": pybook_id, "pylo.instance": _instance_label()},
             volumes=volumes,
             environment=environment,
             mem_limit=settings.PYLO_MEM_LIMIT,
