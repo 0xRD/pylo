@@ -115,8 +115,10 @@ def _basic(token: str) -> str:
 async def test_egress_proxy_enforces_allowlist(monkeypatch):
     from backend.core import egress_proxy
 
+    seen: list[bytes] = []
+
     async def upstream(reader, writer):
-        await reader.readuntil(b"\r\n\r\n")
+        seen.append(await reader.readuntil(b"\r\n\r\n"))
         writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
         await writer.drain()
         writer.close()
@@ -157,6 +159,27 @@ async def test_egress_proxy_enforces_allowlist(monkeypatch):
              f"Proxy-Authorization: Basic {_basic('good')}\r\n\r\n").encode(),
         )
         assert reply.startswith(b"HTTP/1.1 200 OK") and reply.endswith(b"ok")
+        assert seen[-1].startswith(b"GET /path?x=1 HTTP/1.1\r\n")
+        assert b"Proxy-Authorization" not in seen[-1]
+
+        # The Host header cannot point at another site behind the same address, and a
+        # second request cannot be pipelined behind the authorised one.
+        reply = await _proxy_request(
+            port,
+            (f"GET http://allowed.test:{upstream_port}/ HTTP/1.1\r\nHost: internal.evil.test\r\n"
+             f"Proxy-Authorization: Basic {_basic('good')}\r\n\r\n"
+             "GET /smuggled HTTP/1.1\r\nHost: internal.evil.test\r\n\r\n").encode(),
+        )
+        assert reply.startswith(b"HTTP/1.1 200 OK")
+        assert f"Host: allowed.test:{upstream_port}\r\n".encode() in seen[-1]
+        assert b"evil" not in seen[-1] and b"smuggled" not in b"".join(seen)
+
+        reply = await _proxy_request(
+            port,
+            (f"POST http://allowed.test:{upstream_port}/ HTTP/1.1\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n"
+             f"Proxy-Authorization: Basic {_basic('good')}\r\n\r\n").encode(),
+        )
+        assert reply.startswith(b"HTTP/1.1 400")
 
         # Allowed CONNECT opens a tunnel
         reader, writer = await asyncio.open_connection("127.0.0.1", port)

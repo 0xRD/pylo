@@ -100,18 +100,26 @@ async def _reply(writer: asyncio.StreamWriter, status: str, message: str) -> Non
         pass
 
 
-async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, limit: int | None = None) -> None:
+    """Copy bytes until EOF, or at most ``limit`` bytes when a limit is given."""
+    remaining = limit
     try:
-        while data := await reader.read(65536):
+        while remaining is None or remaining > 0:
+            data = await reader.read(65536 if remaining is None else min(65536, remaining))
+            if not data:
+                break
+            if remaining is not None:
+                remaining -= len(data)
             writer.write(data)
             await writer.drain()
+        if limit is not None:
+            return  # request body sent; keep the upstream open for its response
     except (ConnectionError, asyncio.CancelledError):
         pass
-    finally:
-        try:
-            writer.close()
-        except Exception:
-            pass
+    try:
+        writer.close()
+    except Exception:
+        pass
 
 
 async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -137,6 +145,7 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
             return
         pybook_id, allowed = auth
 
+        body_length = None
         if method.upper() == "CONNECT":
             host, port = _split_host_port(target, 443)
             forward_head = None
@@ -149,9 +158,29 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
             path = url.path or "/"
             if url.query:
                 path += f"?{url.query}"
+            # Forward exactly one request to exactly the authorised host: the Host
+            # header is rewritten (it must not name another site on the same
+            # address), hop-by-hop proxy headers are dropped, and the body is
+            # bounded so nothing can be pipelined behind it.
+            if "transfer-encoding" in headers and "content-length" in headers:
+                await _reply(writer, "400 Bad Request", "Ambiguous request framing")
+                return
+            try:
+                body_length = int(headers["content-length"]) if "content-length" in headers else None
+                if body_length is not None and body_length < 0:
+                    raise ValueError
+            except ValueError:
+                await _reply(writer, "400 Bad Request", "Invalid Content-Length")
+                return
+            if body_length is None and "transfer-encoding" not in headers:
+                body_length = 0
             kept = [line for line in header_lines
-                    if not line.lower().startswith(("proxy-authorization:", "proxy-connection:", "connection:"))]
-            forward_head = "\r\n".join([f"{method} {path} {version}", *kept, "Connection: close", "", ""]).encode("latin-1")
+                    if not line.lower().startswith(("proxy-authorization:", "proxy-connection:", "connection:", "host:"))]
+            default_port = url.port in (None, 80)
+            host_header = url.hostname if default_port else f"{url.hostname}:{url.port}"
+            forward_head = "\r\n".join(
+                [f"{method} {path} {version}", f"Host: {host_header}", *kept, "Connection: close", "", ""]
+            ).encode("latin-1")
 
         host = normalize_host(host)
         if not host_allowed(host, allowed):
@@ -181,7 +210,7 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
             upstream_writer.write(forward_head)
             await upstream_writer.drain()
 
-        await asyncio.gather(_pipe(reader, upstream_writer), _pipe(upstream_reader, writer))
+        await asyncio.gather(_pipe(reader, upstream_writer, body_length), _pipe(upstream_reader, writer))
     except Exception as exc:  # a broken client must never take the proxy down
         logger.debug("Egress proxy connection error: %s", exc)
     finally:
