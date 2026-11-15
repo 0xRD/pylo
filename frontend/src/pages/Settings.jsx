@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { errorMessage } from '../api/errors'
 import { backupApi } from '../api/exportImport'
 import { getGitConfig, updateGitConfig } from '../api/gitops'
 import { useAuth } from '../context/AuthContext'
@@ -27,7 +28,7 @@ const apiKeysApi = {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
-  }).then(async r => r.ok ? r.json() : Promise.reject(new Error((await r.text()) || 'Could not create API key'))),
+  }).then(async r => r.ok ? r.json() : Promise.reject(new Error(await errorMessage(r, 'Could not create API key')))),
   revoke: (id) => fetch(`/api/api-keys/${id}`, { method: 'DELETE', credentials: 'include' }).then(r => {
     if (!r.ok) throw new Error('Could not revoke API key')
   }),

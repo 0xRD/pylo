@@ -12,12 +12,14 @@ Git repo layout:
 """
 
 import base64
+import functools
 import json
 import logging
 import os
 import pathlib
 import re
 import subprocess
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
@@ -38,6 +40,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/gitops", tags=["gitops"], dependencies=[Depends(verify_token)])
 
 GITOPS_DIR = pathlib.Path("/app/objects_storage/gitops_repo")
+
+# The endpoints below are plain ``def`` so FastAPI runs them in its thread pool:
+# git talks to the network and must not block the event loop. They share one
+# working copy, so they are serialised.
+_repo_lock = threading.Lock()
+
+_BRANCH_RE = re.compile(r"^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$")
+# Only network transports that cannot run local commands (no ext::, file://, ...).
+_GIT_PROTOCOLS = "https:http:ssh"
+
+
+def _validate_repo_url(url: str) -> str:
+    """Accept https://, http:// and ssh:// remotes only.
+
+    Anything else could make git run a local helper (``ext::sh -c ...``), read
+    local paths, or be parsed as a command-line option.
+    """
+    url = (url or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https", "http", "ssh") or not parsed.hostname or url.startswith("-") \
+            or any(ch.isspace() for ch in url):
+        raise HTTPException(400, "Git repository URL must be an https://, http:// or ssh:// URL")
+    return url
+
+
+def _validate_branch(branch: str) -> str:
+    branch = (branch or "").strip() or "main"
+    if not _BRANCH_RE.fullmatch(branch):
+        raise HTTPException(400, "Invalid git branch name")
+    return branch
 
 # Fields ignored during diff comparison (volatile / instance-specific)
 _VOLATILE = {"id", "is_active", "created_at", "updated_at",
@@ -84,8 +116,9 @@ def _strip_credentials(url: str) -> str:
 
 
 def _git(args: list, cwd: pathlib.Path | None = None, check: bool = True, extra_env: dict = None):
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(extra_env or {})}
-    r = subprocess.run(["git"] + args, cwd=str(cwd or GITOPS_DIR), capture_output=True, text=True, env=env)
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ALLOW_PROTOCOL": _GIT_PROTOCOLS, **(extra_env or {})}
+    r = subprocess.run(["git"] + args, cwd=str(cwd or GITOPS_DIR), capture_output=True, text=True, env=env,
+                       timeout=120)
     if check and r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or r.stdout.strip() or f"git {args[0]} failed")
     return r
@@ -94,18 +127,19 @@ def _git(args: list, cwd: pathlib.Path | None = None, check: bool = True, extra_
 def _ensure_repo(url: str, branch: str, token: str = "") -> None:
     """Clone if not present, then fetch latest from remote."""
     GITOPS_DIR.parent.mkdir(parents=True, exist_ok=True)
-    url = _strip_credentials(url)
+    url = _strip_credentials(_validate_repo_url(url))
+    branch = _validate_branch(branch)
     auth = _auth_env(token)
 
     if not (GITOPS_DIR / ".git").exists():
-        r = _git(["clone", url, str(GITOPS_DIR)], cwd=GITOPS_DIR.parent, check=False, extra_env=auth)
+        r = _git(["clone", "--", url, str(GITOPS_DIR)], cwd=GITOPS_DIR.parent, check=False, extra_env=auth)
         if r.returncode != 0:
             # Possibly empty repo — init locally and add remote
             GITOPS_DIR.mkdir(exist_ok=True)
             _git(["init"], check=False)
-            _git(["remote", "add", "origin", url], check=False)
+            _git(["remote", "add", "--", "origin", url], check=False)
     else:
-        _git(["remote", "set-url", "origin", url], check=False)
+        _git(["remote", "set-url", "--", "origin", url], check=False)
 
     # Fetch (may fail silently for brand-new empty repos)
     _git(["fetch", "origin"], check=False, extra_env=auth)
@@ -161,7 +195,23 @@ def _pybook_for_git(pb: PyBook) -> dict:
         "trigger_config": pb.trigger_config,
         "required_secrets": pb.required_secrets,
         "tags": pb.tags,
+        # Promote the sandbox settings too: prod must not fall back to open network access.
+        "network_policy": pb.network_policy,
+        "allowed_hosts": pb.allowed_hosts,
     }
+
+
+_BLUEPRINT_SYNC_FIELDS = frozenset(_blueprint_for_git(None, Blueprint(id="_", name="_"))) - {"name"}
+_PYBOOK_SYNC_FIELDS = frozenset(_pybook_for_git(PyBook(id="_", name="_"))) - {"name"}
+
+
+def _serialised(fn):
+    """Run a GitOps endpoint under the shared working-copy lock."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _repo_lock:
+            return fn(*args, **kwargs)
+    return wrapper
 
 
 def _workflow_for_git(session: Session, wf: Workflow) -> dict:
@@ -303,6 +353,9 @@ async def update_git_config(
 ):
     if body.environment not in ("dev", "prod"):
         raise HTTPException(400, "environment must be 'dev' or 'prod'")
+    if body.git_repo_url.strip():
+        body.git_repo_url = _validate_repo_url(body.git_repo_url)
+    body.git_branch = _validate_branch(body.git_branch)
 
     _ss(session, "environment", body.environment)
     _ss(session, "git_repo_url", body.git_repo_url)
@@ -318,11 +371,13 @@ async def update_git_config(
 
     log_activity(session, "gitops.config.updated", actor=current_user.username,
                  detail={"environment": body.environment})
+    session.commit()
     return {"ok": True}
 
 
 @router.get("/status")
-async def git_status(
+@_serialised
+def git_status(
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(verify_token),
 ):
@@ -339,7 +394,7 @@ async def git_status(
     try:
         _ensure_repo(url, branch, token)
     except Exception as exc:
-        return {"environment": env, "configured": True, "error": str(exc),
+        return {"environment": env, "configured": True, "error": getattr(exc, "detail", None) or str(exc),
                 "pending_count": 0, "remote_ahead": False}
 
     # Check if repo has any commits
@@ -372,7 +427,8 @@ async def git_status(
 
 
 @router.get("/diff")
-async def git_diff(
+@_serialised
+def git_diff(
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(require_admin),
 ):
@@ -387,6 +443,8 @@ async def git_diff(
 
     try:
         _ensure_repo(url, branch, token)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(500, f"Git error: {exc}")
 
@@ -411,7 +469,8 @@ class CommitBody(BaseModel):
 
 
 @router.post("/commit")
-async def git_commit(
+@_serialised
+def git_commit(
     body: CommitBody,
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(require_admin),
@@ -433,6 +492,8 @@ async def git_commit(
 
     try:
         _ensure_repo(url, branch, token)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(500, f"Git error: {exc}")
 
@@ -541,7 +602,8 @@ class SyncBody(BaseModel):
 
 
 @router.post("/sync")
-async def git_sync(
+@_serialised
+def git_sync(
     body: SyncBody,
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(require_admin),
@@ -561,6 +623,8 @@ async def git_sync(
 
     try:
         _ensure_repo(url, branch, token)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(500, f"Git error: {exc}")
 
@@ -584,7 +648,7 @@ async def git_sync(
         existing = session.exec(_sel(PyBook).where(PyBook.name == data["name"])).first()
         if existing:
             for k, v in data.items():
-                if k != "name" and hasattr(existing, k):
+                if k in _PYBOOK_SYNC_FIELDS:
                     setattr(existing, k, v)
             existing.updated_at = now
             _write_script(existing.id, existing.script)
@@ -601,7 +665,9 @@ async def git_sync(
                         trigger_type=data.get("trigger_type", "manual"),
                         trigger_config=data.get("trigger_config", "{}"),
                         required_secrets=data.get("required_secrets", "[]"),
-                        tags=data.get("tags", "[]"))
+                        tags=data.get("tags", "[]"),
+                        network_policy=data.get("network_policy") or "default",
+                        allowed_hosts=data.get("allowed_hosts") or "[]")
             _write_script(pb.id, pb.script)
             session.add(pb)
             pybook_slug_to_id[slug] = new_id
@@ -618,7 +684,7 @@ async def git_sync(
         existing = session.exec(_sel(Blueprint).where(Blueprint.name == data["name"])).first()
         if existing:
             for k, v in data.items():
-                if k != "name" and hasattr(existing, k):
+                if k in _BLUEPRINT_SYNC_FIELDS:
                     setattr(existing, k, v)
             session.add(existing)
         else:
@@ -699,4 +765,9 @@ async def git_sync(
     session.commit()
     log_activity(session, "gitops.synced", actor=current_user.username, detail=applied)
     session.commit()
+    try:  # synced objects may carry cron triggers
+        from backend.core.scheduler import sync_cron_jobs
+        sync_cron_jobs()
+    except Exception:
+        logger.exception("Could not resync cron jobs after GitOps sync")
     return {"ok": True, "applied": applied}

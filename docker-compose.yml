@@ -40,9 +40,17 @@ services:
   backend:
     security_opt:
       - no-new-privileges:true
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Match the owner of ./pybooks_storage and ./objects_storage on the host
+        # (setup.sh writes these to .env on Linux).
+        PYLO_UID: ${PYLO_UID:-501}
+        PYLO_GID: ${PYLO_GID:-501}
     volumes:
       - ./pybooks_storage:/app/pybooks_storage
+      # Auto-backups and the GitOps working copy: must survive container rebuilds.
+      - ./objects_storage:/app/objects_storage
       - ./pylo_sdk.py:/app/pylo_sdk.py:ro
       - ./tests:/app/tests:ro
       - ./migrations:/app/migrations
@@ -55,6 +63,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pylo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-pylo}
       DOCKER_HOST: tcp://socket-proxy:2375
+      # PyBook containers never join the network that holds the database.
+      DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME}_runner_egress
+      PYLO_RUNNER_INTERNAL_NETWORK: ${COMPOSE_PROJECT_NAME}_runner_internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +75,8 @@ services:
     networks:
       - pylo_default
       - socket_proxy
+      - runner_egress
+      - runner_internal
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -108,6 +121,14 @@ networks:
   pylo_default:
     driver: bridge
   socket_proxy:
+    driver: bridge
+    internal: true
+  # PyBooks with the "default" network policy: internet + the Pylo API, no database.
+  runner_egress:
+    driver: bridge
+  # PyBooks with the "allowlisted" policy: no route out. They reach the Pylo API
+  # directly and everything else only through the backend's egress proxy.
+  runner_internal:
     driver: bridge
     internal: true
 

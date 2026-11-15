@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import Index
 from sqlmodel import Field, SQLModel
 
 
@@ -44,6 +45,8 @@ class Blueprint(SQLModel, table=True):
 
 class Entry(SQLModel, table=True):
     __tablename__ = "entry"
+    # Deduplication looks entries up by (blueprint, key) on every fetched item.
+    __table_args__ = (Index("ix_entry_blueprint_external", "blueprint_id", "external_id"),)
 
     id: str = Field(primary_key=True)
     blueprint_id: str = Field(index=True)

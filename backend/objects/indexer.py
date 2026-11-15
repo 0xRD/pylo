@@ -1,4 +1,5 @@
 import logging
+import re
 from sqlalchemy import text
 from sqlmodel import Session
 
@@ -31,10 +32,39 @@ def remove_from_index(session: Session, entry_id: str) -> None:
     )
 
 
+_PREFIX_TERM = re.compile(r"(?<!\S)(\w{1,64})\*(?!\S)")
+
+
+def _pg_tsquery(query: str) -> tuple[str, dict]:
+    """Translate the documented search syntax into a Postgres tsquery expression.
+
+    ``a b`` (both), ``a OR b``, ``a NOT b``, ``"exact phrase"`` are handled by
+    websearch_to_tsquery; ``exec*`` prefix terms are added as ``exec:*``.
+    """
+    params: dict = {}
+    parts: list[str] = []
+    prefixes = _PREFIX_TERM.findall(query)
+    rest = _PREFIX_TERM.sub(" ", query)
+    rest = re.sub(r"(?<!\S)NOT\s+", "-", rest)       # NOT term  ->  -term
+    rest = re.sub(r"(?<!\S)AND(?!\S)", " ", rest)    # AND is the default
+    # A trailing/leading OR left behind by removed prefix terms would be read as a word.
+    rest = re.sub(r"^(\s*OR\b)+|(\bOR\s*)+$", " ", rest.strip()).strip()
+    if rest:
+        parts.append("websearch_to_tsquery('simple', :query)")
+        params["query"] = rest
+    for i, term in enumerate(prefixes):
+        parts.append(f"to_tsquery('simple', :prefix{i})")
+        params[f"prefix{i}"] = f"'{term}':*"
+    if not parts:
+        parts.append("websearch_to_tsquery('simple', :query)")
+        params["query"] = query
+    return "(" + " && ".join(parts) + ")", params
+
+
 def count_fts(session: Session, query: str, blueprint_id: str | None = None) -> int:
     if _dialect(session) == "postgresql":
-        where = "to_tsvector('simple', coalesce(content, '')) @@ plainto_tsquery('simple', :query)"
-        params = {"query": query}
+        tsquery, params = _pg_tsquery(query)
+        where = f"to_tsvector('simple', coalesce(content, '')) @@ {tsquery}"
         if blueprint_id:
             where += " AND blueprint_id = :blueprint_id"
             params["blueprint_id"] = blueprint_id
@@ -61,14 +91,15 @@ def search_fts(
 ) -> list[str]:
     """Full-text search. Returns a list of entry_ids ordered by rank."""
     if _dialect(session) == "postgresql":
-        where = "to_tsvector('simple', coalesce(content, '')) @@ plainto_tsquery('simple', :query)"
-        params = {"query": query, "limit": limit, "offset": offset}
+        tsquery, params = _pg_tsquery(query)
+        where = f"to_tsvector('simple', coalesce(content, '')) @@ {tsquery}"
+        params.update({"limit": limit, "offset": offset})
         if blueprint_id:
             where += " AND blueprint_id = :blueprint_id"
             params["blueprint_id"] = blueprint_id
         sql = text(
             f"SELECT entry_id FROM fts_entries WHERE {where} "
-            "ORDER BY ts_rank_cd(to_tsvector('simple', coalesce(content, '')), plainto_tsquery('simple', :query)) DESC "
+            f"ORDER BY ts_rank_cd(to_tsvector('simple', coalesce(content, '')), {tsquery}) DESC, entry_id "
             "LIMIT :limit OFFSET :offset"
         )
         rows = session.exec(sql, params=params).fetchall()

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -47,13 +48,26 @@ class AcceptInviteBody(BaseModel):
     password: str
 
 
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
+
+
+def validate_username(username: str) -> str:
+    username = (username or "").strip()
+    if not _USERNAME_RE.fullmatch(username):
+        raise HTTPException(
+            status_code=422,
+            detail="Username must be 1-64 characters: letters, digits, '.', '_', '-' or '@'",
+        )
+    return username
+
+
 def _user_count(session: Session) -> int:
     return session.exec(select(func.count()).select_from(User)).one()
 
 
 def _set_session_cookie(response: Response, user: User, session: Session) -> None:
     expire_hours = _get_jwt_expire_hours(session)
-    token = create_access_token(user.username, user.role, expire_hours)
+    token = create_access_token(user.username, user.role, expire_hours, user.hashed_password)
     response.set_cookie(COOKIE_NAME, token, max_age=expire_hours * 3600, **COOKIE_KWARGS)
 
 
@@ -68,6 +82,7 @@ async def setup_first_admin(body: SetupBody, response: Response, session: Sessio
         raise HTTPException(status_code=403, detail="Setup already completed")
     if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+    body.username = validate_username(body.username)
 
     user = User(username=body.username, hashed_password=hash_password(body.password), role="admin")
     session.add(user)
@@ -127,6 +142,7 @@ async def me(current_user: AuthUser = Depends(verify_token)):
 @router.post("/change-password")
 async def change_password(
     body: ChangePasswordBody,
+    response: Response,
     current_user: AuthUser = Depends(verify_token),
     session: Session = Depends(get_session),
 ):
@@ -149,6 +165,9 @@ async def change_password(
                  resource_type="user", resource_name=current_user.username,
                  detail={"changed": "password"})
     session.commit()
+    session.refresh(user)
+    # Every other session of this account is now invalid; keep this one signed in.
+    _set_session_cookie(response, user, session)
     return {"ok": True}
 
 
@@ -179,6 +198,7 @@ async def accept_invite(
         raise HTTPException(status_code=404, detail="Invitation not found or expired")
     if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+    body.username = validate_username(body.username)
 
     existing = session.exec(select(User).where(User.username == body.username)).first()
     if existing:

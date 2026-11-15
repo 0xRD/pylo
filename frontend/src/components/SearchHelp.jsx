@@ -12,6 +12,8 @@ const FIELD_ROWS = [
   { ex: 'external_id = CVE-2024',         desc: 'Exact field match' },
   { ex: 'name contains shell',            desc: 'Partial field match' },
   { ex: 'os != Windows',                  desc: 'Field not equal' },
+  { ex: 'name starts_with CVE-',          desc: 'Prefix (also ends_with)' },
+  { ex: 'score >= 80',                    desc: 'Numeric: > >= < <=' },
   { ex: 'os = Windows OR os = Linux',     desc: 'OR between filters' },
   { ex: 'os = Windows AND exec*',         desc: 'Field filter + full-text' },
 ]
@@ -34,7 +36,7 @@ function Section({ title, rows }) {
   )
 }
 
-const TOOLTIP_HEIGHT = 290
+const TOOLTIP_HEIGHT = 330
 
 export default function SearchHelp() {
   const [open, setOpen] = useState(false)

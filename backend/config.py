@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = ""
     API_TOKEN: str
 
-    DOCKER_NETWORK: str = "pylo_pylo_default"
+    # Network for PyBooks with the "default" policy (internet + Pylo API, no database).
+    DOCKER_NETWORK: str = "pylo_runner_egress"
+    # Internal network (no route out) for PyBooks with the "allowlisted" policy.
+    PYLO_RUNNER_INTERNAL_NETWORK: str = "pylo_runner_internal"
     PYLO_BASE_IMAGE: str = "pylo-runner-base:2026.05"
     PYLO_TIMEOUT_SECONDS: int = 300
     PYLO_MAX_CONCURRENT_RUNS: int = 5

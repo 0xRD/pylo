@@ -24,7 +24,7 @@ from backend.api.export_import import router as export_import_router
 from backend.api.gitops import router as gitops_router
 from backend.core.scheduler import start_scheduler, stop_scheduler
 from backend.core.runner import init_host_paths
-from backend.core import queue_manager
+from backend.core import egress_proxy, queue_manager
 from backend.core.auth import auth_user_from_jwt, auth_user_from_run_token, auth_user_from_scoped_api_key, is_master_token
 from backend import __version__
 from backend.config import settings
@@ -86,7 +86,9 @@ async def lifespan(app: FastAPI):
     init_host_paths()
     start_scheduler()
     await queue_manager.start()
+    await egress_proxy.start()
     yield
+    egress_proxy.stop()
     stop_scheduler()
     queue_manager.stop()
     logger.info("Pylo backend stopped.")

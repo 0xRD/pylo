@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors"
 async function apiFetch(method, path, body) {
   const res = await fetch(path, {
     method,
@@ -6,8 +7,7 @@ async function apiFetch(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || res.statusText)
+    throw new Error(await errorMessage(res))
   }
   if (res.status === 204) return null
   return res.json()

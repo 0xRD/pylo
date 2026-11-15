@@ -32,6 +32,14 @@ def get_setting(session: Session, key: str) -> str:
     return row.value if row else DEFAULTS.get(key, "")
 
 
+def get_int_setting(session: Session, key: str, fallback: int) -> int:
+    """Read an integer setting; a missing or corrupt value yields ``fallback``."""
+    try:
+        return int(get_setting(session, key) or fallback)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def set_setting(session: Session, key: str, value: str) -> None:
     row = session.get(SystemSetting, key)
     if row:
@@ -46,23 +54,18 @@ def set_setting(session: Session, key: str, value: str) -> None:
 async def get_settings(session: Session = Depends(get_session), current_user: AuthUser = Depends(verify_token)):
     from backend.config import settings as cfg
     from backend.core import queue_manager
-    max_runs = get_setting(session, "max_concurrent_runs")
-    jwt_hours_raw = get_setting(session, "jwt_expire_hours")
-    retention_raw = get_setting(session, "activity_retention_days")
-    run_retention_raw = get_setting(session, "run_retention_days")
     backup_cron = get_setting(session, "backup_cron")
-    backup_retention_raw = get_setting(session, "backup_retention")
     stats = queue_manager.get_stats()
     return {
-        "max_concurrent_runs": int(max_runs or cfg.PYLO_MAX_CONCURRENT_RUNS),
-        "jwt_expire_hours": int(jwt_hours_raw) if jwt_hours_raw else cfg.JWT_EXPIRE_HOURS,
-        "activity_retention_days": int(retention_raw or 7),
-        "run_retention_days": int(run_retention_raw or 0),
+        "max_concurrent_runs": get_int_setting(session, "max_concurrent_runs", cfg.PYLO_MAX_CONCURRENT_RUNS),
+        "jwt_expire_hours": get_int_setting(session, "jwt_expire_hours", cfg.JWT_EXPIRE_HOURS),
+        "activity_retention_days": get_int_setting(session, "activity_retention_days", 7),
+        "run_retention_days": get_int_setting(session, "run_retention_days", 0),
         # Webhook URLs (e.g. Slack) embed a credential: only admins may read them.
         "notify_webhook_url": (get_setting(session, "notify_webhook_url") or "") if current_user.is_admin else "",
         "notify_webhook_set": bool(get_setting(session, "notify_webhook_url")),
         "backup_cron": backup_cron or "",
-        "backup_retention": int(backup_retention_raw or 7),
+        "backup_retention": get_int_setting(session, "backup_retention", 7),
         **stats,
     }
 
@@ -87,6 +90,10 @@ async def update_settings(
     # Validate everything before writing anything: set_setting commits per key.
     if body.notify_webhook_url and not body.notify_webhook_url.strip().startswith(("https://", "http://")):
         raise HTTPException(status_code=422, detail="Notification webhook must be an http(s) URL")
+    if body.backup_cron and body.backup_cron.strip():
+        from backend.core.scheduler import is_valid_cron
+        if not is_valid_cron(body.backup_cron):
+            raise HTTPException(status_code=422, detail="Backup schedule must be a valid 5-part cron expression")
     result = {}
     if body.max_concurrent_runs is not None:
         limit = max(1, min(body.max_concurrent_runs, 50))

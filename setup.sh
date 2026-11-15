@@ -16,6 +16,9 @@ die()     { echo -e "${RED}[pylo] ERROR:${NC} $*" >&2; exit 1; }
 # ── 1. Verify we're in the project root ───────────────────────────────────────
 [[ -f docker-compose.yml && -f .env.example ]] || die "Run this script from the Pylo project root directory."
 
+# Portable in-place sed: BSD sed (macOS) needs an explicit backup suffix.
+sedi() { sed -i.bak "$@" && rm -f "${@: -1}.bak"; }
+
 # ── 2. Check / install Docker ─────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
     warn "Docker not found — installing via get.docker.com ..."
@@ -49,7 +52,7 @@ if [[ -f .env ]]; then
     if ! grep -qE '^ENCRYPTION_KEY=[^[:space:]]{32,}$' .env || grep -q '^ENCRYPTION_KEY=replace_with' .env; then
         command -v python3 &>/dev/null || die "python3 is required to generate secrets."
         ENCRYPTION_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-        sed -i '/^ENCRYPTION_KEY=/d' .env
+        sedi '/^ENCRYPTION_KEY=/d' .env
         echo "ENCRYPTION_KEY=${ENCRYPTION_KEY}" >> .env
         info "Added a dedicated ENCRYPTION_KEY to the existing .env (existing secrets are re-encrypted on start)."
     fi
@@ -67,15 +70,15 @@ else
     fi
 
     # Inject into .env
-    sed -i "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
-    sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${ENCRYPTION_KEY}|" .env
-    sed -i "s|^API_TOKEN=.*|API_TOKEN=${API_TOKEN}|" .env
-    sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
-    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://pylo:${POSTGRES_PASSWORD}@postgres:5432/pylo|" .env
+    sedi "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
+    sedi "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${ENCRYPTION_KEY}|" .env
+    sedi "s|^API_TOKEN=.*|API_TOKEN=${API_TOKEN}|" .env
+    sedi "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
+    sedi "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://pylo:${POSTGRES_PASSWORD}@postgres:5432/pylo|" .env
 
     # Set PYBOOKS_HOST_PATH to the actual absolute path on this machine
     PYBOOKS_ABS="$(pwd)/pybooks_storage"
-    sed -i "s|^PYBOOKS_HOST_PATH=.*|PYBOOKS_HOST_PATH=${PYBOOKS_ABS}|" .env
+    sedi "s|^PYBOOKS_HOST_PATH=.*|PYBOOKS_HOST_PATH=${PYBOOKS_ABS}|" .env
 
     chmod 600 .env
     info "Generated .env with fresh secrets."
@@ -88,8 +91,17 @@ fi
 
 chmod 600 .env
 
+# On Linux the backend must run as the user that owns the bind-mounted storage
+# directories, otherwise it cannot write PyBook scripts or backups. (Docker
+# Desktop / OrbStack on macOS map ownership automatically.)
+if [[ "$(uname -s)" == "Linux" && "$(id -u)" != "0" ]] && ! grep -q '^PYLO_UID=' .env; then
+    echo "PYLO_UID=$(id -u)" >> .env
+    echo "PYLO_GID=$(id -g)" >> .env
+    info "Backend will run as UID $(id -u) to match the storage directories."
+fi
+
 # ── 5. Create storage directories ─────────────────────────────────────────────
-mkdir -p pybooks_storage
+mkdir -p pybooks_storage objects_storage
 info "Storage directories ready."
 
 # ── 6. Build the PyBook runner base image ─────────────────────────────────────

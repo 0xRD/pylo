@@ -7,6 +7,19 @@ from backend.core.auth import AuthUser, MIN_PASSWORD_LEN, VALID_ROLES, hash_pass
 from backend.database import get_session
 from backend.users.models import User
 
+def _other_active_admins(session: Session, user: User) -> int:
+    return len(session.exec(
+        select(User.id).where(User.role == "admin", User.is_active == True, User.id != user.id)  # noqa: E712
+    ).all())
+
+
+def _guard_last_admin(session: Session, user: User) -> None:
+    """Refuse changes that would leave the instance without any active admin."""
+    if user.role == "admin" and user.is_active and _other_active_admins(session, user) == 0:
+        raise HTTPException(status_code=400, detail="This is the last active admin account: "
+                                                    "promote another user to admin first")
+
+
 router = APIRouter(prefix="/api/users", tags=["users"], dependencies=[Depends(verify_token)])
 
 
@@ -42,6 +55,8 @@ async def create_user(
         raise HTTPException(status_code=422, detail="Role must be 'admin' or 'viewer'")
     if len(body.password) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+    from backend.api.auth import validate_username
+    body.username = validate_username(body.username)
     existing = session.exec(select(User).where(User.username == body.username)).first()
     if existing:
         raise HTTPException(status_code=409, detail="Username already taken")
@@ -73,6 +88,8 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     changed = {}
+    if (body.role is not None and body.role != "admin") or body.is_active is False:
+        _guard_last_admin(session, user)
     if body.role is not None:
         if body.role not in VALID_ROLES:
             raise HTTPException(status_code=422, detail="Role must be 'admin' or 'viewer'")
@@ -106,6 +123,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     if user.username == current_user.username:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    _guard_last_admin(session, user)
     username = user.username
     session.delete(user)
     log_activity(session, "user.deleted", actor=current_user.username,

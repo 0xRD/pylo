@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import CodeEditor from "../components/CodeEditor"
 import RunStatusBadge from "../components/RunStatusBadge"
-import { pybooksApi } from "../api/pybooks"
+import { pybooksApi, runsApi } from "../api/pybooks"
 import { useRunDetail } from "../hooks/useRunDetail"
 import { secretsApi } from "../api/secrets"
 import { blueprintsApi } from "../api/blueprints"
@@ -48,7 +48,7 @@ print("Hello from Pylo!", payload)
 `
 
 const TRIGGER_TYPES = ["manual", "cron", "webhook", "blueprint"]
-const TERMINAL = new Set(["success", "error", "timeout"])
+const TERMINAL = new Set(["success", "error", "timeout", "cancelled", "dead_letter"])
 
 function parseJsonArray(value) {
   try {
@@ -428,6 +428,17 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
     } finally { setRunning(false) }
   }
 
+  const handleCancelRun = async () => {
+    if (!selectedRun) return
+    setPayloadError("")
+    try {
+      await runsApi.cancel(selectedRun.id)
+      loadRuns()
+    } catch (err) {
+      setPayloadError(err.message)
+    }
+  }
+
   const handleRunWithPayload = async () => {
     try {
       await handleRun(JSON.parse(payloadText || "{}"))
@@ -538,6 +549,12 @@ function RunPanel({ pybook, onClose, isAdmin, autoRun = false, onAutoRunHandled,
                   <RunStatusBadge status={selectedRun.status} />
                   <span className="text-xs text-[#8b8fa3]">{selectedRun.trigger_source}</span>
                   {selectedRun.duration_ms != null && <span className="text-xs text-[#6272a4]">{selectedRun.duration_ms}ms</span>}
+                  {isAdmin && !TERMINAL.has(selectedRun.status) && (
+                    <button onClick={handleCancelRun}
+                      className="rounded-sm bg-[#ff5555]/15 px-2 py-0.5 text-xs text-[#ff5555] hover:bg-[#ff5555]/25">
+                      Cancel run
+                    </button>
+                  )}
                 </div>
                 <span className="max-w-full truncate font-mono text-[11px] text-[#6272a4]">{selectedRun.id}</span>
               </div>
@@ -857,7 +874,7 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
           <label className="block text-xs text-gray-400 mb-1">Network policy</label>
           <select value={form.network_policy} onChange={e => set('network_policy', e.target.value)} disabled={!isAdmin}
             className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-1.5 text-sm focus:outline-hidden focus:border-indigo-500 disabled:opacity-50">
-            <option value="default">Default (shared network)</option>
+            <option value="default">Default (internet access)</option>
             <option value="none">None (no network access)</option>
             <option value="allowlisted">Allowlisted hosts only</option>
           </select>
@@ -865,7 +882,7 @@ function ConfigPanel({ pybook, onClose, onSaved, isAdmin, isProd = false, secret
             <div className="mt-2">
               <label className="flex items-center gap-1 text-xs text-gray-400 mb-1">
                 Allowed hosts <span className="text-gray-600">(JSON array)</span>
-                <InlineHelp text={'Enter hostnames only, not full URLs. Example: ["api.abuseipdb.com", "api.github.com"]. Pylo allows network access through the shared Docker network, but only these hostnames are intended to resolve for this PyBook. Do not include https://, paths, headers, or secret values here.'} />
+                <InlineHelp text={'Enter hostnames only, not full URLs. Example: ["api.abuseipdb.com", "api.github.com"]. A hostname also allows its subdomains. The PyBook runs on an isolated network and can only reach these hosts (through Pylo\'s egress proxy, which requests, httpx, urllib and curl use automatically) plus the Pylo SDK. Everything else is blocked.'} />
               </label>
               <input value={form.allowed_hosts} onChange={e => set('allowed_hosts', e.target.value)} disabled={!isAdmin}
                 placeholder='["api.abuseipdb.com", "api.github.com"]'

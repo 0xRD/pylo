@@ -31,6 +31,8 @@ const STATUS_COLORS = {
   running: '#8be9fd',
   queued: '#bd93f9',
   pending: '#6272a4',
+  cancelled: '#8b8fa3',
+  dead_letter: '#ff79c6',
 }
 
 function shortDate(date) {
@@ -143,7 +145,7 @@ function BarChart({ data, valueKey = 'count', color = '#8be9fd', h = 'h-56' }) {
 
 function StackedRunChart({ data, h = 'h-56' }) {
   const [hover, setHover] = useState(null)
-  const keys = ['success', 'error', 'timeout', 'running', 'queued', 'pending']
+  const keys = ['success', 'error', 'timeout', 'dead_letter', 'cancelled', 'running', 'queued', 'pending']
   const max = Math.max(1, ...data.map(item => item.total || 0))
   const ticks = [...new Set([max, Math.round(max / 2), 0])]
   const colW = 500 / Math.max(data.length, 1)
@@ -325,7 +327,7 @@ export default function Dashboard() {
             <StatTile icon={Workflow} label="Workflows" value={data.counts.workflows} detail={`${data.counts.active_workflows} active`} tone="orange" to="/workflows" />
             <StatTile icon={PlayCircle} label="Runs" value={data.counts.runs} detail={`Last ${data.days} days`} to="/runs" />
             <StatTile icon={Timer} label="Queue" value={data.queue.queued} detail={`${data.queue.running} running / ${data.queue.max_concurrent} slots`} tone="orange" to="/runs" />
-            <StatTile icon={AlertTriangle} label="Failures" value={(data.status_totals.pybook.error || 0) + (data.status_totals.workflow.error || 0) + (data.status_totals.pybook.timeout || 0) + (data.status_totals.workflow.timeout || 0)} detail="Errors and timeouts" tone="pink" to="/runs" />
+            <StatTile icon={AlertTriangle} label="Failures" value={(data.status_totals.pybook.error || 0) + (data.status_totals.workflow.error || 0) + (data.status_totals.pybook.timeout || 0) + (data.status_totals.workflow.timeout || 0) + (data.status_totals.pybook.dead_letter || 0)} detail="Errors and timeouts" tone="pink" to="/runs" />
             <StatTile icon={Clock3} label="Retention" value={data.retention.deleted_entries} detail={`Deleted over ${data.days} days`} tone="green" />
             </div>
           </section>

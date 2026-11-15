@@ -25,8 +25,8 @@ RUN chmod +x /app/entrypoint.sh
 ARG PYLO_UID=501
 ARG PYLO_GID=501
 
-RUN groupadd --gid "${PYLO_GID}" pylo \
- && useradd --uid "${PYLO_UID}" --gid pylo --home-dir /app --shell /usr/sbin/nologin pylo \
+RUN groupadd --non-unique --gid "${PYLO_GID}" pylo \
+ && useradd --non-unique --uid "${PYLO_UID}" --gid pylo --home-dir /app --shell /usr/sbin/nologin pylo \
  && chown -R pylo:pylo /app /tmp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

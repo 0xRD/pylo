@@ -163,7 +163,10 @@ async def start() -> None:
 
     with Session(engine) as session:
         row = session.get(SystemSetting, "max_concurrent_runs")
-        max_concurrent = int(row.value) if row else _get_max()
+        try:
+            max_concurrent = max(1, int(row.value)) if row else _get_max()
+        except (TypeError, ValueError):
+            max_concurrent = _get_max()  # a corrupt setting must not block startup
 
         pb_orphans = session.exec(
             select(PyBookRun).where(PyBookRun.status.in_(["queued", "pending"]))

@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Security (audit)
+- **Backup restore could overwrite application files.** A crafted backup ZIP with a PyBook id such as `../backend` made the restore write `main.py` outside PyBook storage (including over the backend's own entry point). Imported ids are now validated and regenerated, and storage paths refuse anything that is not a plain id.
+- **The "allowlisted" network policy was not enforced** (it only added host aliases that broke DNS for the allowed hosts). Allowlisted PyBooks now run on an internal network and can only leave through an authenticated egress proxy that connects to their allowed hosts and refuses internal addresses.
+- **PyBooks shared a network with Postgres.** All PyBook containers now run on dedicated networks (`runner_egress`, `runner_internal`) that reach the Pylo API but not the database or the Docker socket proxy.
+- **Workflow nodes ignored the PyBook network policy** and always ran with full network access. They now keep the PyBook's policy.
+- **GitOps accepted any git remote**, including `ext::` commands, local paths and option-like values, which let an admin run commands in the backend container. Remotes must be `https://`, `http://` or `ssh://`, branch names are validated, and git is restricted to those transports.
+- **Sessions survived a password change.** Session cookies are now bound to the password they were issued with, so changing or resetting a password signs out every other session. Existing sessions must sign in again once after upgrading.
+- The last active admin can no longer be deleted, demoted or disabled (instance lockout).
+- Backup restore only applies known settings, with the same bounds as the settings API; a backup can no longer inject arbitrary setting rows. The encrypted GitOps token is no longer written to backups.
+- PyBook network policy and allowed hosts are now part of exports, backups and GitOps sync. They were dropped before, so a restored or promoted PyBook silently fell back to open network access.
+- GitOps sync can only set the fields Pylo exports (not `id` or other columns).
+- `max_retries` is capped at 10; PyBook settings (dependencies, network policy, allowed hosts, trigger, cron) and Blueprint settings (cron, method, JSON fields, URL scheme) are validated on save; usernames and secret names are validated; export download file names are sanitised.
+
+### Fixed
+- **Timed-out PyBooks kept running forever.** The time limit only stopped the backend from waiting; the container was never killed. Containers are now killed and removed on timeout.
+- **Output was lost on failure.** A failing script kept only stderr and a timeout kept nothing. Both streams are now stored in every case (capped at 1 MB each).
+- **An invalid cron expression could stop the backend from starting** (backup schedule or Blueprint fetch schedule), as could a corrupt numeric setting. Schedules are validated on save and bad values are skipped at startup.
+- New cron-triggered PyBooks and Blueprints were not scheduled until the next edit or restart; deleted ones kept their job. Imports and GitOps sync now reschedule too.
+- **Search syntax shown in the UI did not work on Postgres**: `OR`, `NOT`, `"phrases"` and `prefix*` were treated as plain words. Field filters now support `starts_with`, `ends_with`, `>`, `>=`, `<`, `<=` as documented; `contains` is case-insensitive and treats `%`/`_` literally.
+- Auto-backups and the GitOps working copy were stored inside the backend container and lost on every rebuild. `objects_storage/` is now a bind mount.
+- `setup.sh` failed on macOS (`sed -i`), and on Linux hosts whose user is not UID 501 the backend could not write PyBook scripts. The backend now runs as the installing user on Linux.
+- Deleting entries or a Blueprint left their history and search rows behind. Entries restored from a backup were not searchable.
+- API errors in the UI were shown as raw JSON (`{"detail": ...}`).
+
+### Added
+- **Cancel running runs**: `DELETE /api/runs/{id}` now stops the container of a running run. New Cancel buttons in the PyBook run console and on the Runs page. Cancelling a Workflow run stops its executing nodes.
+- **Live logs**: stdout/stderr are stored while a run is executing and the run console refreshes them.
+
+### Performance
+- Blueprint fetches look up existing entries in batches instead of one query per item, with a new `(blueprint_id, external_id)` index. Retention and bulk deletes use set-based statements instead of loading every entry.
+- GitOps status/diff/commit/sync and image builds no longer block the API event loop (the GitOps status poll used to freeze every request during `git fetch`).
+- The run WebSocket only sends a message when the run changed; a Workflow loop no longer starts an unbounded number of containers at once.
+
+### Upgrade notes
+- Run `bash setup.sh` (or `mkdir -p objects_storage && docker compose up -d --build`). Compose creates the two new PyBook networks; `DOCKER_NETWORK` in `.env` is no longer used.
+- PyBooks using the "allowlisted" policy are now really restricted: add every host they need to their allowed hosts.
+
 ### Workflows
 - Workflow node runs record the PyBook script version they executed. The run detail shows each node's label, PyBook and version.
 - **Cancel** queued or running workflow runs from the editor or the Runs page (`POST /api/workflows/runs/{id}/cancel`). Nodes already executing finish; no further nodes start.

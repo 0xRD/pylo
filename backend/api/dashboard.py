@@ -15,7 +15,7 @@ from backend.workflows.models import Workflow, WorkflowRun
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(verify_token)])
 
-RUN_STATUSES = ["queued", "pending", "running", "success", "error", "timeout"]
+RUN_STATUSES = ["queued", "pending", "running", "success", "error", "timeout", "cancelled", "dead_letter"]
 AUTOMATION_TYPES = ["cron", "webhook", "blueprint"]
 
 
@@ -142,7 +142,7 @@ def _recent_failures(session: Session) -> list[dict]:
 
     pybook_runs = session.exec(
         select(PyBookRun)
-        .where(PyBookRun.status.in_(["error", "timeout"]))
+        .where(PyBookRun.status.in_(["error", "timeout", "dead_letter"]))
         .order_by(desc(PyBookRun.started_at))
         .limit(8)
     ).all()

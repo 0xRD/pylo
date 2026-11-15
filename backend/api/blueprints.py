@@ -12,13 +12,15 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, func, cast, nullslast, or_, String as SAString
+from sqlalchemy import and_, bindparam, case, false, func, cast, nullslast, or_, text, Float as SAFloat, String as SAString
+from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 from jsonpath_ng import parse as jsonpath_parse
 
 from backend.activity.logger import log_activity
 from backend.config import settings
 from backend.core.auth import AuthUser, verify_token
+from backend.core.netguard import is_blocked_ip
 from backend.database import engine, get_session
 from backend.objects.filter import json_field_text
 from backend.objects.indexer import count_fts, index_entry, remove_from_index, search_fts
@@ -92,6 +94,40 @@ class BlueprintUpdate(BaseModel):
 
 # ── Blueprint CRUD ────────────────────────────────────────────────────────────
 
+def _validate_blueprint_fields(fields: dict) -> None:
+    """Reject settings that would only fail later, at fetch or scheduling time."""
+    cron = fields.get("fetch_cron")
+    if cron:
+        from backend.core.scheduler import is_valid_cron
+        if not is_valid_cron(cron):
+            raise HTTPException(status_code=422, detail="fetch_cron must be a valid 5-part cron expression")
+    method = fields.get("source_method")
+    if method is not None and method.upper() not in {"GET", "POST"}:
+        raise HTTPException(status_code=422, detail="source_method must be GET or POST")
+    for field, kind in (("source_headers", dict), ("source_body", (dict, list)), ("field_mappings", list)):
+        raw = fields.get(field)
+        if raw is None:
+            continue
+        try:
+            # Secret placeholders are substituted at fetch time; they sit inside
+            # JSON strings, so the stored text must already be valid JSON.
+            if not isinstance(json.loads(raw or ("[]" if kind is list else "{}")), kind):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail=f"{field} must be valid JSON")
+    url = fields.get("source_url")
+    if url and urlparse(url).scheme not in {"http", "https"}:
+        raise HTTPException(status_code=422, detail="source_url must be an http(s) URL")
+
+
+def _resync_schedules() -> None:
+    from backend.core.scheduler import sync_cron_jobs
+    try:
+        sync_cron_jobs()
+    except Exception:  # scheduling problems must not fail the save itself
+        logger.exception("Could not resync cron jobs")
+
+
 @router.get("")
 async def list_blueprints(session: Session = Depends(get_session)):
     return session.exec(select(Blueprint)).all()
@@ -103,6 +139,7 @@ async def create_blueprint(
     session: Session = Depends(get_session),
     current_user: AuthUser = Depends(verify_token),
 ):
+    _validate_blueprint_fields(body.model_dump())
     bp = Blueprint(
         id=str(uuid.uuid4()),
         **body.model_dump(),
@@ -113,6 +150,8 @@ async def create_blueprint(
                  resource_type="blueprint", resource_id=bp.id, resource_name=bp.name)
     session.commit()
     session.refresh(bp)
+    if bp.fetch_cron and bp.fetch_is_active:
+        _resync_schedules()
     return bp
 
 
@@ -123,7 +162,7 @@ _RESERVED = {'and', 'or', 'not'}
 # fullmatch: entire segment must be a field expression
 _FIELD_EXPR = re.compile(
     # possessive quantifiers (3.11+) keep matching linear: no backtracking into \w*/\s*
-    r'(?P<field>[a-zA-Z_]\w*+)\s*+(?P<op>=|!=|contains)\s*+'
+    r'(?P<field>[a-zA-Z_]\w*+)\s*+(?P<op>!=|>=|<=|=|>|<|contains|starts_with|ends_with)\s*+'
     r'(?:"(?P<qval>[^"]*)"|(?P<val>\S+))',
     re.IGNORECASE,
 )
@@ -170,6 +209,13 @@ def _parse_query(raw: str) -> tuple[list[tuple], str]:
     return filters, ' '.join(fts_parts).strip()
 
 
+_NUMERIC_TEXT = r'^\s*-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?\s*$'
+
+
+def _like_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _field_clause(field: str, op: str, value: str, dialect_name: str):
     """Return a SQLAlchemy WHERE clause for one field filter."""
     if field == 'external_id':
@@ -181,8 +227,22 @@ def _field_clause(field: str, op: str, value: str, dialect_name: str):
         return col == value
     if op == '!=':
         return col != value
-    if op == 'contains':
-        return col.like(f'%{value}%')
+    if op in ('contains', 'starts_with', 'ends_with'):
+        needle = _like_escape(value.lower())
+        pattern = {'contains': f'%{needle}%', 'starts_with': f'{needle}%', 'ends_with': f'%{needle}'}[op]
+        return func.lower(col).like(pattern, escape='\\')
+    if op in ('>', '>=', '<', '<='):
+        try:
+            number = float(value)
+        except ValueError:
+            return false()  # comparing against a non-number matches nothing
+        if dialect_name == "postgresql":
+            # Casting 'abc' to a float is an error in Postgres: only cast numeric text.
+            numeric = case((col.op('~')(_NUMERIC_TEXT), cast(col, SAFloat)), else_=None)
+        else:
+            numeric = cast(col, SAFloat)
+        return {'>': numeric > number, '>=': numeric >= number,
+                '<': numeric < number, '<=': numeric <= number}[op]
     return col == value
 
 
@@ -324,8 +384,7 @@ async def delete_entry(
     entry = session.get(Entry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    remove_from_index(session, entry_id)
-    session.delete(entry)
+    _delete_entry_row(session, entry)
     log_activity(session, "entry.deleted", actor=current_user.username,
                  resource_type="entry", resource_id=entry_id,
                  detail={"blueprint_id": entry.blueprint_id})
@@ -351,6 +410,7 @@ async def update_blueprint(
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
     updated = body.model_dump(exclude_unset=True)
+    _validate_blueprint_fields(updated)
     old_mappings = bp.field_mappings
     for field, value in updated.items():
         setattr(bp, field, value)
@@ -361,8 +421,7 @@ async def update_blueprint(
     session.commit()
     session.refresh(bp)
     if "fetch_cron" in updated or "fetch_is_active" in updated:
-        from backend.core.scheduler import sync_cron_jobs
-        sync_cron_jobs()
+        _resync_schedules()
     if "field_mappings" in updated and old_mappings != bp.field_mappings:
         _reparse_state[blueprint_id] = {"status": "running", "processed": 0, "total": 0}
         asyncio.get_running_loop().create_task(_reparse_entries_bg(blueprint_id, bp.field_mappings))
@@ -379,17 +438,15 @@ async def delete_blueprint(
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
     bp_name = bp.name
-    entries = session.exec(
-        select(Entry).where(Entry.blueprint_id == blueprint_id)
-    ).all()
-    for entry in entries:
-        remove_from_index(session, entry.id)
-        session.delete(entry)
+    entries_deleted = _delete_all_blueprint_entries(session, blueprint_id)
     session.delete(bp)
     log_activity(session, "blueprint.deleted", actor=current_user.username,
                  resource_type="blueprint", resource_id=blueprint_id, resource_name=bp_name,
-                 detail={"entries_deleted": len(entries)})
+                 detail={"entries_deleted": entries_deleted})
     session.commit()
+    _fetch_state.pop(blueprint_id, None)
+    _reparse_state.pop(blueprint_id, None)
+    _resync_schedules()
 
 
 @router.delete("/{blueprint_id}/entries", status_code=204)
@@ -401,12 +458,10 @@ async def delete_all_entries(
     bp = session.get(Blueprint, blueprint_id)
     if not bp:
         raise HTTPException(status_code=404, detail="Blueprint not found")
-    entries = session.exec(select(Entry).where(Entry.blueprint_id == blueprint_id)).all()
-    for entry in entries:
-        _delete_entry_row(session, entry)
+    entries_deleted = _delete_all_blueprint_entries(session, blueprint_id)
     log_activity(session, "blueprint.entries_cleared", actor=current_user.username,
                  resource_type="blueprint", resource_id=blueprint_id, resource_name=bp.name,
-                 detail={"entries_deleted": len(entries)})
+                 detail={"entries_deleted": entries_deleted})
     session.commit()
 
 
@@ -570,15 +625,7 @@ def _jsonpath_first(data, path: str):
 
 
 def _is_blocked_fetch_ip(value: str) -> bool:
-    ip = ipaddress.ip_address(value)
-    return any([
-        ip.is_private,
-        ip.is_loopback,
-        ip.is_link_local,
-        ip.is_multicast,
-        ip.is_reserved,
-        ip.is_unspecified,
-    ])
+    return is_blocked_ip(value)
 
 
 def _is_private_fetch_host(hostname: str) -> bool:
@@ -806,36 +853,50 @@ def _update_entry_from_fetch(
 
 
 def _delete_entry_row(session: Session, entry: Entry) -> None:
-    remove_from_index(session, entry.id)
-    events = session.exec(select(EntryEvent).where(EntryEvent.entry_id == entry.id)).all()
-    for event in events:
-        session.delete(event)
-    session.delete(entry)
+    _delete_entries_by_id(session, [entry.id])
+
+
+def _delete_entries_by_id(session: Session, entry_ids: list[str]) -> int:
+    """Delete entries with their history and search rows, in bulk statements."""
+    for start in range(0, len(entry_ids), 500):
+        chunk = entry_ids[start:start + 500]
+        session.exec(text("DELETE FROM fts_entries WHERE entry_id IN :ids").bindparams(
+            bindparam("ids", expanding=True)), params={"ids": chunk})
+        session.exec(sa_delete(EntryEvent).where(EntryEvent.entry_id.in_(chunk)))
+        session.exec(sa_delete(Entry).where(Entry.id.in_(chunk)))
+    return len(entry_ids)
+
+
+def _delete_all_blueprint_entries(session: Session, blueprint_id: str) -> int:
+    """Remove every entry of a blueprint without loading them into memory."""
+    total = session.exec(select(func.count(Entry.id)).where(Entry.blueprint_id == blueprint_id)).one()
+    session.exec(text("DELETE FROM fts_entries WHERE blueprint_id = :bp"), params={"bp": blueprint_id})
+    session.exec(sa_delete(EntryEvent).where(EntryEvent.blueprint_id == blueprint_id))
+    session.exec(sa_delete(Entry).where(Entry.blueprint_id == blueprint_id))
+    return int(total or 0)
 
 
 def _enforce_entry_retention(session: Session, bp: Blueprint) -> int:
-    deleted = 0
+    """Apply age and max-count retention. Only ids are loaded, never entry payloads."""
+    session.flush()
+    doomed: list[str] = []
     retention_mins = bp.retention_minutes or (bp.retention_days * 1440 if bp.retention_days else None)
     if retention_mins and retention_mins > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=retention_mins)
-        expired = session.exec(
-            select(Entry)
-            .where(Entry.blueprint_id == bp.id, Entry.created_at < cutoff)
-            .order_by(Entry.created_at)
-        ).all()
-        for entry in expired:
-            _delete_entry_row(session, entry)
-            deleted += 1
+        doomed.extend(session.exec(
+            select(Entry.id).where(Entry.blueprint_id == bp.id, Entry.created_at < cutoff)
+        ).all())
+    deleted = _delete_entries_by_id(session, doomed) if doomed else 0
 
     if bp.max_entries and bp.max_entries > 0:
-        entries = session.exec(
-            select(Entry)
+        overflow = session.exec(
+            select(Entry.id)
             .where(Entry.blueprint_id == bp.id)
-            .order_by(Entry.created_at.desc())
+            .order_by(Entry.created_at.desc(), Entry.id)
+            .offset(bp.max_entries)
         ).all()
-        for entry in entries[bp.max_entries:]:
-            _delete_entry_row(session, entry)
-            deleted += 1
+        if overflow:
+            deleted += _delete_entries_by_id(session, list(overflow))
 
     return deleted
 
@@ -966,19 +1027,27 @@ def _persist_fetch_items(blueprint_id: str, items: list, pages_fetched: int, act
         trigger_entries: list[dict] = []
         mutable_fields = _mutable_fetch_fields(bp, field_mappings, {})
 
-        for item in items:
-            parsed = parse_instance(item, field_mappings)
+        # Parse everything first, then load the already-known entries in a few
+        # IN queries instead of one SELECT per fetched item.
+        parsed_items = [parse_instance(item, field_mappings) for item in items]
+        wanted_ids = list({str(p.get(key_field)) for p in parsed_items if p.get(key_field)})
+        known: dict[str, Entry] = {}
+        for start in range(0, len(wanted_ids), 500):
+            for row in session.exec(
+                select(Entry).where(
+                    Entry.blueprint_id == blueprint_id,
+                    Entry.external_id.in_(wanted_ids[start:start + 500]),
+                )
+            ).all():
+                known.setdefault(row.external_id, row)
+
+        for item, parsed in zip(items, parsed_items):
             if (getattr(bp, "mutable_mode", "none") or "none").lower() == "all":
                 mutable_fields = _mutable_fetch_fields(bp, field_mappings, parsed)
             external_id = parsed.get(key_field)
 
             if external_id:
-                existing = session.exec(
-                    select(Entry).where(
-                        Entry.blueprint_id == blueprint_id,
-                        Entry.external_id == str(external_id),
-                    )
-                ).first()
+                existing = known.get(str(external_id))
                 if existing:
                     changed = _update_entry_from_fetch(session, bp, existing, parsed, item, mutable_fields, actor)
                     if changed:
@@ -999,7 +1068,8 @@ def _persist_fetch_items(blueprint_id: str, items: list, pages_fetched: int, act
                 updated_at=now,
             )
             session.add(entry)
-            session.flush()
+            if entry.external_id:
+                known[entry.external_id] = entry  # a later duplicate in this batch updates it
             index_entry(session, entry.id, blueprint_id, extract_text_content(parsed))
             created_count += 1
             trigger_entries.append({"entry_id": entry.id, "parsed": parsed, "event_type": "created"})
