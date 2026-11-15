@@ -182,6 +182,7 @@ async def cancel_workflow_run(
         raise HTTPException(status_code=404, detail="Run not found")
     if run.status in TERMINAL_STATUSES:
         raise HTTPException(status_code=409, detail=f"Run already finished ({run.status})")
+    was_running = run.status == "running"
     run.status = "cancelled"
     # Set even for running runs: the executor overwrites it when it finishes,
     # but a backend restart in between would otherwise leave it unset forever.
