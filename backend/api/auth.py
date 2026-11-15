@@ -17,7 +17,7 @@ from backend.core.auth import (
     _decode_jwt,
 )
 from backend.config import settings
-from backend.core.rate_limit import client_ip, ip_limiter, login_limiter
+from backend.core.rate_limit import account_limiter, client_ip, ip_limiter, login_limiter
 from backend.database import get_session
 from backend.users.models import User
 from backend.users.invitation import Invitation
@@ -99,20 +99,24 @@ async def setup_first_admin(body: SetupBody, response: Response, session: Sessio
 @router.post("/login")
 async def login(body: LoginBody, request: Request, response: Response, session: Session = Depends(get_session)):
     ip = client_ip(request)
+    ip_key = f"ip:{ip}"
     account_key = f"login:{body.username.lower()}"
-    login_limiter.check(account_key)
-    ip_limiter.check(f"ip:{ip}")
+    client_key = f"{account_key}:{ip}"
+    login_limiter.check(client_key)
+    account_limiter.check(account_key)
+    ip_limiter.check(ip_key)
 
     user = session.exec(select(User).where(User.username == body.username)).first()
     if not user or not verify_password(body.password, user.hashed_password):
-        login_limiter.fail(account_key)
-        ip_limiter.fail(f"ip:{ip}")
+        login_limiter.fail(client_key)
+        account_limiter.fail(account_key)
+        ip_limiter.fail(ip_key)
         log_activity(session, "auth.login_failed", actor=body.username, detail={"ip": ip})
         session.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
-    login_limiter.reset(account_key)
+    login_limiter.reset(client_key)
 
     log_activity(session, "auth.login", actor=body.username)
     session.commit()

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed (follow-ups)
+- Login throttling is keyed by account and client IP, so a third party can no longer lock a user out with a few bad passwords (a loose account-wide cap of 100 failures still applies).
+- Full backups include each PyBook's script history and restore it onto PyBooks that have none.
+- Cancelling a running workflow run sets its end time immediately, so a backend restart cannot leave it unset.
+- The backend warns at startup when files in `pybooks_storage` are not writable by its user.
+
 ### Container orchestration
 - **The concurrency limit is now a true cap on containers.** A Workflow used to hold one slot while its nodes ran outside the limit, so loops and parallel branches could start up to twice the configured number of containers. Workflow orchestration now takes no slot and every node container takes one.
 - **The limit can be raised beyond 20.** The 20 was only the Settings slider; the API stopped at 50 (the size of the worker thread pool). Both now follow `PYLO_MAX_CONCURRENT_RUNS_CEILING` (default 200), Settings has a number field next to the slider, and the database pool is sized for it.

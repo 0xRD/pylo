@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import Editor, { DiffEditor, loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/editor/editor.api'
 import editorWorker from 'monaco-editor/editor/editor.worker?worker'
@@ -58,15 +58,24 @@ export default function CodeEditor({ value, onChange, readOnly = false, height =
 
 /** Read-only side-by-side (or inline) diff of two Python scripts. */
 export function CodeDiff({ original, modified, height = '100%', inline = false }) {
+  // keepCurrent*Model below stops the wrapper from disposing the models, so we
+  // do it ourselves once the diff widget itself has been torn down.
+  const models = useRef(null)
+  useEffect(() => () => {
+    const m = models.current
+    setTimeout(() => { m?.original?.dispose(); m?.modified?.dispose() }, 0)
+  }, [])
+
   return (
     <DiffEditor
+      onMount={editor => { models.current = editor.getModel() }}
       height={height}
       language="python"
       theme="vs-dark"
       original={original}
       modified={modified}
-      // Let the component own model disposal; avoids "TextModel got disposed
-      // before DiffEditorWidget model got reset" when the diff unmounts.
+      // The wrapper disposes models before the widget, which throws "TextModel
+      // got disposed before DiffEditorWidget model got reset" on unmount.
       keepCurrentOriginalModel
       keepCurrentModifiedModel
       options={{

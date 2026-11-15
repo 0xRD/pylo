@@ -14,7 +14,7 @@ from starlette.requests import Request
 from backend.api import auth as auth_api
 from backend.api import export_import
 from backend.core.auth import hash_password
-from backend.core.rate_limit import FailureLimiter, ip_limiter, login_limiter
+from backend.core.rate_limit import FailureLimiter, account_limiter, ip_limiter, login_limiter
 from backend.core.scheduler import cleanup_run_history
 from backend.pybooks.models import PyBookRun
 from backend.users.models import User
@@ -23,11 +23,11 @@ from backend.workflows.models import WorkflowNodeRun, WorkflowRun
 
 @pytest.fixture(autouse=True)
 def _reset_limiters():
-    login_limiter.clear()
-    ip_limiter.clear()
+    for limiter in (login_limiter, ip_limiter, account_limiter):
+        limiter.clear()
     yield
-    login_limiter.clear()
-    ip_limiter.clear()
+    for limiter in (login_limiter, ip_limiter, account_limiter):
+        limiter.clear()
 
 
 def _engine():
@@ -76,6 +76,27 @@ def test_login_is_throttled_after_repeated_failures():
 
         login_limiter.clear()
         assert attempt("correct-horse")["username"] == "alice"
+
+
+def test_failed_logins_from_one_ip_do_not_lock_out_other_ips():
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(User(username="alice", hashed_password=hash_password("correct-horse"), role="admin"))
+        session.commit()
+
+        def attempt(password, ip):
+            body = auth_api.LoginBody(username="alice", password=password)
+            return asyncio.run(auth_api.login(body, _request(ip), Response(), session))
+
+        for _ in range(login_limiter.max_failures):
+            with pytest.raises(HTTPException):
+                attempt("wrong", "198.51.100.66")
+        with pytest.raises(HTTPException) as exc:
+            attempt("correct-horse", "198.51.100.66")
+        assert exc.value.status_code == 429
+
+        # The legitimate user on another address can still sign in.
+        assert attempt("correct-horse", "203.0.113.5")["username"] == "alice"
 
 
 def test_run_history_cleanup_keeps_recent_and_active_runs():

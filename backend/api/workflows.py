@@ -184,8 +184,9 @@ async def cancel_workflow_run(
         raise HTTPException(status_code=409, detail=f"Run already finished ({run.status})")
     was_running = run.status == "running"
     run.status = "cancelled"
-    if not was_running:
-        run.ended_at = datetime.now(timezone.utc)
+    # Set even for running runs: the executor overwrites it when it finishes,
+    # but a backend restart in between would otherwise leave it unset forever.
+    run.ended_at = run.ended_at or datetime.now(timezone.utc)
     session.add(run)
     wf = session.get(Workflow, run.workflow_id)
     log_activity(session, "workflow.run_cancelled", actor=current_user.username,

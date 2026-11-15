@@ -33,4 +33,13 @@ else
     python3 -c "from backend.database import init_db; init_db()"
 fi
 
+# Older backends ran as root and left root-owned PyBook folders behind, which
+# the non-root backend cannot overwrite (saving such a PyBook fails with a 500).
+UNWRITABLE=$(find /app/pybooks_storage ! -writable 2>/dev/null | head -n 5)
+if [ -n "$UNWRITABLE" ]; then
+    echo "WARNING: some files in pybooks_storage are not writable by uid $(id -u); saving those PyBooks will fail."
+    echo "         Fix on the Docker host: sudo chown -R $(id -u):$(id -g) pybooks_storage"
+    echo "$UNWRITABLE" | sed 's/^/         /'
+fi
+
 exec uvicorn backend.main:app --host 0.0.0.0 --port 8000
