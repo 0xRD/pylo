@@ -392,7 +392,7 @@ function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelec
     zoomAt(rect.width / 2, rect.height / 2, factor)
   }
   const resetView = () => setView({ zoom: 1, panX: 0, panY: 0 })
-  const fitView = () => {
+  const fitView = (maxZoom = 1.5) => {
     const ns = workflow.nodes
     const el = dropRef.current
     if (!ns.length || !el) { resetView(); return }
@@ -400,9 +400,18 @@ function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelec
     const minX = Math.min(...ns.map(n => n.x)), minY = Math.min(...ns.map(n => n.y))
     const maxX = Math.max(...ns.map(n => n.x + NODE_W)), maxY = Math.max(...ns.map(n => n.y + NODE_H))
     const pad = 80
-    const zoom = clampZoom(Math.min((rect.width - pad) / (maxX - minX || 1), (rect.height - pad) / (maxY - minY || 1), 1.5))
+    const zoom = clampZoom(Math.min((rect.width - pad) / (maxX - minX || 1), (rect.height - pad) / (maxY - minY || 1), maxZoom))
     setView({ zoom, panX: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom, panY: (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom })
   }
+
+  // Show the whole graph when a workflow is opened (never zooming in past 100%),
+  // instead of leaving nodes outside the visible canvas.
+  const fittedFor = useRef(null)
+  useEffect(() => {
+    if (!workflow.id || fittedFor.current === workflow.id || !workflow.nodes.length) return
+    fittedFor.current = workflow.id
+    fitView(1)
+  }, [workflow.id, workflow.nodes.length])
 
   const handleDrop = e => {
     e.preventDefault()
@@ -535,7 +544,7 @@ function WorkflowCanvas({ workflow, pybooks, selectedItem, onSelectNode, onSelec
       <div style={{ position: "absolute", bottom: 14, right: 14, display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
         <div title="Zoom in" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={() => zoomButton(1.2)}>+</div>
         <div title="Zoom out" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={() => zoomButton(1 / 1.2)}>{"−"}</div>
-        <div title="Fit to view" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={fitView}>
+        <div title="Fit to view" style={ctrlBtn} onMouseDown={e => e.stopPropagation()} onClick={() => fitView()}>
           <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 5V2h3M11 2h3v3M14 9v3h-3M5 12H2V9" /></svg>
         </div>
         <div title="Reset view (100%)" style={{ ...ctrlBtn, fontSize: 9, fontWeight: 600 }} onMouseDown={e => e.stopPropagation()} onClick={resetView}>

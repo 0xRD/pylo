@@ -14,15 +14,20 @@ from backend.core.auth import create_run_token
 from backend.core.image_builder import ensure_image
 
 logger = logging.getLogger(__name__)
-# Queue manager enforces the live concurrency limit. Keep the executor wide
-# enough for the settings API cap so it does not become a hidden lower limit.
-_executor = ThreadPoolExecutor(max_workers=max(settings.PYLO_MAX_CONCURRENT_RUNS, 50))
+# The queue manager enforces the live concurrency limit. The executor is as wide
+# as the highest value that limit can take, so it never becomes a hidden lower
+# cap (threads are only created when needed).
+_executor = ThreadPoolExecutor(max_workers=settings.concurrency_ceiling, thread_name_prefix="pylo-run")
 
 # Stored stdout/stderr are capped per stream; the tail is kept because that is
 # where the error usually is.
 MAX_OUTPUT_BYTES = 1_000_000
 _LIVE_LOG_INTERVAL = 1.0
-_POLL_INTERVAL = 0.25
+_WAIT_INTERVAL = 1.0          # long-poll on the container; one Docker call per second per run
+_MAX_DAEMON_ERRORS = 5        # consecutive Docker API failures tolerated while a run is active
+# Payloads above this size are handed over as a file: a single environment
+# variable is limited to ~128 kB by the kernel and container start would fail.
+MAX_ENV_PAYLOAD_BYTES = 64_000
 EGRESS_PROXY_PORT = 8001
 
 # Resolved once at startup — derived from the container's own mounts (DooD)
@@ -134,6 +139,36 @@ def network_settings(network_policy: str, run_token: str) -> tuple[dict, dict]:
     return {"network": settings.DOCKER_NETWORK}, {}
 
 
+def _container_script_dir(pybook_id: str) -> Path:
+    from backend.pybooks.store import get_script_path
+    return get_script_path(pybook_id).parent
+
+
+def _write_payload_file(pybook_id: str, run_id: str, payload_json: str) -> Path:
+    """Store a large payload next to the script so it can be bind-mounted read-only."""
+    directory = _container_script_dir(pybook_id) / "payloads"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{run_id}.json"
+    path.write_text(payload_json)
+    path.chmod(0o644)  # the container runs as an unprivileged user
+    return path
+
+
+def _wait_for_exit(container, timeout: float) -> int | None:
+    """Block until the container exits (returns its exit code) or ``timeout`` elapses (None)."""
+    import requests
+
+    try:
+        return int(container.wait(timeout=timeout).get("StatusCode", -1))
+    except requests.exceptions.Timeout:
+        return None
+    except requests.exceptions.ConnectionError as exc:
+        # urllib3 reports a read timeout on this long-poll as a connection error.
+        if "timed out" in str(exc).lower():
+            return None
+        raise
+
+
 def _truncate(text: str) -> str:
     raw = text.encode("utf-8", errors="replace")
     if len(raw) <= MAX_OUTPUT_BYTES:
@@ -208,6 +243,7 @@ def _run_was_cancelled(run_id: str) -> bool:
 
 def kill_run(run_id: str) -> bool:
     """Kill the container of an active run. Returns True if a container was killed."""
+    client = None
     try:
         client = docker.from_env()
         client.containers.get(container_name(run_id)).kill()
@@ -217,6 +253,9 @@ def kill_run(run_id: str) -> bool:
     except Exception as exc:
         logger.warning("Could not kill container for run %s: %s", run_id, exc)
         return False
+    finally:
+        if client is not None:
+            client.close()
 
 
 def _remove_container(container) -> None:
@@ -239,101 +278,136 @@ def _run_container_sync(
     timeout: int | None = None,
 ) -> tuple[str, str, int]:
     client = docker.from_env()
-    image_tag = ensure_image(pybook_id, dependencies)
-
-    pybooks_path = _host_pybooks_path or settings.PYBOOKS_HOST_PATH
-    sdk_path = _host_pylo_sdk_path or settings.PYLO_SDK_HOST_PATH
-
-    host_script = str(Path(pybooks_path) / pybook_id / "main.py")
-
-    secret_env = _collect_secrets(pybook_id, run_id, required_secrets)
-    run_token = create_run_token(run_id, pybook_id)
-    network_kwargs, network_env = network_settings(network_policy, run_token)
-    environment = {
-        "PYLO_RUN_ID": run_id,
-        "PYLO_PYBOOK_ID": pybook_id,
-        "TRIGGER_PAYLOAD": json.dumps(trigger_payload),
-        "PYLO_API_URL": "http://backend:8000",
-        "PYLO_API_TOKEN": run_token,
-        "PYLO_RUN_TOKEN": run_token,
-        "PYTHONUNBUFFERED": "1",
-        **network_env,
-        **secret_env,
-    }
-
-    volumes = {
-        host_script: {"bind": "/pybook/main.py", "mode": "ro"},
-        sdk_path: {"bind": "/pybook/pylo_sdk.py", "mode": "ro"},
-    }
-
-    name = container_name(run_id)
-    # A retry reuses the run id: clear any leftover container from the previous attempt.
+    payload_file: Path | None = None
+    container = None
     try:
-        _remove_container(client.containers.get(name))
-    except NotFound:
-        pass
+        image_tag = ensure_image(pybook_id, dependencies)
 
-    # The image build above can take a while: honour a cancel that arrived meanwhile.
-    if _run_was_cancelled(run_id):
-        return "", "", -1
+        pybooks_path = _host_pybooks_path or settings.PYBOOKS_HOST_PATH
+        sdk_path = _host_pylo_sdk_path or settings.PYLO_SDK_HOST_PATH
+        host_dir = Path(pybooks_path) / pybook_id
 
-    timeout = timeout or settings.PYLO_TIMEOUT_SECONDS
-    try:
-        container = client.containers.run(
-            image=image_tag,
-            command=["python", "/pybook/main.py"],
-            name=name,
-            labels={"pylo.run_id": run_id, "pylo.pybook_id": pybook_id, "pylo.instance": _instance_label()},
-            volumes=volumes,
-            environment=environment,
-            mem_limit=settings.PYLO_MEM_LIMIT,
-            cpu_quota=settings.PYLO_CPU_QUOTA,
-            cap_drop=["ALL"],
-            security_opt=["no-new-privileges:true"],
-            pids_limit=128,
-            read_only=True,
-            tmpfs={"/tmp": "rw,nosuid,nodev,size=64m"},
-            user="1000:1000",
-            # Bound what a noisy script can write to the Docker host's disk.
-            log_config=LogConfig(type="json-file", config={"max-size": "5m", "max-file": "1"}),
-            detach=True,
-            **network_kwargs,
-        )
-    except (ImageNotFound, APIError) as exc:
-        logger.error("Docker error running pybook %s: %s", pybook_id, exc)
-        raise
+        # Docker creates a *directory* (owned by root) when a bind-mount source is
+        # missing, which would also block every later save of this script.
+        local_script = _container_script_dir(pybook_id) / "main.py"
+        if not local_script.is_file():
+            raise RuntimeError(f"Script file for PyBook {pybook_id} is missing from PyBook storage; "
+                               "save the PyBook again to restore it")
 
-    try:
+        secret_env = _collect_secrets(pybook_id, run_id, required_secrets)
+        run_token = create_run_token(run_id, pybook_id)
+        network_kwargs, network_env = network_settings(network_policy, run_token)
+        payload_json = json.dumps(trigger_payload)
+        environment = {
+            "PYLO_RUN_ID": run_id,
+            "PYLO_PYBOOK_ID": pybook_id,
+            "TRIGGER_PAYLOAD": payload_json,
+            "PYLO_API_URL": "http://backend:8000",
+            "PYLO_API_TOKEN": run_token,
+            "PYLO_RUN_TOKEN": run_token,
+            "PYTHONUNBUFFERED": "1",
+            **network_env,
+            **secret_env,
+        }
+        volumes = {
+            str(host_dir / "main.py"): {"bind": "/pybook/main.py", "mode": "ro"},
+            sdk_path: {"bind": "/pybook/pylo_sdk.py", "mode": "ro"},
+        }
+        if len(payload_json.encode()) > MAX_ENV_PAYLOAD_BYTES:
+            payload_file = _write_payload_file(pybook_id, run_id, payload_json)
+            environment["TRIGGER_PAYLOAD"] = ""
+            environment["TRIGGER_PAYLOAD_FILE"] = "/pybook/payload.json"
+            volumes[str(host_dir / "payloads" / payload_file.name)] = {"bind": "/pybook/payload.json", "mode": "ro"}
+
+        name = container_name(run_id)
+        # A retry reuses the run id: clear any leftover container from the previous attempt.
+        try:
+            _remove_container(client.containers.get(name))
+        except NotFound:
+            pass
+
+        # The image build above can take a while: honour a cancel that arrived meanwhile.
+        if _run_was_cancelled(run_id):
+            return "", "", -1
+
+        timeout = timeout or settings.PYLO_TIMEOUT_SECONDS
+        try:
+            container = client.containers.run(
+                image=image_tag,
+                command=["python", "/pybook/main.py"],
+                name=name,
+                labels={"pylo.run_id": run_id, "pylo.pybook_id": pybook_id, "pylo.instance": _instance_label()},
+                volumes=volumes,
+                environment=environment,
+                mem_limit=settings.PYLO_MEM_LIMIT,
+                cpu_quota=settings.PYLO_CPU_QUOTA,
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges:true"],
+                pids_limit=128,
+                read_only=True,
+                tmpfs={"/tmp": "rw,nosuid,nodev,size=64m"},
+                user="1000:1000",
+                # Bound what a noisy script can write to the Docker host's disk.
+                log_config=LogConfig(type="json-file", config={"max-size": "5m", "max-file": "1"}),
+                detach=True,
+                **network_kwargs,
+            )
+        except (ImageNotFound, APIError) as exc:
+            logger.error("Docker error running pybook %s: %s", pybook_id, exc)
+            raise
+
         deadline = time.monotonic() + timeout
         next_live = time.monotonic() + _LIVE_LOG_INTERVAL
         last_live: tuple[str, str] | None = None
-        while True:
-            container.reload()
-            if container.status in ("exited", "dead"):
-                break
-            now = time.monotonic()
-            if now >= deadline:
+        daemon_errors = 0
+        exit_code: int | None = None
+        while exit_code is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 try:
                     container.kill()
                 except APIError:
-                    pass  # exited between the status check and the kill
+                    pass  # exited between the last check and the kill
                 stdout, stderr = _read_logs(container)
                 raise RunTimeout(f"PyBook {pybook_id} timed out after {timeout}s", stdout, stderr)
-            if now >= next_live:
-                live = _read_logs(container, tail=2000)
-                if live != last_live:
-                    _store_live_output(run_id, *live)
-                    last_live = live
-                next_live = now + _LIVE_LOG_INTERVAL
-            time.sleep(_POLL_INTERVAL)
+            try:
+                exit_code = _wait_for_exit(container, min(_WAIT_INTERVAL, max(remaining, 0.05)))
+                if exit_code is None and time.monotonic() >= next_live:
+                    live = _read_logs(container, tail=2000)
+                    if live != last_live:
+                        _store_live_output(run_id, *live)
+                        last_live = live
+                    next_live = time.monotonic() + _LIVE_LOG_INTERVAL
+                daemon_errors = 0
+            except NotFound:
+                raise RuntimeError("The run container disappeared (removed outside Pylo)")
+            except Exception as exc:
+                # A hiccup of the Docker API must not fail a healthy run.
+                daemon_errors += 1
+                if daemon_errors >= _MAX_DAEMON_ERRORS:
+                    raise RuntimeError(f"Lost contact with Docker while the run was active: {exc}") from exc
+                time.sleep(min(_WAIT_INTERVAL, max(deadline - time.monotonic(), 0)))
 
-        exit_code = int(container.attrs.get("State", {}).get("ExitCode", -1))
         stdout, stderr = _read_logs(container)
-        if container.attrs.get("State", {}).get("OOMKilled"):
-            stderr += f"\n[Killed: the PyBook exceeded its memory limit of {settings.PYLO_MEM_LIMIT}]"
+        try:
+            container.reload()
+            if container.attrs.get("State", {}).get("OOMKilled"):
+                stderr += f"\n[Killed: the PyBook exceeded its memory limit of {settings.PYLO_MEM_LIMIT}]"
+        except Exception:
+            pass
         return stdout, stderr, exit_code
     finally:
-        _remove_container(container)
+        if container is not None:
+            _remove_container(container)
+        if payload_file is not None:
+            try:
+                payload_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 async def run_pybook(

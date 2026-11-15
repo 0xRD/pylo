@@ -22,6 +22,14 @@ def get_payload(default: dict = None) -> dict:
     """
     fallback = default if default is not None else {}
     raw = os.environ.get("TRIGGER_PAYLOAD", "")
+    # Large payloads do not fit in an environment variable: Pylo mounts them as a file.
+    payload_file = os.environ.get("TRIGGER_PAYLOAD_FILE", "")
+    if not raw and payload_file:
+        try:
+            with open(payload_file, encoding="utf-8") as fh:
+                raw = fh.read()
+        except OSError:
+            return fallback
     if not raw:
         return fallback
     try:
@@ -32,7 +40,11 @@ def get_payload(default: dict = None) -> dict:
 
 
 def call_sub_pybook(sub_pybook_id: str, payload: dict = None) -> dict:
-    """Trigger a sub-PyBook and wait for its result."""
+    """Queue a run of another PyBook and return the queued run (it is not awaited).
+
+    The child run goes through the normal queue and takes its own concurrency
+    slot, so the caller must not block on it.
+    """
     resp = requests.post(
         f"{_api_url}/api/pybooks/{sub_pybook_id}/run",
         json={"trigger_source": "sub_pybook", "trigger_payload": payload or {}},

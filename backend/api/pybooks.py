@@ -18,7 +18,7 @@ from backend.core import queue_manager
 from backend.database import get_session, engine
 from backend.pybooks.models import PyBook, PyBookRun
 from backend.pybooks.models import PyBookVersion
-from backend.pybooks.store import write_script, get_script_path, STORAGE_ROOT
+from backend.pybooks.store import write_script, get_script_path, sync_script_file, STORAGE_ROOT
 from backend.pybooks.versions import current_version_number, record_version, sync_version
 
 logger = logging.getLogger(__name__)
@@ -148,6 +148,7 @@ async def _execute_run(pybook_id: str, run_id: str):
             logger.info("Run %s was cancelled before execution — skipping", run_id)
             return
 
+        sync_script_file(pb.id, pb.script)
         run.status = "running"
         sync_version(session, pb)
         run.script_version = current_version_number(session, pybook_id)
@@ -359,6 +360,8 @@ async def delete_pybook(
                  resource_type="pybook", resource_id=pybook_id, resource_name=pb_name)
     session.commit()
     _resync_schedules()
+    from backend.core.image_builder import remove_pybook_images
+    await asyncio.to_thread(remove_pybook_images, pybook_id)
 
 
 @router.post("/{pybook_id}/run")

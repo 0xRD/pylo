@@ -19,7 +19,10 @@ def test_postgres_engine_kwargs_use_pool_pre_ping_without_sqlite_args():
     assert database_dialect_name(url) == "postgresql"
     assert is_postgres_url(url)
     assert not is_sqlite_url(url)
-    assert kwargs == {"pool_pre_ping": True}
+    assert kwargs["pool_pre_ping"] is True
+    assert "connect_args" not in kwargs
+    # Sized for concurrent runs writing live logs alongside HTTP handlers.
+    assert kwargs["pool_size"] + kwargs["max_overflow"] >= 50
 
 
 def test_init_search_index_uses_postgres_fts_table_and_indexes():

@@ -2,18 +2,22 @@
 Persistent execution queue for PyBook and Workflow runs.
 
 Runs are persisted as status='queued' before any worker picks them up.
-A single asyncio worker drains the queue, gated by the live
-PYLO_MAX_CONCURRENT_RUNS setting. On startup, any runs left in 'queued' or
-'pending' state are re-enqueued, and runs stranded in 'running' by a restart
-are marked as error.
+A single asyncio worker drains the queue. On startup, any runs left in
+'queued' or 'pending' state are re-enqueued, and runs stranded in 'running'
+by a restart are marked as error.
+
+Concurrency: one slot = one PyBook container. Standalone PyBook runs take a
+slot before they start; a workflow run is only orchestration (no container),
+so it takes no slot itself and each of its PyBook nodes takes one through
+``container_slot()``. The live "max concurrent runs" setting is therefore the
+real ceiling on containers running at the same time, however they were started.
 
 Jobs are tagged by kind: ("pybook", pybook_id, run_id) or
-("workflow", workflow_run_id, ""). A workflow holds one concurrency slot for
-its whole duration; its node executions run via the runner directly and do not
-take additional queue slots.
+("workflow", workflow_run_id, "").
 """
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -23,6 +27,9 @@ _limit_condition: Optional[asyncio.Condition] = None
 _worker_task: Optional[asyncio.Task] = None
 _running_count: int = 0
 _current_limit: int = 0
+_waiting_count: int = 0
+# asyncio only keeps weak references to tasks: hold them until they finish.
+_active_tasks: set[asyncio.Task] = set()
 
 
 def _get_max() -> int:
@@ -32,7 +39,7 @@ def _get_max() -> int:
 
 def get_stats() -> dict:
     return {
-        "queued": _queue.qsize() if _queue else 0,
+        "queued": (_queue.qsize() if _queue else 0) + _waiting_count,
         "running": _running_count,
         "max_concurrent": _current_limit,
     }
@@ -57,10 +64,59 @@ def update_limit(new_limit: int) -> None:
 
 
 async def _reserve_slot() -> None:
-    global _running_count
+    global _running_count, _waiting_count
     async with _limit_condition:
-        await _limit_condition.wait_for(lambda: _running_count < _current_limit)
+        _waiting_count += 1
+        try:
+            await _limit_condition.wait_for(lambda: _running_count < _current_limit)
+        finally:
+            _waiting_count -= 1
         _running_count += 1
+
+
+@asynccontextmanager
+async def container_slot():
+    """Hold one concurrency slot for the duration of a container run.
+
+    Used by workflow nodes. Falls back to no limit when the queue manager is
+    not running (unit tests that drive the executor directly).
+    """
+    if _limit_condition is None:
+        yield
+        return
+    await _reserve_slot()
+    try:
+        yield
+    finally:
+        await _release_slot()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+
+
+def _fail_run(model, run_id: str, message: str) -> None:
+    """Last-resort bookkeeping so a crashed job never leaves a run stuck as active."""
+    from datetime import datetime, timezone
+    from sqlmodel import Session
+    from backend.database import engine
+
+    try:
+        with Session(engine) as session:
+            run = session.get(model, run_id)
+            if run and run.status in ("queued", "pending", "running"):
+                run.status = "error"
+                run.ended_at = datetime.now(timezone.utc)
+                if hasattr(run, "stderr"):
+                    run.stderr = ((run.stderr or "") + f"\n[Internal error: {message}]").lstrip("\n")
+                    if run.exit_code is None:
+                        run.exit_code = -1
+                session.add(run)
+                session.commit()
+    except Exception:
+        logger.exception("Could not mark run %s as failed", run_id)
 
 
 async def _release_slot() -> None:
@@ -102,10 +158,12 @@ def _mark_pending(model, run_id: str) -> None:
 
 async def _run_pybook_job(pybook_id: str, run_id: str) -> None:
     from backend.api.pybooks import _execute_run
+    from backend.pybooks.models import PyBookRun
     try:
         await _execute_run(pybook_id, run_id)
     except Exception as exc:
         logger.exception("Unhandled error executing run %s: %s", run_id, exc)
+        _fail_run(PyBookRun, run_id, str(exc))
     finally:
         await _release_slot()
     from backend.core.notifications import notify_pybook_run
@@ -114,12 +172,12 @@ async def _run_pybook_job(pybook_id: str, run_id: str) -> None:
 
 async def _run_workflow_job(workflow_run_id: str) -> None:
     from backend.workflows.executor import execute_workflow
+    from backend.workflows.models import WorkflowRun
     try:
         await execute_workflow(workflow_run_id)
     except Exception as exc:
         logger.exception("Unhandled error executing workflow run %s: %s", workflow_run_id, exc)
-    finally:
-        await _release_slot()
+        _fail_run(WorkflowRun, workflow_run_id, str(exc))
     from backend.core.notifications import notify_workflow_run
     await notify_workflow_run(workflow_run_id)
 
@@ -133,13 +191,13 @@ async def _worker() -> None:
         try:
             kind, id_a, id_b = await _queue.get()
             if kind == "workflow":
+                # Orchestration only: its PyBook nodes take the container slots.
                 _mark_pending(WorkflowRun, id_a)
-                await _reserve_slot()
-                asyncio.create_task(_run_workflow_job(id_a))
+                _spawn(_run_workflow_job(id_a))
             else:
                 _mark_pending(PyBookRun, id_b)
                 await _reserve_slot()
-                asyncio.create_task(_run_pybook_job(id_a, id_b))
+                _spawn(_run_pybook_job(id_a, id_b))
             _queue.task_done()
         except asyncio.CancelledError:
             logger.info("Queue worker shutting down")
@@ -197,12 +255,19 @@ async def start() -> None:
             run.ended_at = now
             session.add(run)
 
+        from backend.workflows.models import WorkflowNodeRun
+        for node_run in session.exec(select(WorkflowNodeRun).where(WorkflowNodeRun.status == "running")).all():
+            node_run.status = "error"
+            node_run.ended_at = now
+            session.add(node_run)
+
         if stranded_pb or stranded_wf:
             session.commit()
             logger.warning("Reset %d stranded runs to error after restart",
                            len(stranded_pb) + len(stranded_wf))
 
-    _current_limit = max_concurrent
+    from backend.config import settings
+    _current_limit = max(1, min(max_concurrent, settings.concurrency_ceiling))
     _queue = asyncio.Queue()
     _limit_condition = asyncio.Condition()
     _worker_task = asyncio.create_task(_worker())

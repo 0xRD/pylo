@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Container orchestration
+- **The concurrency limit is now a true cap on containers.** A Workflow used to hold one slot while its nodes ran outside the limit, so loops and parallel branches could start up to twice the configured number of containers. Workflow orchestration now takes no slot and every node container takes one.
+- **The limit can be raised beyond 20.** The 20 was only the Settings slider; the API stopped at 50 (the size of the worker thread pool). Both now follow `PYLO_MAX_CONCURRENT_RUNS_CEILING` (default 200), Settings has a number field next to the slider, and the database pool is sized for it.
+- Large payloads (over 64 kB) are handed to the container as a read-only file instead of an environment variable, which the kernel limits to about 128 kB. `pylo.get_payload()` reads either. This affected Workflow loops over long lists.
+- A missing script file (restored or moved storage) is rewritten from the database before the run. Docker used to create a root-owned directory in its place, which also blocked later saves.
+- Runner images are removed when a PyBook's dependencies change or the PyBook is deleted (they accumulated forever), and are rebuilt when `PYLO_BASE_IMAGE` changes. A failed dependency build now shows pip's error in the run.
+- The run loop waits on the container with one long-poll per second instead of four status calls, tolerates short Docker API hiccups instead of failing a healthy run, and closes its Docker connections.
+- A job that crashes inside Pylo can no longer leave its run stuck as `pending`/`running`; workflow node runs interrupted by a restart are marked as failed.
+- `pylo.call_sub_pybook()` is documented as what it does: it queues the other PyBook and does not wait.
+
+### Added
+- **Agent skill** in `skills/pylo`: instructions plus a dependency-free CLI (`pylo_cli.py`) so an LLM can create, test and run PyBooks and Workflows through the API.
+- Workflows saved without canvas coordinates (API clients) get an automatic left-to-right layout, and the editor fits the whole graph in view when a workflow is opened.
+
+### Changed
+- The sidebar density toggle is now labelled "Layout: Comfortable / Compact" with a rows icon. The previous gauge icon and bare "Compact" label read like a load indicator.
+
 ### Security (audit)
 - **Backup restore could overwrite application files.** A crafted backup ZIP with a PyBook id such as `../backend` made the restore write `main.py` outside PyBook storage (including over the backend's own entry point). Imported ids are now validated and regenerated, and storage paths refuse anything that is not a plain id.
 - **The "allowlisted" network policy was not enforced** (it only added host aliases that broke DNS for the allowed hosts). Allowlisted PyBooks now run on an internal network and can only leave through an authenticated egress proxy that connects to their allowed hosts and refuses internal addresses.

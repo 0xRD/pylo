@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     PYLO_BASE_IMAGE: str = "pylo-runner-base:2026.05"
     PYLO_TIMEOUT_SECONDS: int = 300
     PYLO_MAX_CONCURRENT_RUNS: int = 5
+    # Highest value the concurrency setting can be raised to from the UI/API.
+    # Each concurrent run is one container (PYLO_MEM_LIMIT of RAM, PYLO_CPU_QUOTA of CPU).
+    PYLO_MAX_CONCURRENT_RUNS_CEILING: int = 200
     PYLO_MEM_LIMIT: str = "256m"
     PYLO_CPU_QUOTA: int = 50000
     PYLO_RUN_TOKEN_TTL_SECONDS: int = 900
@@ -71,6 +74,10 @@ class Settings(BaseSettings):
             weak_markers = ("pylo_change_me", "change_this_password")
             if any(marker in self.DATABASE_URL for marker in weak_markers):
                 raise RuntimeError("Refusing to start with placeholder Postgres credentials in DATABASE_URL")
+
+    @property
+    def concurrency_ceiling(self) -> int:
+        return max(1, self.PYLO_MAX_CONCURRENT_RUNS_CEILING, self.PYLO_MAX_CONCURRENT_RUNS)
 
     @property
     def allowed_origins(self) -> list[str]:

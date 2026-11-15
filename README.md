@@ -200,7 +200,20 @@ queued -> pending -> running -> success | error | timeout | cancelled
 
 Logs stream into the run console while a run is still executing, and stdout and stderr are both kept when a script fails or times out (each capped at 1 MB, keeping the end). Any queued or running run can be cancelled from the run console or the Runs page; cancelling a running run stops its container. Cancelling a Workflow run also stops the nodes that are executing.
 
-The queue is persistent and recovers orphaned runs after backend restarts. Set a failure-notification webhook in Settings to have Pylo POST a JSON message (with a Slack/Mattermost-compatible `text` field) whenever a PyBook or Workflow run ends in `error`, `timeout`, or `dead_letter` after its retries. The message includes the last 500 characters of the run's stderr, so avoid printing secrets in PyBooks. Finished runs are pruned nightly after the retention window configured in Settings (30 days by default, `0` keeps them forever). The default concurrency is 5 simultaneous runs (`PYLO_MAX_CONCURRENT_RUNS`) and can be adjusted live from Settings without restarting the backend.
+The queue is persistent and recovers orphaned runs after backend restarts. Set a failure-notification webhook in Settings to have Pylo POST a JSON message (with a Slack/Mattermost-compatible `text` field) whenever a PyBook or Workflow run ends in `error`, `timeout`, or `dead_letter` after its retries. The message includes the last 500 characters of the run's stderr, so avoid printing secrets in PyBooks. Finished runs are pruned nightly after the retention window configured in Settings (30 days by default, `0` keeps them forever). The default concurrency is 5 simultaneous runs (`PYLO_MAX_CONCURRENT_RUNS`) and can be adjusted live from Settings without restarting the backend, up to `PYLO_MAX_CONCURRENT_RUNS_CEILING` (200 by default). The limit counts containers: a standalone PyBook run and a Workflow node each take one slot, so a Workflow loop over many items never starts more containers than the limit. Each container is capped at `PYLO_MEM_LIMIT` (256 MB) and `PYLO_CPU_QUOTA` (half a core), so size the limit to the Docker host.
+
+## Automating Pylo with an LLM agent
+
+[`skills/pylo`](skills/pylo/SKILL.md) is an agent skill that lets an LLM (Claude Code, the Claude Agent SDK, or any agent that reads `SKILL.md` files) build and operate automations on its own: write and test PyBooks, assemble Workflows from a JSON definition, run them and read per-node results. It ships a dependency-free command line client, which is also handy for scripts:
+
+```bash
+export PYLO_URL=http://localhost:8000 PYLO_API_TOKEN=<API_TOKEN from .env>
+python3 skills/pylo/scripts/pylo_cli.py status
+python3 skills/pylo/scripts/pylo_cli.py run-pybook "My PyBook" --payload '{"ip": "203.0.113.9"}'
+python3 skills/pylo/scripts/pylo_cli.py save-workflow @workflow.json
+```
+
+To install it for Claude Code, copy or symlink the folder into your skills directory, for example `cp -r skills/pylo ~/.claude/skills/pylo`. The skill uses the admin `API_TOKEN`, so only give it to agents you would trust with the Pylo UI.
 
 ## Authentication and Security
 
@@ -284,6 +297,7 @@ Before a release, run the tests, migrations, frontend build, stack health check,
 
 - [`docs/pylo-spec-v2-en.md`](docs/pylo-spec-v2-en.md) - technical specification
 - [`docs/pylo_sdk.md`](docs/pylo_sdk.md) - Python SDK reference (in-container helpers and `PyloClient`)
+- [`skills/pylo/SKILL.md`](skills/pylo/SKILL.md) - agent skill and CLI for building PyBooks and Workflows through the API
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) - known limitations and planned work
 - [`CHANGELOG.md`](CHANGELOG.md) - release notes
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) - development setup and contribution guidelines
