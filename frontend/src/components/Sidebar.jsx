@@ -9,7 +9,8 @@ import {
   ChevronsRight,
   CircuitBoard,
   Database,
-  Gauge,
+  Rows2,
+  Rows3,
   GitBranch,
   GitCommit,
   GitPullRequest,
@@ -252,9 +253,11 @@ export default function Sidebar() {
         <div className={`border-t border-[#343746] ${collapsed ? 'px-2 py-3' : 'px-3 py-3'}`}>
           {collapsed ? (
             <div className="flex flex-col items-center gap-2">
-              <button onClick={toggleDensity} title={compact ? 'Comfortable density' : 'Compact density'}
+              <button onClick={toggleDensity}
+                title={compact ? 'Display: compact. Click for comfortable spacing' : 'Display: comfortable. Click for compact spacing'}
+                aria-label="Toggle display spacing"
                 className="grid h-8 w-8 place-items-center rounded-sm text-[#6272a4] hover:bg-[#282a36] hover:text-[#f8f8f2] transition-colors">
-                <Gauge size={15} />
+                {compact ? <Rows3 size={15} /> : <Rows2 size={15} />}
               </button>
               <span title={`${user?.username} — ${user?.role}`} className="grid h-8 w-8 place-items-center rounded-sm bg-[#282a36] text-[#50fa7b]">
                 <Shield size={14} />
@@ -279,22 +282,21 @@ export default function Sidebar() {
                   <LogOut size={15} />
                 </button>
               </div>
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setShowChangePwd(true)}
-                  className="text-xs text-[#8be9fd] hover:text-[#bd93f9] transition-colors"
-                >
-                  Change password
-                </button>
-                <button
-                  onClick={toggleDensity}
-                  title="Toggle density"
-                  className="inline-flex items-center gap-1 text-xs text-[#6272a4] hover:text-[#f8f8f2] transition-colors"
-                >
-                  <Gauge size={13} />
-                  {compact ? 'Compact' : 'Comfortable'}
-                </button>
-              </div>
+              <button
+                onClick={() => setShowChangePwd(true)}
+                className="block text-xs text-[#8be9fd] hover:text-[#bd93f9] transition-colors"
+              >
+                Change password
+              </button>
+              <button
+                onClick={toggleDensity}
+                title={compact ? 'Rows and spacing are compact. Click for comfortable spacing' : 'Rows and spacing are comfortable. Click to fit more on screen'}
+                aria-label="Toggle display spacing"
+                className="flex w-full items-center gap-1.5 whitespace-nowrap text-xs text-[#6272a4] hover:text-[#f8f8f2] transition-colors"
+              >
+                {compact ? <Rows3 size={13} /> : <Rows2 size={13} />}
+                Layout: {compact ? 'Compact' : 'Comfortable'}
+              </button>
             </div>
           )}
         </div>

@@ -37,7 +37,9 @@ def engine_kwargs(url: str | None = None) -> dict:
         # NullPool prevents pool exhaustion when many PyBook runs compete with
         # HTTP handlers against the same SQLite file.
         return {"connect_args": {"check_same_thread": False}, "poolclass": NullPool}
-    return {"pool_pre_ping": True}
+    # Every active run writes live logs from its own thread, on top of HTTP
+    # handlers: the SQLAlchemy default (5 + 10 overflow) is too small for that.
+    return {"pool_pre_ping": True, "pool_size": 10, "max_overflow": 40}
 
 
 engine = create_engine(settings.DATABASE_URL, **engine_kwargs(settings.DATABASE_URL))

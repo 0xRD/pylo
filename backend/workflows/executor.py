@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session
 
 from backend.activity.logger import log_activity
+from backend.core import queue_manager
 from backend.database import engine
 from backend.objects.filter import check_trigger_conditions
 from backend.pybooks.models import PyBook, PyBookRun
@@ -84,21 +85,6 @@ def _edge_matches(edge: dict, node: dict, status: str, output_vars: dict) -> boo
     return False
 
 
-_node_semaphores: dict[tuple[int, int], asyncio.Semaphore] = {}
-
-
-def _node_slots() -> asyncio.Semaphore:
-    """Semaphore bounding concurrent PyBook containers started by workflow nodes."""
-    from backend.core import queue_manager
-
-    limit = max(1, queue_manager.get_stats().get("max_concurrent") or 5)
-    key = (id(asyncio.get_running_loop()), limit)
-    sem = _node_semaphores.get(key)
-    if sem is None:
-        sem = _node_semaphores[key] = asyncio.Semaphore(limit)
-    return sem
-
-
 def _is_cancelled(workflow_run_id: str) -> bool:
     with Session(engine) as session:
         run = session.get(WorkflowRun, workflow_run_id)
@@ -163,6 +149,15 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
                                      datetime.now(timezone.utc))
             return node_id, "error", {}
 
+        from backend.pybooks.store import sync_script_file
+        try:
+            sync_script_file(pb.id, pb.script)
+        except (OSError, ValueError) as exc:
+            logger.error("Cannot prepare script for PyBook %s: %s", pb.id, exc)
+            _record_control_node_run(workflow_run_id, node_id, "error",
+                                     {"error": f"Cannot prepare the PyBook script: {exc}"},
+                                     datetime.now(timezone.utc))
+            return node_id, "error", {}
         sync_version(session, pb)
         now = datetime.now(timezone.utc)
         pb_run = PyBookRun(
@@ -214,9 +209,9 @@ async def _run_pybook_node(workflow_run_id: str, node: dict, payload: dict) -> t
 
     for attempt in range(_node_retry_count(node) + 1):
         try:
-            # Loop fan-out can create many node runs at once: cap how many
-            # containers one workflow runs in parallel.
-            async with _node_slots():
+            # Every node container takes one global concurrency slot, so the
+            # "max concurrent runs" setting also bounds loop fan-out.
+            async with queue_manager.container_slot():
                 if _is_cancelled(workflow_run_id):
                     final_status, stderr = "cancelled", "[Workflow run cancelled]"
                     break

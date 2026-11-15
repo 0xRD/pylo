@@ -329,16 +329,24 @@ export default function Runs() {
         {stats && runType !== 'workflow' && (
           <div className="mb-4 p-3 bg-gray-900 border border-gray-800 rounded-lg">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-gray-400">PyBook concurrency</span>
+              <span className="text-xs text-gray-400">Container concurrency</span>
               <span className="text-xs text-gray-500">
                 {stats.running} active · {stats.queued} waiting · {stats.max_concurrent} max
               </span>
             </div>
-            <div className="flex gap-0.5 h-2 rounded-full overflow-hidden bg-gray-800">
-              {Array.from({ length: stats.max_concurrent }).map((_, i) => (
-                <div key={i} className={`flex-1 rounded-xs transition-colors ${i < stats.running ? 'bg-blue-500' : 'bg-gray-700'}`} />
-              ))}
-            </div>
+            {stats.max_concurrent <= 40 ? (
+              <div className="flex gap-0.5 h-2 rounded-full overflow-hidden bg-gray-800">
+                {Array.from({ length: stats.max_concurrent }).map((_, i) => (
+                  <div key={i} className={`flex-1 rounded-xs transition-colors ${i < stats.running ? 'bg-blue-500' : 'bg-gray-700'}`} />
+                ))}
+              </div>
+            ) : (
+              // One segment per slot stops being readable with many slots.
+              <div className="h-2 rounded-full overflow-hidden bg-gray-700">
+                <div className="h-full bg-blue-500 transition-all"
+                  style={{ width: `${Math.min(100, (stats.running / stats.max_concurrent) * 100)}%` }} />
+              </div>
+            )}
           </div>
         )}
 

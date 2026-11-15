@@ -41,6 +41,19 @@ def write_script(pybook_id: str, script: str) -> str:
     return str(path)
 
 
+def sync_script_file(pybook_id: str, script: str) -> None:
+    """Make the on-disk script match the database copy before a run.
+
+    The file can be missing after storage was restored or moved. Starting a
+    container without it would make Docker create a directory in its place.
+    """
+    path = get_script_path(pybook_id)
+    if path.is_dir():
+        path.rmdir()  # left behind by Docker for a missing bind-mount source
+    if not path.is_file() or path.read_text() != (script or ""):
+        write_script(pybook_id, script or "")
+
+
 def read_script(pybook_id: str) -> str:
     path = get_script_path(pybook_id)
     if path.exists():

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from backend.activity.logger import log_activity
+from backend.config import settings
 from backend.core.auth import AuthUser, require_admin, verify_token
 from backend.core.settings_model import SystemSetting
 from backend.database import get_session
@@ -38,7 +39,7 @@ _NETWORK_POLICIES = {"default", "none", "allowlisted"}
 # Settings a backup may restore, with the bounds the settings API enforces.
 # Anything else in settings.json (credentials, GitOps state, unknown keys) is ignored.
 _RESTORABLE_INT_SETTINGS = {
-    "max_concurrent_runs": (1, 50),
+    "max_concurrent_runs": (1, settings.concurrency_ceiling),
     "jwt_expire_hours": (1, 720),
     "activity_retention_days": (1, 365),
     "run_retention_days": (0, 3650),

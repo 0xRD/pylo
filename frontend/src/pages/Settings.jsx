@@ -148,6 +148,7 @@ export default function Settings() {
     }
   }, [])
 
+  const concurrencyCeiling = settings?.max_concurrent_runs_ceiling || 200
   const isDirty = maxConcurrent !== settings?.max_concurrent_runs
     || jwtHours !== (settings?.jwt_expire_hours ?? 24)
     || activityRetention !== (settings?.activity_retention_days ?? 7)
@@ -343,20 +344,31 @@ export default function Settings() {
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-400">Max concurrent runs</label>
-                <span className="text-sm font-mono text-indigo-300">{maxConcurrent}</span>
+                <label htmlFor="max-concurrent" className="text-xs text-gray-400">Max concurrent runs</label>
+                <input
+                  id="max-concurrent" type="number" min={1} max={concurrencyCeiling} value={maxConcurrent}
+                  onChange={e => setMaxConcurrent(Math.max(1, Math.min(concurrencyCeiling, Number(e.target.value) || 1)))}
+                  disabled={!isAdmin}
+                  className="w-20 rounded-sm border border-gray-700 bg-gray-950 px-2 py-1 text-right font-mono text-sm text-indigo-300 focus:outline-hidden focus:border-indigo-500 disabled:opacity-50"
+                />
               </div>
               <input
-                type="range" min={1} max={20} value={maxConcurrent}
+                type="range" min={1} max={concurrencyCeiling} value={maxConcurrent}
                 onChange={e => setMaxConcurrent(Number(e.target.value))}
                 disabled={!isAdmin}
+                aria-label="Max concurrent runs"
                 className="w-full accent-indigo-500 disabled:opacity-50"
               />
               <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>1</span>
-                <span className="text-gray-500">How many PyBooks can execute Docker containers simultaneously</span>
-                <span>20</span>
+                <span className="text-gray-500">How many PyBook containers can run at the same time, including Workflow nodes</span>
+                <span>{concurrencyCeiling}</span>
               </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Each run is one container limited to {settings?.run_mem_limit || '256m'} of memory, so size this to the Docker host
+                ({maxConcurrent} runs can use up to {maxConcurrent} × {settings?.run_mem_limit || '256m'}).
+                The upper bound of {concurrencyCeiling} is set by <code className="font-mono text-gray-400">PYLO_MAX_CONCURRENT_RUNS_CEILING</code> in <code className="font-mono text-gray-400">.env</code>.
+              </p>
             </div>
 
             {settings && (

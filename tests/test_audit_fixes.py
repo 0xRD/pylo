@@ -211,19 +211,28 @@ async def test_egress_proxy_refuses_internal_addresses(monkeypatch):
 # ── Runner: timeouts kill the container ──────────────────────────────────────
 
 class _FakeContainer:
-    def __init__(self, exits_after: int | None, exit_code: int = 0):
+    def __init__(self, exits_after: int | None, exit_code: int = 0, flaky_waits: int = 0):
         self.name = "pylo-run-test"
-        self.status = "running"
         self.attrs = {"State": {"ExitCode": exit_code}}
-        self._reloads = 0
+        self._exit_code = exit_code
+        self._waits = 0
         self._exits_after = exits_after
+        self._flaky_waits = flaky_waits
         self.killed = False
         self.removed = False
 
+    def wait(self, timeout=None):
+        import requests
+
+        self._waits += 1
+        if self._waits <= self._flaky_waits:
+            raise RuntimeError("docker API hiccup")
+        if self.killed or (self._exits_after is not None and self._waits > self._exits_after + self._flaky_waits):
+            return {"StatusCode": self._exit_code}
+        raise requests.exceptions.ReadTimeout("still running")
+
     def reload(self):
-        self._reloads += 1
-        if self.killed or (self._exits_after is not None and self._reloads > self._exits_after):
-            self.status = "exited"
+        pass
 
     def logs(self, stdout=True, stderr=True, tail="all"):
         return b"partial out\n" if stdout else b"partial err\n"
@@ -235,7 +244,10 @@ class _FakeContainer:
         self.removed = True
 
 
-def _patch_runner(monkeypatch, container):
+def _patch_runner(monkeypatch, container, tmp_path=None):
+    import tempfile
+    from pathlib import Path
+
     from docker.errors import NotFound
 
     from backend.core import runner
@@ -250,12 +262,22 @@ def _patch_runner(monkeypatch, container):
 
     class _Client:
         containers = _Containers()
+        closed = False
 
+        def close(self):
+            _Client.closed = True
+
+    script_dir = Path(tmp_path or tempfile.mkdtemp())
+    (script_dir / "main.py").write_text("print('hi')")
+    container.client = _Client
+    container.script_dir = script_dir
     monkeypatch.setattr(runner.docker, "from_env", lambda: _Client())
     monkeypatch.setattr(runner, "ensure_image", lambda pybook_id, deps: "image:tag")
     monkeypatch.setattr(runner, "_store_live_output", lambda *a, **k: None)
     monkeypatch.setattr(runner, "_run_was_cancelled", lambda run_id: False)
-    monkeypatch.setattr(runner, "_POLL_INTERVAL", 0.01)
+    monkeypatch.setattr(runner, "_container_script_dir", lambda pybook_id: script_dir)
+    monkeypatch.setattr(runner, "_WAIT_INTERVAL", 0.01)
+    monkeypatch.setattr(runner, "_LIVE_LOG_INTERVAL", 0.0)
     return runner
 
 
@@ -283,6 +305,7 @@ def test_runner_returns_both_streams_and_exit_code_on_failure(monkeypatch):
     assert container.run_kwargs["network_mode"] == "none"
     assert container.run_kwargs["name"] == runner.container_name("run-2")
     assert container.run_kwargs["detach"] is True
+    assert container.run_kwargs["labels"]["pylo.run_id"] == "run-2"
 
 
 def test_runner_skips_container_when_cancelled_during_build(monkeypatch):
@@ -292,6 +315,131 @@ def test_runner_skips_container_when_cancelled_during_build(monkeypatch):
 
     assert runner._run_container_sync("pb", "run-3", [], [], {}, "none", [], timeout=5) == ("", "", -1)
     assert not hasattr(container, "run_kwargs")  # never started
+
+
+def test_runner_survives_docker_api_hiccups_and_closes_its_client(monkeypatch):
+    container = _FakeContainer(exits_after=1, flaky_waits=3)
+    runner = _patch_runner(monkeypatch, container)
+
+    stdout, _, exit_code = runner._run_container_sync("pb", "run-4", [], [], {}, "none", [], timeout=5)
+
+    assert exit_code == 0 and stdout == "partial out\n"
+    assert container.removed and container.client.closed
+
+
+def test_runner_gives_up_when_docker_stays_unreachable(monkeypatch):
+    container = _FakeContainer(exits_after=None, flaky_waits=1000)
+    runner = _patch_runner(monkeypatch, container)
+
+    with pytest.raises(RuntimeError, match="Lost contact with Docker"):
+        runner._run_container_sync("pb", "run-5", [], [], {}, "none", [], timeout=5)
+    assert container.removed
+
+
+def test_runner_refuses_to_start_without_a_script_file(monkeypatch):
+    """A missing bind-mount source makes Docker create a root-owned directory in its place."""
+    container = _FakeContainer(exits_after=1)
+    runner = _patch_runner(monkeypatch, container)
+    (container.script_dir / "main.py").unlink()
+
+    with pytest.raises(RuntimeError, match="missing"):
+        runner._run_container_sync("pb", "run-6", [], [], {}, "none", [], timeout=5)
+    assert not hasattr(container, "run_kwargs")
+
+
+def test_large_payload_is_mounted_as_a_file(monkeypatch):
+    container = _FakeContainer(exits_after=1)
+    runner = _patch_runner(monkeypatch, container)
+    payload = {"items": ["x" * 100] * 2000}  # ~200 kB, above the env limit
+
+    runner._run_container_sync("pb", "run-7", [], [], payload, "none", [], timeout=5)
+
+    env = container.run_kwargs["environment"]
+    assert env["TRIGGER_PAYLOAD"] == "" and env["TRIGGER_PAYLOAD_FILE"] == "/pybook/payload.json"
+    mounts = {v["bind"]: k for k, v in container.run_kwargs["volumes"].items()}
+    assert mounts["/pybook/payload.json"].endswith("/payloads/run-7.json")
+    assert not (container.script_dir / "payloads" / "run-7.json").exists()  # removed after the run
+
+    # Small payloads keep using the environment variable.
+    runner._run_container_sync("pb", "run-8", [], [], {"a": 1}, "none", [], timeout=5)
+    assert container.run_kwargs["environment"]["TRIGGER_PAYLOAD"] == '{"a": 1}'
+    assert "TRIGGER_PAYLOAD_FILE" not in container.run_kwargs["environment"]
+
+
+def test_sdk_reads_payload_file(monkeypatch, tmp_path):
+    import importlib
+    import sys
+
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
+    import pylo_sdk
+
+    payload_file = tmp_path / "payload.json"
+    payload_file.write_text('{"big": true}')
+    monkeypatch.setenv("TRIGGER_PAYLOAD", "")
+    monkeypatch.setenv("TRIGGER_PAYLOAD_FILE", str(payload_file))
+    assert importlib.reload(pylo_sdk).get_payload() == {"big": True}
+
+
+def test_sync_script_file_restores_missing_script(monkeypatch, tmp_path):
+    from backend.pybooks import store
+
+    monkeypatch.setattr(store, "STORAGE_ROOT", tmp_path)
+    pybook_id = str(uuid.uuid4())
+    store.sync_script_file(pybook_id, "print(1)")
+    assert (tmp_path / pybook_id / "main.py").read_text() == "print(1)"
+
+    # Docker left a directory where the script should be: replaced by the real file.
+    (tmp_path / pybook_id / "main.py").unlink()
+    (tmp_path / pybook_id / "main.py").mkdir()
+    store.sync_script_file(pybook_id, "print(2)")
+    assert (tmp_path / pybook_id / "main.py").read_text() == "print(2)"
+
+
+def test_image_tag_depends_on_base_image(monkeypatch):
+    from backend.config import settings
+    from backend.core.image_builder import get_deps_hash
+
+    first = get_deps_hash(["requests"])
+    assert first == get_deps_hash(["requests"])
+    monkeypatch.setattr(settings, "PYLO_BASE_IMAGE", "pylo-runner-base:next")
+    assert get_deps_hash(["requests"]) != first
+
+
+@pytest.mark.asyncio
+async def test_workflow_nodes_share_the_global_container_limit(monkeypatch):
+    """Workflow orchestration takes no slot; each node container takes exactly one."""
+    from backend.core import queue_manager
+
+    monkeypatch.setattr(queue_manager, "_limit_condition", asyncio.Condition())
+    monkeypatch.setattr(queue_manager, "_current_limit", 2)
+    monkeypatch.setattr(queue_manager, "_running_count", 0)
+    monkeypatch.setattr(queue_manager, "_waiting_count", 0)
+
+    peak = 0
+
+    async def node():
+        nonlocal peak
+        async with queue_manager.container_slot():
+            peak = max(peak, queue_manager._running_count)
+            await asyncio.sleep(0.01)
+
+    await asyncio.gather(*[node() for _ in range(10)])
+    assert peak == 2
+    assert queue_manager._running_count == 0 and queue_manager._waiting_count == 0
+
+
+def test_concurrency_setting_can_exceed_the_old_cap(api):
+    client, _ = api
+    from backend.config import settings
+
+    ceiling = client.get("/api/settings").json()["max_concurrent_runs_ceiling"]
+    assert ceiling == settings.concurrency_ceiling >= 100
+    try:
+        assert client.put("/api/settings", json={"max_concurrent_runs": 80}).json()["max_concurrent_runs"] == 80
+        over = client.put("/api/settings", json={"max_concurrent_runs": ceiling + 500}).json()
+        assert over["max_concurrent_runs"] == ceiling
+    finally:
+        client.put("/api/settings", json={"max_concurrent_runs": 5})
 
 
 def test_output_is_capped():
@@ -723,3 +871,21 @@ def test_fetch_persistence_deduplicates_in_batches(api):
     with Session(database.engine) as session:
         count = len(session.exec(select(Entry.id).where(Entry.blueprint_id == blueprint_id)).all())
     assert count <= 1100
+
+
+def test_workflow_nodes_without_coordinates_get_a_layout():
+    from backend.api.workflows import _auto_layout
+
+    nodes = [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d", "x": 5, "y": 7}]
+    edges = [{"from": "a", "to": "b"}, {"from": "a", "to": "c"}, {"from": "b", "to": "d"}]
+    placed = {n["id"]: (n["x"], n["y"]) for n in json.loads(_auto_layout(json.dumps(nodes), json.dumps(edges)))}
+
+    assert placed["d"] == (5, 7)                      # explicit positions are kept
+    assert placed["a"][0] < placed["b"][0] == placed["c"][0]   # columns follow graph depth
+    assert placed["b"][1] != placed["c"][1]           # siblings do not overlap
+
+    # Fully positioned graphs are returned untouched; cycles do not hang the layout.
+    done = json.dumps([{"id": "a", "x": 1, "y": 2}])
+    assert _auto_layout(done, "[]") == done
+    looped = _auto_layout(json.dumps([{"id": "a"}, {"id": "b"}]), json.dumps([{"from": "a", "to": "b"}, {"from": "b", "to": "a"}]))
+    assert all("x" in n for n in json.loads(looped))

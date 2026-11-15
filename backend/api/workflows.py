@@ -74,6 +74,51 @@ def _validate_definition(nodes: Optional[str], edges: Optional[str], trigger_typ
             raise HTTPException(status_code=422, detail="trigger_config must be a JSON object")
 
 
+def _auto_layout(nodes_json: Optional[str], edges_json: Optional[str]) -> Optional[str]:
+    """Give canvas coordinates to nodes saved without them (API clients, scripts).
+
+    Nodes are placed left to right by their depth in the graph. Nodes that
+    already carry numeric ``x``/``y`` are left where they are.
+    """
+    if nodes_json is None:
+        return None
+    nodes = json.loads(nodes_json)
+
+    def _placed(node: dict) -> bool:
+        return all(isinstance(node.get(k), (int, float)) and not isinstance(node.get(k), bool) for k in ("x", "y"))
+
+    if all(_placed(n) for n in nodes):
+        return nodes_json
+    try:
+        edges = json.loads(edges_json or "[]")
+    except (TypeError, ValueError):
+        edges = []
+    ids = [n["id"] for n in nodes]
+    parents: dict[str, list[str]] = {i: [] for i in ids}
+    for edge in edges if isinstance(edges, list) else []:
+        src, tgt = edge.get("from"), edge.get("to")
+        if src in parents and tgt in parents and src != tgt:
+            parents[tgt].append(src)
+    depth: dict[str, int] = {}
+
+    def _depth(node_id: str, trail: tuple = ()) -> int:
+        if node_id in depth:
+            return depth[node_id]
+        if node_id in trail:  # cycle: the validator reports it, layout just must not loop
+            return 0
+        depth[node_id] = 1 + max((_depth(p, trail + (node_id,)) for p in parents[node_id]), default=-1)
+        return depth[node_id]
+
+    rows: dict[int, int] = {}
+    for node in nodes:
+        column = _depth(node["id"])
+        row = rows.get(column, 0)
+        rows[column] = row + 1
+        if not _placed(node):
+            node["x"], node["y"] = 80 + column * 290, 80 + row * 140
+    return json.dumps(nodes)
+
+
 def _resync_schedules() -> None:
     from backend.core.scheduler import sync_cron_jobs
     try:
@@ -95,6 +140,7 @@ async def create_workflow(
     current_user: AuthUser = Depends(verify_token),
 ):
     _validate_definition(body.nodes, body.edges, body.trigger_type, body.trigger_config)
+    body.nodes = _auto_layout(body.nodes, body.edges)
     now = datetime.now(timezone.utc)
     wf = Workflow(id=str(uuid.uuid4()), **body.model_dump(), created_at=now, updated_at=now)
     session.add(wf)
@@ -180,6 +226,8 @@ async def update_workflow(
         raise HTTPException(status_code=404, detail="Workflow not found")
     patch = body.model_dump(exclude_none=True)
     _validate_definition(patch.get("nodes"), patch.get("edges"), patch.get("trigger_type"), patch.get("trigger_config"))
+    if "nodes" in patch:
+        patch["nodes"] = _auto_layout(patch["nodes"], patch.get("edges", wf.edges))
     for k, v in patch.items():
         setattr(wf, k, v)
     wf.updated_at = datetime.now(timezone.utc)

@@ -58,6 +58,8 @@ async def get_settings(session: Session = Depends(get_session), current_user: Au
     stats = queue_manager.get_stats()
     return {
         "max_concurrent_runs": get_int_setting(session, "max_concurrent_runs", cfg.PYLO_MAX_CONCURRENT_RUNS),
+        "max_concurrent_runs_ceiling": cfg.concurrency_ceiling,
+        "run_mem_limit": cfg.PYLO_MEM_LIMIT,
         "jwt_expire_hours": get_int_setting(session, "jwt_expire_hours", cfg.JWT_EXPIRE_HOURS),
         "activity_retention_days": get_int_setting(session, "activity_retention_days", 7),
         "run_retention_days": get_int_setting(session, "run_retention_days", 0),
@@ -96,7 +98,8 @@ async def update_settings(
             raise HTTPException(status_code=422, detail="Backup schedule must be a valid 5-part cron expression")
     result = {}
     if body.max_concurrent_runs is not None:
-        limit = max(1, min(body.max_concurrent_runs, 50))
+        from backend.config import settings as cfg
+        limit = max(1, min(body.max_concurrent_runs, cfg.concurrency_ceiling))
         set_setting(session, "max_concurrent_runs", str(limit))
         queue_manager.update_limit(limit)
         result["max_concurrent_runs"] = limit
